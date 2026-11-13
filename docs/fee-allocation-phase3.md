@@ -59,6 +59,12 @@ version publiée vérifiée ; une dette historique sans ancre prouvée va à
 UNALLOCATED, jamais à la configuration de l'année de collecte. Une version
 superseded/disabled reste utilisable par son ancre, sans mutation de ses poids.
 Une empreinte normalisée empêche une modification ultérieure de la version.
+Sans ancre, une obligation courante configurée exige des dates de création
+vérifiées pour le frais et l'élève. Si la version courante est postérieure à
+cette origine, ou si la preuve manque, l'encaissement de recette est refusé
+avant toute écriture avec demande de rapprochement. Les ancres initiales
+vérifiées restent donc un prérequis de la future activation, pas une déduction
+arbitraire faite au premier recouvrement.
 
 Les mouvements conservent année d'origine **et** année de collecte, date réelle
 du paiement, date de comptabilisation, auteur, paiement/frais/élève et copie de

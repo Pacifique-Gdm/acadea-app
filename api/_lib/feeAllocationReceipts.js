@@ -7,7 +7,7 @@ const hash = (parts) => createHash("sha256").update(JSON.stringify(parts)).diges
 const fail = (message) => { throw new FeeAllocationError(409, "allocation-reconciliation-required", message); };
 const safe = (n) => Number.isSafeInteger(n) && n >= 0;
 const identifier = (s) => typeof s === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(s);
-const sameShares = (a, b) => Array.isArray(b) && a.length === b.length
+const sameShares = (a, b) => Array.isArray(b) && b.every(s => s && typeof s === "object") && a.length === b.length
   && new Set(b.map(s => s.rubricId)).size === b.length
   && a.every(s => b.some(t => t.rubricId === s.rubricId && t.amountMinor === s.amountMinor));
 const noop = () => {};
@@ -131,6 +131,16 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
       || version.feeTypeId !== source.feeTypeId || version.currency !== source.currency || version.feeAmountMinor !== anchor.feeAmountMinor
       || version.className !== anchor.className || (version.classOptionKey ?? null) !== (anchor.classOptionKey ?? null)
       || !["published", "superseded", "disabled"].includes(version.status) || !version.effectiveFrom || version.effectiveFrom > anchor.anchoredAt) fail("Version historique non vérifiée.");
+    if (!anchorSnap.exists) {
+      // Selecting the latest pointer is safe ONLY for a proven new obligation.
+      // Older/undated obligations require a previously verified immutable anchor
+      // during activation/reconciliation, not a guess made at collection time.
+      const dates = [student.createdAt, fee.createdAt];
+      if (dates.some(d => typeof d !== "string" || !Number.isFinite(Date.parse(d))) || version.status !== "published") fail("Origine de l'obligation à rapprocher avant affectation.");
+      const obligationAt = dates.reduce((a, b) => Date.parse(a) > Date.parse(b) ? a : b);
+      if (Date.parse(version.effectiveFrom) > Date.parse(obligationAt) || Date.parse(obligationAt) > Date.parse(source.createdAt)) fail("La version courante est postérieure à l'obligation.");
+      anchor.obligationAt = obligationAt;
+    }
     const validated = validateFeeAllocationRubrics(version.rubrics, version.feeAmountMinor);
     shares = validated.shares;
     if (!sameShares(shares, version.shares)) fail("Poids historiques altérés.");

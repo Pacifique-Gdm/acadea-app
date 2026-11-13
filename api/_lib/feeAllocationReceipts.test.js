@@ -21,8 +21,8 @@ function fixture(configured = true) {
     "schools/school": { fixtureId: "e2e-recipe-phase3", status: "active", currency: "USD", activeSchoolYearId: "year" },
     "schoolYears/year": { schoolId: "school", status: "active", currency: "USD", name: "2026-2027" },
     "users/cashier": { ...cashier, active: true }, "users/admin": { ...admin, active: true },
-    "students/student": { id: "student", schoolId: "school", schoolYearId: "year", status: "ACTIVE", className: "1ère" },
-    "feeTypes/fee": { id: "fee", schoolId: "school", schoolYearId: "year", amount: 100, name: "Minerval", className: "1ère" },
+    "students/student": { id: "student", schoolId: "school", schoolYearId: "year", status: "ACTIVE", className: "1ère", createdAt: "2026-09-02" },
+    "feeTypes/fee": { id: "fee", schoolId: "school", schoolYearId: "year", amount: 100, name: "Minerval", className: "1ère", createdAt: "2026-09-01" },
     [`feeAllocationStates/${feeAllocationStateId("school", "year", "USD")}`]: { schoolId: "school", schoolYearId: "year", currency: "USD", status: "EN_PREPARATION", phase3FixtureId: "e2e-recipe-phase3", cutoffAt: "2026-11-01T00:00:00.000Z" },
   }));
   if (configured) {
@@ -194,5 +194,13 @@ describe("paiements réels du handler, registre atomique inactif hors émulateur
     expect(movements(db)).toEqual(original); await create(db, 30, "social-request-002");
     await expect(create(db, 1, "social-request-003")).rejects.toMatchObject({ code: "conflict" });
     expect(movements(db).reduce((n, m) => n + m.amountMinor, 0)).toBe(5000);
+  });
+  it.each(["newer-version", "undated-obligation"])("ne devine pas la version d'origine : %s", async situation => {
+    const db = fixture();
+    if (situation === "newer-version") db.records.get("feeAllocationVersions/version").effectiveFrom = "2026-10-01";
+    else delete db.records.get("students/student").createdAt;
+    const before = [...db.records];
+    await expect(create(db)).rejects.toMatchObject({ code: "allocation-reconciliation-required" });
+    expect([...db.records]).toEqual(before);
   });
 });

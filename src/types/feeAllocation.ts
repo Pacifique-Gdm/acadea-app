@@ -106,6 +106,7 @@ export interface FeeAllocationAnchor {
   feeAmountMinor: number;
   currency: FeeAllocationCurrency;
   anchoredAt: string;
+  obligationAt?: string;
   className?: string | null;
   classOptionKey?: string | null;
 }

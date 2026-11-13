@@ -18,8 +18,8 @@ test("encaissements répartis : Auth réel, concurrence, arriérés, social, tie
     const cutoffAt = new Date(Date.now() - 60_000).toISOString();
     await f.put(`feeAllocationStates/${feeAllocationStateId(f.school, f.year, "CDF")}`, { schoolId: f.school, schoolYearId: f.year,
       currency: "CDF", status: "EN_PREPARATION", phase3FixtureId: f.tag, cutoffAt });
-    await f.put(`students/${student}`, { id: student, schoolId: f.school, schoolYearId: f.year, status: "ACTIVE", className: "1ère Secondaire", nom: "Fictif" });
-    await f.put(`feeTypes/${fee}`, { id: fee, schoolId: f.school, schoolYearId: f.year, name: "Minerval test", className: "1ère Secondaire", amount: 100 });
+    await f.put(`students/${student}`, { id: student, schoolId: f.school, schoolYearId: f.year, status: "ACTIVE", className: "1ère Secondaire", nom: "Fictif", createdAt: "2026-09-02" });
+    await f.put(`feeTypes/${fee}`, { id: fee, schoolId: f.school, schoolYearId: f.year, name: "Minerval test", className: "1ère Secondaire", amount: 100, createdAt: "2026-09-01" });
     const configId = feeAllocationConfigId(f.school, f.year, fee);
     await f.put(`feeAllocationConfigs/${configId}`, { id: configId, schoolId: f.school, schoolYearId: f.year, feeTypeId: fee, currentVersionId: version });
     // Fixture-only published snapshot; the public publish/activate endpoints stay blocked.
@@ -52,9 +52,11 @@ test("encaissements répartis : Auth réel, concurrence, arriérés, social, tie
     for (const m of original) expect((await f.db.doc(`feeAllocationMovements/${m.id}`).get()).data()).toEqual(m);
 
     // Arrears retain their original anchor; absence of that proof means UNALLOCATED.
+    await f.put(`feeAllocationStates/${feeAllocationStateId(f.school, f.year, "USD")}`, { schoolId: f.school, schoolYearId: f.year,
+      currency: "USD", status: "EN_PREPARATION", phase3FixtureId: f.tag, cutoffAt });
     for (const [suffix, configured] of [["old1", true], ["old2", false]] as const) {
       const oldYear = `${f.tag}-${suffix}`, oldStudent = `${oldYear}-student`, oldFee = `${oldYear}-fee`, oldVersion = `${oldYear}-version`;
-      await f.put(`schoolYears/${oldYear}`, { schoolId: f.school, name: configured ? "2025-2026" : "2024-2025", status: "archived", startsAt: configured ? "2025-09-01" : "2024-09-01", currency: "CDF" });
+      await f.put(`schoolYears/${oldYear}`, { schoolId: f.school, name: configured ? "2025-2026" : "2024-2025", status: "archived", startsAt: configured ? "2025-09-01" : "2024-09-01", currency: configured ? "CDF" : "USD" });
       await f.put(`students/${oldStudent}`, { schoolId: f.school, schoolYearId: oldYear, className: "1ère Secondaire", status: "ACTIVE",
         ...(!configured ? {} : { importedFromStudentId: `${f.tag}-old2-student` }) });
       await f.put(`feeTypes/${oldFee}`, { schoolId: f.school, schoolYearId: oldYear, name: "Ancien minerval", className: "1ère Secondaire", amount: 100 });
@@ -75,13 +77,14 @@ test("encaissements répartis : Auth réel, concurrence, arriérés, social, tie
       const entries = (await ledger()).filter(m => m.originSchoolYearId === oldYear);
       expect(entries).toHaveLength(2); expect(entries.reduce((n, m) => n + m.amountMinor, 0)).toBe(10000);
       expect(entries.every(m => m.collectionSchoolYearId === f.year)).toBe(true);
+      expect(entries.every(m => m.currency === (suffix === "old1" ? "CDF" : "USD"))).toBe(true);
       if (suffix === "old1") expect(entries.every(m => m.configVersionId === `${oldYear}-version`)).toBe(true);
       else expect(entries.every(m => m.configVersionId === null && m.lines.length === 1 && m.lines[0].rubricId === "UNALLOCATED")).toBe(true);
     }
 
     // School reduction and unpaid commitments create no ledger entry.
     const socialStudent = `${f.tag}-social`;
-    await f.put(`students/${socialStudent}`, { id: socialStudent, schoolId: f.school, schoolYearId: f.year, status: "ACTIVE", className: "1ère Secondaire",
+    await f.put(`students/${socialStudent}`, { id: socialStudent, schoolId: f.school, schoolYearId: f.year, status: "ACTIVE", className: "1ère Secondaire", createdAt: "2026-09-02",
       financialSupport: { d: { id: "d", schoolYearId: f.year, lines: { [fee]: { reductionMinor: 5000, commitmentMinor: 3000 } } } } });
     const beforeSocial = (await ledger()).length;
     await good(request(20, { studentId: socialStudent }));
@@ -105,6 +108,7 @@ test("encaissements répartis : Auth réel, concurrence, arriérés, social, tie
     }
     const all = await ledger();
     await writeFile(test.info().outputPath("phase3-receipts-proof.json"), JSON.stringify({ environment: "demo-acadea emulators", movements: all.length,
-      concurrency: "PASS", arrears: "PASS", socialAndThirdParty: "PASS", permissions: "PASS", sourceTotalMinor: all.reduce((n, m) => n + m.amountMinor, 0), realActivation: false }));
+      concurrency: "PASS", arrears: "PASS", socialAndThirdParty: "PASS", permissions: "PASS",
+      sourceTotalsMinor: Object.fromEntries(["CDF", "USD"].map(currency => [currency, all.filter(m => m.currency === currency).reduce((n, m) => n + m.amountMinor, 0)])), realActivation: false }));
   } finally { await f.cleanup(); }
 });
