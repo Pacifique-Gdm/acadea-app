@@ -1,5 +1,47 @@
 # Répartition générale — candidat du 13 novembre 2026
 
+## Clôture de la recette hébergée — 13 novembre 2026
+
+Cette section remplace les états intermédiaires conservés ci-dessous.
+
+- Candidat Staging testé : `5c6f22012f3d10034b177a35499c448c0705679d`,
+  déploiement `dpl_35HhSuJ75UCeeRf4Ba8rRYspa1uW`, Firebase `acadea-staging`.
+  Aucun changement applicatif depuis la recette complète du SHA `8da0ab9` :
+  seules l'orchestration, les sélecteurs Playwright et la documentation ont changé.
+- Recette complète : 20 contrôles fonctionnels PASS et clôture PASS ; quatre PDF,
+  12 pages inspectées, équations 0 + 60 - 42 = 18 et 5 + 255 - 0 = 260 USD.
+  Les écarts de filtre 56/211 USD, le filtre vide et le total 544 USD concordent.
+  Deux écoles USD/CDF ont été activées indépendamment ; une troisième conserve
+  sa caisse inactive. Isolation, quatre rôles, pause/reprise, concurrence et
+  synchronisation hors connexion avec réponse perdue et rejeu unique : PASS.
+- Reprise ciblée du dernier SHA : cinq contrôles PASS, dont justificatif absent
+  refusé, reçu serveur concordant accepté, original inchangé et clôture vérifiée.
+- Volume hébergé : 3 003 pièces rapprochées, 3 004 sources lues (configuration
+  incluse), 382 887 ms pour le rapprochement, 3 002 mouvements distincts et
+  3 032 lectures de mouvements pour la consultation complète. p95 : 12 461 ms ;
+  maximum : 14 089 ms ; réponse maximale : 47 257 octets. Tous les seuils fixés
+  avant l'essai sont satisfaits, sans relèvement. Les lectures SDK sont mesurées
+  hors authentification, rate limiting et préparation des fixtures ; elles ne
+  remplacent pas les métriques de facturation Google Cloud.
+- Les données de volume sont synthétiques et identifiées : 3 001 pièces avant
+  activation, 3 001 mouvements après activation, plus deux paiements réellement
+  enregistrés via l'API authentifiée. Cela ne représente pas 6 002 paiements saisis
+  au navigateur. Le PDF volumineux authentifié est complet : 3 007 + 3 001 - 0 =
+  6 008 USD, périmètres filtré/global distincts, deux pages inspectées.
+- Les deux comptes de la reprise sont désactivés, leurs sessions révoquées et
+  leur école neutralisée. Les 6 004 paiements et 3 002 mouvements fictifs sont
+  conservés dans l'inventaire ; aucune donnée financière n'a été supprimée.
+- CI du SHA testé : `43479307549` et `43479307499`, contrôles obligatoires PASS.
+  Le job Staging optionnel ignoré n'est pas compté PASS ; les preuves hébergées
+  ci-dessus proviennent de la recette exécutée directement sur le site réel.
+- Livraison autorisée conditionnellement : vérifier les CI du commit intégré et
+  le build Production, créer les deux index nécessaires, publier les gardes
+  Firestore compatibles puis promouvoir manuellement. Aucun changement Storage
+  ou Functions n'est requis. Les sauvegardes du ruleset actif et du déploiement
+  `dpl_8VqkjKBujPUbBJR9mHkMZc2FDXN8` sont conservées. Après une activation réelle,
+  privilégier pause d'établissement et correctif compatible, jamais un ancien
+  serveur ignorant les imputations. Aucune école réelle n'est activée par défaut.
+
 ## État vérifié au SHA applicatif `8da0ab97297a28611543cac2990631211f66354b`
 
 - CI 43449137298 : application/Functions, règles Firebase et E2E hors connexion
