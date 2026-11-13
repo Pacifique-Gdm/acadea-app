@@ -13,6 +13,7 @@ import { FeeAllocationError } from "./_lib/feeAllocationMath.js";
 import { manageFeeAllocationPhase1 } from "./_lib/feeAllocationPhase1.js";
 import { manageFeeAllocationPhase2 } from "./_lib/feeAllocationPhase2.js";
 import { allocationLifecycleActions, manageFeeAllocationLifecycle, getAllocationSpendOptions } from "./_lib/feeAllocationLifecycle.js";
+import { readAllocationActivation } from "./_lib/feeAllocationActivationView.js";
 import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
 
 function parseJsonBody(raw) {
@@ -85,6 +86,7 @@ export default async function handler(req, res) {
         action: requestedAction, idempotencyKey: mutation ? body.requestId : undefined,
         ...(mutation ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
       const manage = allocationLifecycleActions.has(allocationAction) ? manageFeeAllocationLifecycle
+        : allocationAction === "get-activation" ? readAllocationActivation
         : allocationAction === "spend-options" ? getAllocationSpendOptions
         : ["get-workspace", "save-drafts"].includes(allocationAction) ? manageFeeAllocationPhase2 : manageFeeAllocationPhase1;
       return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction } }));

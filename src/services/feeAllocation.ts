@@ -8,7 +8,7 @@ export type AllocationWorkspace = {
   year: { id: string; schoolId: string; name: string; status: string; startsAt: string | null; endsAt: string | null };
   currency: "USD" | "CDF"; canConfigure: boolean; operational: false;
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
-  ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: true; rubrics: { id: string; name: string }[];
+  ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string }[];
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
       originSchoolYearId: string; postedAt: string }[];
@@ -16,6 +16,24 @@ export type AllocationWorkspace = {
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;
   targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[] };
+export type AllocationActivationView = {
+  operational: false; schoolId: string; schoolYearId: string; currency: "USD" | "CDF"; testOnly: boolean;
+  status: "EN_PREPARATION" | "ACTIVE" | "PAUSED"; cutoffAt: string;
+  rubrics: Array<{ id: string; name: string }>;
+  versions: Array<{ id: string; configId: string; feeTypeId: string; version: number; status: "prepared" | "published" }>;
+  opening: null | { id: string; status: "proposed" | "approved" | "activated"; stale: boolean; cutoffAt: string;
+    approvedByCurrentUser: boolean; lines: Array<{ rubricId: string; amountMinor: number }>; cashCountMinor: number };
+  inventory: null | { schoolAvailableMinor: number; cashAvailableMinor: number; fingerprint: string; evidenceCount: number;
+    page: number; hasNext: boolean; evidence: Array<{ collection: string; id: string; amountMinor: number; createdAt: string }> };
+};
+export async function loadAllocationActivation(schoolId: string, page = 0, fingerprint?: string) {
+  const result = await allocationRequest<AllocationActivationView>("get-activation", { page, ...(fingerprint ? { fingerprint } : {}) });
+  if (result.schoolId !== schoolId || !result.schoolYearId || !["USD", "CDF"].includes(result.currency)
+    || !["EN_PREPARATION", "ACTIVE", "PAUSED"].includes(result.status) || !Array.isArray(result.rubrics) || !Array.isArray(result.versions)) {
+    throw new AllocationApiError("Contexte d'activation non confirmé.");
+  }
+  return result;
+}
 export class AllocationApiError extends Error {
   constructor(message: string, readonly status?: number, readonly code?: string) { super(message); }
   get confirmedRejection() { return [400, 401, 403, 404, 409, 429].includes(this.status ?? 0); }

@@ -10,6 +10,7 @@ import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { renderAcadPdfPreview } from "../../utils/pdf";
 import { feeAllocationPdfSections } from "../../utils/feeAllocationPdf";
+import { FeeAllocationActivation } from "./FeeAllocationActivation";
 
 const roles = new Set(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"]);
 const newId = () => crypto.randomUUID().replaceAll("-", "");
@@ -83,7 +84,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       const school = institution ?? schools[0];
       if (!school) throw new Error("Établissement indisponible.");
       await renderAcadPdfPreview({ filename: "repartition-frais-preparatoire.pdf", title: "Répartition des frais", school,
-        subtitle: operational ? "Registre rapproché — recette fictive" : "Configuration préparatoire — aucune disponibilité financière", throwOnError: true,
+        subtitle: operational ? "Registre rapproché — situation par établissement" : "Configuration préparatoire — aucune disponibilité financière", throwOnError: true,
         sections: feeAllocationPdfSections(projection.rows, filterLabel, workspaces.map((item) => `${item.school.name} · ${item.year.name} · ${item.currency}`).join(" ; ")) });
     } catch (cause) { setError(message(cause)); } finally { setPdfBusy(false); }
   }
@@ -101,6 +102,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     } catch (cause) { setError(message(cause)); } finally { setDetailBusy(false); }
   }
   return <div className="grid min-w-0 gap-4" aria-label="Configuration préparatoire des répartitions">
+    {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => setReload(v => v + 1)}/>}
     <div className="flex flex-wrap items-end gap-2" aria-label="Commandes de répartition">
       {configurable && <button type="button" className="primary-button" disabled={!ready} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
       <label className="grid min-w-0 gap-1 text-sm">Filtre<select aria-label="Filtre" className="input" value={filter.kind} onChange={(event) => setFilter({ kind: event.target.value as AllocationFilter["kind"], value: event.target.value === "period" ? "year" : "", from: "", to: "" })}><option value="fee">Frais</option><option value="class">Classe</option><option value="period">Période</option></select></label>
@@ -110,7 +112,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     {filter.kind === "period" && <p className="text-xs text-slate-600">{operational ? "La période filtre les dates de comptabilisation. Le disponible cumule toutes les écritures jusqu'à sa fin, ouverture incluse." : "La période filtre les dates de préparation des brouillons, pas des encaissements. Aucun flux financier n'est encore ventilé."}</p>}
     {filter.kind === "period" && filter.value === "custom" && <div className="flex flex-wrap gap-2"><label className="grid gap-1 text-sm">Du<input className="input" type="date" value={filter.from} onChange={(event) => setFilter({ ...filter, from: event.target.value })}/></label><label className="grid gap-1 text-sm">Au<input className="input" type="date" value={filter.to} onChange={(event) => setFilter({ ...filter, to: event.target.value })}/></label></div>}
     <p className="text-sm text-slate-600">{workspaces.map((workspace) => `${workspace.school.name} · ${workspace.year.name} · ${workspace.currency}`).join(" ; ")}</p>
-    <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">{operational ? "Recette fictive rapprochée. Le prévu et l'encaissé suivent le filtre. La situation globale reste commune à la rubrique, jamais propre à une classe ou à un frais." : "Préparatoire uniquement."} « Prévu » représente un tarif de référence par classe configurée, sans effectifs ni réductions individuelles. Ce n'est ni une créance totale ni de l'argent disponible.</p>
+    <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">{operational ? "Registre rapproché. Le prévu et l'encaissé suivent le filtre. La situation globale reste commune à la rubrique, jamais propre à une classe ou à un frais." : "Préparatoire uniquement."} « Prévu » représente un tarif de référence par classe configurée, sans effectifs ni réductions individuelles. Ce n'est ni une créance totale ni de l'argent disponible.</p>
     {loading && <p role="status">Chargement des répartitions autorisées…</p>}
     {(error || projection.error) && <div role="alert" className="rounded border border-red-200 p-3 text-sm"><p>{error || projection.error}</p>{workspaces.length > 0 && <p>Les données conservées ne sont pas revérifiées. L'export et les modifications sont bloqués.</p>}<button type="button" disabled={loading} className="secondary-button mt-2" onClick={() => setReload((value) => value + 1)}>Réessayer la consultation</button></div>}
     {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, assertFeeAllocationMovement, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
-import { allocationTestProject, readOperationalAllocation } from "./feeAllocationRuntime.js";
+import { allocationSupportedProject, readOperationalAllocation } from "./feeAllocationRuntime.js";
 
 const hash = (parts) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const fail = (message) => { throw new FeeAllocationError(409, "allocation-reconciliation-required", message); };
@@ -13,7 +13,7 @@ const sameShares = (a, b) => Array.isArray(b) && b.every(s => s && typeof s === 
   && a.every(s => b.some(t => t.rubricId === s.rubricId && t.amountMinor === s.amountMinor));
 const noop = () => {};
 
-/** This is NOT a feature flag. No hosted project can execute phase 3 yet. */
+/** Legacy emulator fixture boundary, not a hosted activation feature flag. */
 export function isFeeAllocationReceiptSandbox(db, env = process.env) {
   return db.projectId === "demo-acadea" && env.ACADEA_E2E_LOCAL_EMULATORS === "YES"
     && env.VITE_FIREBASE_PROJECT_ID === "demo-acadea" && env.FIRESTORE_EMULATOR_HOST === "127.0.0.1:8080"
@@ -61,7 +61,7 @@ function assertBinding(value, p) {
  * No endpoint accepts an allocation, version, amount or activation from clients.
  */
 export async function prepareFeeAllocationReceipt({ db, transaction, caller, payment, previous = null, requestId, now }) {
-  if (!isFeeAllocationReceiptSandbox(db) && !allocationTestProject(db)) return noop;
+  if (!isFeeAllocationReceiptSandbox(db) && !allocationSupportedProject(db)) return noop;
   const source = payment ?? previous;
   if (!source || !["USD", "CDF"].includes(source.currency)
     || ![source.id, source.schoolId, source.schoolYearId, source.studentId, source.feeTypeId, requestId].every(identifier)
@@ -138,14 +138,25 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
       || version.className !== anchor.className || (version.classOptionKey ?? null) !== (anchor.classOptionKey ?? null)
       || !["published", "superseded", "disabled"].includes(version.status) || !version.effectiveFrom || version.effectiveFrom > anchor.anchoredAt) fail("Version historique non vérifiée.");
     if (!anchorSnap.exists) {
-      // Selecting the latest pointer is safe ONLY for a proven new obligation.
-      // Older/undated obligations require a previously verified immutable anchor
-      // during activation/reconciliation, not a guess made at collection time.
-      const dates = [student.createdAt, fee.createdAt];
-      if (dates.some(d => typeof d !== "string" || !Number.isFinite(Date.parse(d))) || version.status !== "published") fail("Origine de l'obligation à rapprocher avant affectation.");
-      const obligationAt = dates.reduce((a, b) => Date.parse(a) > Date.parse(b) ? a : b);
-      if (Date.parse(version.effectiveFrom) > Date.parse(obligationAt) || Date.parse(obligationAt) > Date.parse(source.createdAt)) fail("La version courante est postérieure à l'obligation.");
-      anchor.obligationAt = obligationAt;
+      const approvedAtOpening = operational && source.schoolYearId === collectionYear
+        && operational.approvedReceiptVersions.some(v => v.feeTypeId === source.feeTypeId && v.versionId === version.id)
+        && Date.parse(version.effectiveFrom) <= Date.parse(operational.cutoffAt)
+        && Date.parse(source.createdAt) >= Date.parse(operational.cutoffAt);
+      if (approvedAtOpening) {
+        // Explicit administrative approval applies only to money subsequently
+        // collected in this year. Historical receipts stay solely in the opening;
+        // no earlier debt/receipt is rewritten and no previous-year config guessed.
+        anchor.approvalOpeningId = operational.openingId;
+        anchor.allocationBasis = "approved-post-cutoff-receipts";
+      } else {
+        // Without an approved opening binding, a current pointer is safe only
+        // for a proven new obligation. Never guess an old obligation's version.
+        const dates = [student.createdAt, fee.createdAt];
+        if (dates.some(d => typeof d !== "string" || !Number.isFinite(Date.parse(d))) || version.status !== "published") fail("Origine de l'obligation à rapprocher avant affectation.");
+        const obligationAt = dates.reduce((a, b) => Date.parse(a) > Date.parse(b) ? a : b);
+        if (Date.parse(version.effectiveFrom) > Date.parse(obligationAt) || Date.parse(obligationAt) > Date.parse(source.createdAt)) fail("La version courante est postérieure à l'obligation.");
+        anchor.obligationAt = obligationAt;
+      }
     }
     const validated = validateFeeAllocationRubrics(version.rubrics, version.feeAmountMinor);
     shares = validated.shares;
@@ -179,7 +190,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     className: anchor.className ?? null, classOptionKey: anchor.classOptionKey ?? null, amountMinor: delta, lines, postedAt: now,
     collectedAt: source.createdAt, paidAt: source.paidAt, actorId: caller.uid, type: previous ? payment ? "correction" : "reversal" : "receipt",
     reversesMovementId: priorSource?.lastMovementId ?? null, supportDecisionId: source.supportDecisionId ?? null,
-    sourceSnapshot: { ...source }, testOnly: true });
+    sourceSnapshot: { ...source }, testOnly: operational ? operational.testOnly : true });
   return () => {
     if (!anchorSnap.exists) transaction.create(anchorRef, anchor);
     transaction.create(movementRef, movement);

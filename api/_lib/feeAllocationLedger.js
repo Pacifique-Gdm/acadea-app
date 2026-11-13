@@ -1,16 +1,17 @@
-import { allocationTestProject, readOperationalAllocation, allocationFail as fail, allocationMinor as minor } from "./feeAllocationRuntime.js";
+import { allocationSupportedProject, readOperationalAllocation, allocationFail as fail, allocationMinor as minor } from "./feeAllocationRuntime.js";
+import { readAllocationPages } from "./feeAllocationPagination.js";
 
 /** Consistent, bounded read model, never expose source snapshots or student IDs. */
 export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, currency, now = new Date().toISOString() }) {
-  if (!allocationTestProject(db)) return null;
+  if (!allocationSupportedProject(db)) return null;
   return db.runTransaction(async transaction => {
     const state = await readOperationalAllocation({ db, transaction, schoolId, schoolYearId, currency, now });
     if (!state) return null;
     const [movements, balances] = await Promise.all([
-      transaction.get(db.collection("feeAllocationMovements").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", schoolYearId).limit(2001)),
+      readAllocationPages(db.collection("feeAllocationMovements").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", schoolYearId), transaction),
       transaction.get(db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", schoolYearId).limit(83)),
     ]);
-    if (movements.docs.length > 2000 || balances.docs.length > 82) fail("Registre trop volumineux pour cette consultation ; export paginé nécessaire.");
+    if (balances.docs.length > 82) fail("Nombre de soldes incohérent avec les rubriques autorisées.");
     const rows = movements.docs.map(d => d.data()).filter(m => m.currency === currency);
     const sums = new Map();
     for (const m of rows) {
@@ -29,7 +30,7 @@ export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, curr
         || b.availableMinor !== (b.openingMinor ?? 0) + b.receivedMinor - b.spentMinor - b.reservedMinor) fail("Écart registre/solde ; consultation financière bloquée.");
     }
     if ([...sums.keys()].some(key => !relevant.some(b => b.rubricId === key))) fail("Solde manquant.");
-    return { status: state.status, cutoffAt: state.cutoffAt, testOnly: true, rubrics: [...state.rubrics, { id: "UNALLOCATED", name: "Non affecté" }],
+    return { status: state.status, cutoffAt: state.cutoffAt, testOnly: state.testOnly, rubrics: [...state.rubrics, { id: "UNALLOCATED", name: "Non affecté" }],
       movements: rows.map(m => ({ id: m.id, sourceType: m.sourceType, type: m.type, amountMinor: m.amountMinor, lines: m.lines,
         feeTypeId: m.feeTypeId ?? null, className: m.className ?? null, classOptionKey: m.classOptionKey ?? null,
         originSchoolYearId: m.originSchoolYearId ?? schoolYearId, postedAt: m.postedAt })),

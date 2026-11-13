@@ -9,7 +9,7 @@ const hash = (value) => createHash("sha256").update(JSON.stringify(value)).diges
 const id = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
 const nameKey = (value) => String(value).normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
 const fail = (status, code, message) => { throw new FeeAllocationError(status, code, message); };
-const active = (value) => value && value.active !== false && !["inactive", "suspended", "deleting", "deleted"].includes(value.status);
+const active = (value) => value && value.active !== false && !["inactive", "disabled", "suspended", "deleting", "deleted"].includes(value.status);
 const isAdmin = (role) => role === "school_admin" || role === "admin";
 const fields = (body, allowed) => { if (Object.keys(body).some((key) => !allowed.includes(key))) fail(400, "invalid-argument", "Champs de répartition non autorisés."); };
 

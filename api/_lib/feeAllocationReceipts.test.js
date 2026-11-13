@@ -80,8 +80,8 @@ describe("ventilation entière et monotone", () => {
   });
 });
 
-describe("paiements réels du handler, registre atomique inactif hors émulateur", () => {
-  it.each(["acadea-production", "another-project", undefined])("aucune lecture d'allocation dans %s", async projectId => {
+describe("paiements du handler, frontières de projet et registre atomique", () => {
+  it.each(["another-project", undefined])("aucune lecture d'allocation dans le projet non autorisé %s", async projectId => {
     expect(isFeeAllocationReceiptSandbox({ projectId }, env)).toBe(false);
     const write = await prepareFeeAllocationReceipt({ db: { projectId }, transaction: { get: () => { throw Error("no reads"); } } }); write();
   });

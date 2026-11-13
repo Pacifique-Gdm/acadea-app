@@ -9,7 +9,7 @@ const denied = () => { throw new FeeAllocationError(403, "permission-denied", "A
 const invalid = (message) => { throw new FeeAllocationError(400, "invalid-argument", message); };
 const conflict = (message) => { throw new FeeAllocationError(409, "conflict", message); };
 const role = (value) => value === "admin" ? "school_admin" : value;
-const active = (value) => value && value.active !== false && value.status !== "inactive";
+const active = (value) => value && value.active !== false && !["inactive", "disabled", "suspended", "deleting", "deleted"].includes(value.status);
 const allowedActions = new Set(["get-state", "list-configurations", "list-versions", "get-permissions", "save-draft", "validate-draft", "prepare-version", "check-activation", "publish-configuration", "activate"]);
 
 export { readScope as readFeeAllocationScope, readYear as readFeeAllocationYear };

@@ -22,6 +22,13 @@ beforeAll(async () => {
 afterAll(async () => environment?.cleanup(), 30000);
 
 describe("répartition des frais : collections exclusivement serveur", () => {
+  it("interdit aussi la lecture, l'altération et la suppression des pages de preuve d'ouverture", async () => {
+    const proof = doc(admin(), "feeAllocationOpeningAudits", "opening", "evidencePages", "000000");
+    await assertFails(getDoc(proof));
+    await assertFails(setDoc(proof, { schoolId: "allocation-school", rows: [] }));
+    await assertFails(updateDoc(proof, { rows: [] }));
+    await assertFails(deleteDoc(proof));
+  });
   it("refuse aux clients les brouillons, versions, états, soldes et mouvements", async () => {
     for (const name of ["feeAllocationStates", "feeAllocationConfigs", "feeAllocationVersions", "feeAllocationFeeGuards", "feeAllocationRequests", "feeAllocationOpeningAudits", "feeAllocationAnchors", "feeAllocationMovements", "feeAllocationBalances", "feeAllocationReconciliationRuns"]) {
       await assertFails(setDoc(doc(admin(), name, "forged"), { schoolId: "allocation-school", status: "ACTIVE" }));
