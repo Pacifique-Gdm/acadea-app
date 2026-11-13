@@ -56,6 +56,7 @@ const school = `${tag}-a`, foreign = `${tag}-b`, year = `${tag}-year`, fee = `${
 const coord = `${tag}-coord`, sub = `${tag}-sub`;
 const roles = ['school_admin', 'cashier', 'coordination_admin', 'sub_coordination_admin', 'teacher'];
 const users = roles.map(role => ({ role, uid: `${tag}-${role}`, email: `${tag}-${role}@example.invalid` }));
+users.push(...[['cdf-admin', 'school_admin'], ['cdf-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: foreign })));
 const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: [school, foreign], users, paths: [], retired: false, createdAt: new Date().toISOString() };
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
@@ -114,7 +115,8 @@ async function retire() {
   }
   const retained = {};
   for (const collection of ['payments', 'expenses', 'personnelPayments', 'feeAllocationStates', 'feeAllocationConfigs', 'feeAllocationVersions', 'feeAllocationOpeningAudits', 'feeAllocationBalances', 'feeAllocationMovements', 'feeAllocationRequests', 'feeAllocationAnchors', 'financialIdempotency', 'financialCounters', 'financialCashLocks', 'auditLogs', 'socialSupportDecisions', 'socialSupportRequests', 'socialSupportAudit', 'socialSupportFeeLocks']) {
-    retained[collection] = (await s.db.collection(collection).where('schoolId', '==', school).get()).docs.map(d => d.id);
+    retained[collection] = [];
+    for (const sid of manifest.schools) retained[collection].push(...(await s.db.collection(collection).where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
   }
   manifest.retired = true; manifest.deleted = false; manifest.retained = retained; manifest.closedAt = new Date().toISOString(); save();
   record('Clôture : comptes désactivés, sessions révoquées, écoles neutralisées, registre fictif inventorié sans suppression');
@@ -132,11 +134,11 @@ try {
   await put('coordinationSchools', `${coord}__${school}`, { schoolId: school, coordinationId: coord, active: true });
   await put('subCoordinationSchools', `${sub}__${school}`, { schoolId: school, coordinationId: coord, subCoordinationId: sub, active: true });
   for (const u of users) {
-    const scope = u.role.includes('coordination') ? { coordinationId: coord, ...(u.role === 'sub_coordination_admin' ? { subCoordinationId: sub } : {}) } : { schoolId: school };
-    await put('users', u.uid, { role: u.role, ...scope, schoolId: scope.schoolId ?? '', name: `Compte fictif ${u.role}`, email: u.email, active: true, status: 'active', activeSchoolYearId: year });
+    const scope = u.role.includes('coordination') ? { coordinationId: coord, ...(u.role === 'sub_coordination_admin' ? { subCoordinationId: sub } : {}) } : { schoolId: u.schoolId ?? school };
+    await put('users', u.uid, { role: u.role, ...scope, schoolId: scope.schoolId ?? '', name: `Compte fictif ${u.role}`, email: u.email, active: true, status: 'active', activeSchoolYearId: u.schoolId === foreign ? `${tag}-foreign-year` : year });
     await s.auth.createUser({ uid: u.uid, email: u.email, password }); await s.auth.setCustomUserClaims(u.uid, { role: u.role, ...scope });
     const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.STAGING_FIREBASE_API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: u.email, password, returnSecureToken: true }) });
-    assert.equal(response.status, 200, 'Authentification Firebase officielle refusée'); tokens.set(u.role, `Bearer ${(await response.json()).idToken}`);
+    assert.equal(response.status, 200, 'Authentification Firebase officielle refusée'); tokens.set(u.key ?? u.role, `Bearer ${(await response.json()).idToken}`);
   }
   await put('classes', `${tag}-class`, { schoolId: school, schoolYearId: year, name: '1ère Primaire', section: 'Primaire', active: true });
   await put('feeTypes', fee, { schoolId: school, schoolYearId: year, name: 'Minerval fictif', className: '1ère Primaire', amount: 100, createdAt });
@@ -266,6 +268,27 @@ try {
     assert.equal(response.status, 403);
   }
   record('Compensations immuables, concurrence de décaissements et écritures clientes refusées');
+  const cdfYear = `${tag}-foreign-year`, cdfFee = `${tag}-cdf-fee`, cdfStudent = `${tag}-cdf-student`, cdfRubric = 'e'.repeat(32);
+  await put('classes', `${tag}-cdf-class`, { schoolId: foreign, schoolYearId: cdfYear, name: '1ère Primaire', section: 'Primaire', active: true });
+  await put('feeTypes', cdfFee, { schoolId: foreign, schoolYearId: cdfYear, name: 'Minerval fictif CDF', className: '1ère Primaire', amount: 1500000, createdAt: new Date().toISOString() });
+  await allocation('save-draft', { feeTypeId: cdfFee, expectedRevision: 0, rubrics: [{ id: cdfRubric, name: 'Fonctionnement CDF', mode: 'percent', basisPoints: 5000 }] }, 'cdf-admin');
+  const cdfVersion = await allocation('prepare-version', { feeTypeId: cdfFee, expectedRevision: 1 }, 'cdf-admin');
+  await allocation('publish-configuration', { versionId: cdfVersion.version.id }, 'cdf-admin');
+  await put('students', cdfStudent, { schoolId: foreign, schoolYearId: cdfYear, nom: 'FICTIF CDF', className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', createdAt: new Date().toISOString() });
+  await api('cdf-cashier', { action: 'create-payment', schoolYearId: cdfYear, studentId: cdfStudent, feeTypeId: cdfFee, amount: 100, clientRequestId: requestId() });
+  const cdfExpense = { action: 'create-expense', schoolYearId: cdfYear, amount: 10, category: 'Fournitures', description: 'Dépense fictive historique', beneficiary: 'Fictif', paymentMethod: 'Espèces', clientRequestId: requestId() };
+  await api('cdf-cashier', cdfExpense);
+  assert.equal((await s.db.collection('feeAllocationMovements').where('schoolId', '==', foreign).get()).size, 0);
+  const cdfOpening = await allocation('prepare-opening', { cashCountMinor: 9000, lines: [{ rubricId: cdfRubric, amountMinor: 9000 }], confirmation: 'RAPPROCHER LA CAISSE' }, 'cdf-admin');
+  await allocation('approve-opening', { openingId: cdfOpening.openingId, confirmation: 'APPROUVER LE RAPPROCHEMENT' }, 'cdf-admin');
+  await allocation('activate', { openingId: cdfOpening.openingId, confirmation: 'ACTIVER LA REPARTITION FICTIVE' }, 'cdf-admin');
+  await api('cdf-cashier', { action: 'create-payment', schoolYearId: cdfYear, studentId: cdfStudent, feeTypeId: cdfFee, amount: 10000, clientRequestId: requestId() });
+  await api('cdf-cashier', { ...cdfExpense, amount: 2000, allocationRubricId: cdfRubric, clientRequestId: requestId() });
+  const cdfWorkspace = await api('cdf-admin', { action: 'fee-allocation.get-workspace', schoolId: foreign });
+  assert.equal(cdfWorkspace.currency, 'CDF');
+  assert.equal(cdfWorkspace.ledger.balances.reduce((n, b) => n + b.availableMinor, 0), 809000);
+  assert.ok(cdfWorkspace.ledger.movements.every(m => !m.feeTypeId || m.feeTypeId === cdfFee));
+  record('Deuxième école CDF : cycle inactif préservé, ouverture 90 + recette 10 000 - dépense 2 000 = 8 090 FC ; devises séparées');
   const offlineStudent = await freshStudent('offline');
   const oldProposal = { action: 'create-payment', schoolYearId: year, studentId: offlineStudent, feeTypeId: unallocatedFee, amount: 11,
     expectedFeeAmount: 20, expectedCurrency: 'USD', proposedAt: new Date(Date.now() - 86400000).toISOString(), clientRequestId: requestId() };
