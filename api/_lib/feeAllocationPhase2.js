@@ -85,14 +85,21 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     }));
     if (new Set(rows.map(({ fee }) => fee.classOptionKey || fee.className)).size !== rows.length) fail(400, "invalid-argument", "Deux frais ciblent la même classe ; vérifiez les tarifs existants.");
     const now = new Date().toISOString();
-    const configs = rows.map(({ ref, previous, fee, configId, minor, validated, target }) => {
+    const configs = rows.map(({ previous, fee, configId, minor, validated, target }) => {
       const config = { id: configId, schoolId, schoolYearId: body.schoolYearId, feeTypeId: target.feeTypeId,
         className: fee.className, ...(fee.classOptionKey ? { classOptionKey: fee.classOptionKey } : {}), currency,
         draftRevision: target.expectedRevision + 1,
         draft: { rubrics: validated.rubrics, feeAmountMinor: minor, updatedAt: now, updatedBy: caller.uid },
         ...(previous.data()?.currentVersionId ? { currentVersionId: previous.data().currentVersionId } : {}) };
-      if (previous.exists) transaction.update(ref, config); else transaction.create(ref, config);
       return config;
+    });
+    // The request itself is bounded, but rubrics are repeated once per target
+    // in the idempotency receipt. Keep that single document safely below 1 MiB.
+    if (Buffer.byteLength(JSON.stringify(configs), "utf8") > 750_000) {
+      fail(400, "invalid-argument", "Ce lot est trop volumineux. Sélectionnez moins de classes par enregistrement.");
+    }
+    rows.forEach(({ ref, previous }, index) => {
+      if (previous.exists) transaction.update(ref, configs[index]); else transaction.create(ref, configs[index]);
     });
     if (!state.exists) transaction.create(stateRef, { schoolId, schoolYearId: body.schoolYearId, currency, status: "EN_PREPARATION", createdAt: now, updatedAt: now });
     const auditId = `audit_allocation_${hash([caller.uid, schoolId, "batch", body.requestId]).slice(0, 32)}`;

@@ -79,6 +79,18 @@ describe("phase 2 : brouillons atomiques, isolation et versions", () => {
     const db = fixture(); await expect(call(db, { ...body, status: "ACTIVE" })).rejects.toMatchObject({ status: 400 });
     await expect(manageFeeAllocationPhase1({ db, caller: admin, body: { action: "activate" } })).rejects.toMatchObject({ code: "phase-not-ready" });
   });
+  it("refuse un reçu multi-classes trop volumineux avant toute écriture", async () => {
+    const db = fixture();
+    const targets = Array.from({ length: 50 }, (_, i) => {
+      const feeTypeId = `large-${i}`;
+      db.records.set(`feeTypes/${feeTypeId}`, { ...db.records.get("feeTypes/f1"), className: `Classe ${i}`, classOptionKey: `Classe ${i}` });
+      return { feeTypeId, expectedRevision: 0 };
+    });
+    const largeRubrics = Array.from({ length: 40 }, (_, i) => ({ id: i.toString(16).padStart(32, "0"), name: `Rubrique ${i}`, mode: "percent", basisPoints: 1, description: "é".repeat(500) }));
+    const before = [...db.records];
+    await expect(call(db, { ...body, targets, rubrics: largeRubrics })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("volumineux") });
+    expect([...db.records]).toEqual(before);
+  });
 });
 describe("conditions bloquantes avant future activation", () => {
   it("A : une clé rubrique unique par mouvement, y compris Non affecté", () => {
