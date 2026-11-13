@@ -6,7 +6,9 @@ export type AllocationFilter = { kind: "fee" | "class" | "period"; value: string
 export type AllocationRow = { key: string; schoolId: string; schoolName: string; yearName: string; feeName: string;
   classLabel: string; currency: "USD" | "CDF"; rubricName: string; rubric?: FeeAllocationRubric;
   amountMinor: number; percent: number; config: FeeAllocationConfig; stale: boolean;
-  financial?: { receivedMinor: number; spentMinor: number; availableMinor: number; openingMinor: number; arrearsMinor: number } };
+  financial?: { receivedMinor: number; spentMinor: number; availableMinor: number; openingMinor: number; arrearsMinor: number;
+    cumulativeReceivedMinor: number; cumulativeSpentMinor: number } };
+export type AllocationFinancialField = keyof NonNullable<AllocationRow["financial"]>;
 export const unavailableAllocation = "Indisponible — répartition en préparation";
 export const allocationFeeKey = (schoolId: string, feeId: string) => JSON.stringify([schoolId, feeId]);
 export const allocationClassKey = (schoolId: string, classKey: string) => JSON.stringify([schoolId, classKey]);
@@ -59,6 +61,7 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
   base.forEach(row => expected.set(row.rubric?.id ?? "UNALLOCATED", (expected.get(row.rubric?.id ?? "UNALLOCATED") ?? 0) + row.amountMinor));
   return ledger.rubrics.map(rubric => {
     let receivedMinor = 0, spentMinor = 0, availableMinor = 0, openingMinor = 0, arrearsMinor = 0;
+    let cumulativeReceivedMinor = 0, cumulativeSpentMinor = 0;
     for (const m of ledger.movements) {
       const day = m.postedAt.slice(0, 10), amount = m.lines.find(l => l.rubricId === rubric.id)?.amountMinor ?? 0;
       if (period?.to && day > period.to) continue;
@@ -66,6 +69,8 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
       // A rubric is shared: expenditure/availability cannot be invented per fee.
       availableMinor += amount;
       if (m.sourceType === "opening") { openingMinor += amount; continue; }
+      if (m.sourceType === "expense") cumulativeSpentMinor -= amount;
+      else cumulativeReceivedMinor += amount;
       if (period?.from && day < period.from) continue;
       if (m.sourceType === "expense") { spentMinor -= amount; continue; }
       if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(workspace.school.id, m.feeTypeId ?? "")) continue;
@@ -74,17 +79,19 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
       if (m.originSchoolYearId !== workspace.year.id) arrearsMinor += amount;
     }
     const reserved = ledger.balances.find(b => b.rubricId === rubric.id)?.reservedMinor ?? 0;
-    if (reserved && period?.to) throw new Error("Historique des réservations requis pour cette période.");
-    availableMinor -= reserved;
-    if (![receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor].every(Number.isSafeInteger)) throw new Error("Totaux financiers hors limites.");
+    // This candidate does not create reservations. Fail explicitly rather than
+    // display a balance that the three displayed components cannot explain.
+    if (reserved) throw new Error("Réservations à rapprocher : le solde disponible ne peut pas être justifié par cette vue.");
+    if (![receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor, cumulativeReceivedMinor, cumulativeSpentMinor].every(Number.isSafeInteger)) throw new Error("Totaux financiers hors limites.");
+    if (openingMinor + cumulativeReceivedMinor - cumulativeSpentMinor !== availableMinor) throw new Error("Écart dans le rapprochement de la rubrique.");
     return { key: `${workspace.school.id}/${workspace.year.id}/${rubric.id}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
       yearName: workspace.year.name, feeName: "Rubrique commune · disponible global", classLabel: "Toutes les classes", currency: workspace.currency,
       rubricName: rubric.name, amountMinor: expected.get(rubric.id) ?? 0, percent: 0, config: workspace.configs[0], stale: false,
-      financial: { receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor } };
+      financial: { receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor, cumulativeReceivedMinor, cumulativeSpentMinor } };
   });
 }
 
-export function allocationFinancialTotals(rows: AllocationRow[], field: "receivedMinor" | "spentMinor" | "availableMinor") {
+export function allocationFinancialTotals(rows: AllocationRow[], field: AllocationFinancialField) {
   return [...new Set(rows.map(r => r.currency))].map(currency => {
     const selected = rows.filter(r => r.currency === currency);
     if (selected.some(r => !r.financial)) return { currency, value: null };

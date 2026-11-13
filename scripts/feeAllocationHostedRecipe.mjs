@@ -366,6 +366,17 @@ try {
   record('Activation/pause réservées à l’administrateur : mutations refusées aux quatre autres rôles');
   const finalTotals = finalWorkspace.ledger.balances.reduce((a, b) => ({ opening: a.opening + b.openingMinor, received: a.received + b.receivedMinor, spent: a.spent + b.spentMinor, available: a.available + b.availableMinor }), { opening: 0, received: 0, spent: 0, available: 0 });
   assert.deepEqual(finalTotals, { opening: 500, received: 58100, spent: 4200, available: 54400 });
+  const flagged = [[rubrics[0].id, 0, 6000, 4200, 1800, 400, 5600], ['UNALLOCATED', 500, 25500, 0, 26000, 4400, 21100]];
+  const flaggedProof = flagged.map(([id, opening, received, spent, available, filtered, difference]) => {
+    const balance = finalWorkspace.ledger.balances.find(b => b.rubricId === id);
+    assert.deepEqual([balance.openingMinor, balance.receivedMinor, balance.spentMinor, balance.availableMinor], [opening, received, spent, available]);
+    const selected = finalWorkspace.ledger.movements.filter(m => m.feeTypeId === secondFee && m.sourceType !== 'expense');
+    assert.equal(selected.reduce((n, m) => n + (m.lines.find(l => l.rubricId === id)?.amountMinor ?? 0), 0), filtered);
+    assert.equal(received - filtered, difference); assert.equal(opening + received - spent, available);
+    return { rubricId: id, opening, received, spent, available, filtered, difference };
+  });
+  writeFileSync(`${output}/flagged-rubrics-proof.json`, JSON.stringify({ sha: expectedSha, currency: 'USD', rows: flaggedProof }, null, 2));
+  record('Deux rubriques signalées : écarts hors filtre 56/211 USD et équations du solde confirmés dans le registre hébergé');
   writeFileSync(`${output}/reconciliation-proof.json`, JSON.stringify({ currency: 'USD', expected: { opening: 500, received: 58100, spent: 4200, available: 54400 }, actual: finalTotals, sha: expectedSha }, null, 2));
   record('Rapprochement final : ouverture 5 + recettes 581 - dépenses nettes 42 = disponible 544 USD');
   browser = await chromium.launch({ headless: true });
@@ -382,7 +393,7 @@ try {
       await expect(drawer.getByRole('button', { name: 'Exporter PDF', exact: true })).toBeEnabled({ timeout: 60000 });
       await expect(drawer.locator('tbody tr')).toHaveCount(21);
       await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(0);
-      let expectedReceived = 581, expectedSpent = 42, expectedFilter;
+      let expectedReceived = 581, expectedFilter;
       if (u.role === 'school_admin') {
         await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption(JSON.stringify([school, secondFee]));
         expectedReceived = 200;
@@ -399,13 +410,20 @@ try {
         await drawer.getByLabel('Du', { exact: true }).fill(day);
         await drawer.getByLabel('Au', { exact: true }).fill(day);
         expectedFilter = day;
-        if (u.role === 'coordination_admin') { expectedReceived = 0; expectedSpent = 0; }
+        if (u.role === 'coordination_admin') expectedReceived = 0;
       }
-      const summary = drawer.locator('[aria-label="Synthèse des répartitions"]');
+      const summary = drawer.locator('[aria-label="Synthèse selon le filtre"]');
+      const globalSummary = drawer.locator('[aria-label="Synthèse globale des rubriques"]');
       const money = amount => `$${amount.toFixed(2).replace('.', ',')}`;
       await expect(summary.locator(':scope > div').nth(1)).toContainText(money(expectedReceived));
-      await expect(summary.locator(':scope > div').nth(2)).toContainText(money(expectedSpent));
-      await expect(summary.locator(':scope > div').nth(3)).toContainText(money(544));
+      for (const [i, amount] of [5, 581, 42, 544].entries()) await expect(globalSummary.locator(':scope > div').nth(i)).toContainText(money(amount));
+      for (const [name, opening, cumulative, spent, available, selected] of [['Rubrique fictive 1', 0, 60, 42, 18, 4], ['Non affecté', 5, 255, 0, 260, 44]]) {
+        const row = drawer.getByRole('table', { name: 'Situation des répartitions' }).locator('tbody tr').filter({ has: page.getByText(name, { exact: true }) });
+        await expect(row).toHaveCount(1);
+        const filtered = u.role === 'coordination_admin' ? 0 : ['school_admin', 'cashier'].includes(u.role) ? selected : cumulative;
+        for (const [i, amount] of [filtered, opening, cumulative, spent, available].entries()) await expect(row.locator('td').nth(i + 2)).toContainText(money(amount));
+        assert.equal(opening + cumulative - spent, available);
+      }
       await page.setViewportSize({ width: 390, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await page.screenshot({ path: `${output}/${u.role}-mobile.png`, fullPage: true });
       await drawer.getByRole('button', { name: 'Exporter PDF', exact: true }).click();
@@ -419,13 +437,14 @@ try {
         await sheet.render({ canvasContext: canvas.getContext('2d'), canvas, viewport }).promise;
         const raster = canvas.toBuffer('image/png');
         writeFileSync(`${output}/${u.role}-${i}.png`, raster);
-        // Acadéa embeds the table as a raster image. Text extraction sees only
-        // the footer; verify the rendered first-page summary with local OCR.
-        if (i === 1) pdfText = (await pdfOcr.recognize(raster)).data.text;
+        // Inspect every rendered page, including the separate global detail.
+        pdfText += '\n' + (await pdfOcr.recognize(raster)).data.text;
       }
       writeFileSync(`${output}/${u.role}-ocr.txt`, pdfText);
-      const pdfSummary = pdfText.split('Situation')[0];
-      for (const amount of [expectedReceived, expectedSpent, 544]) assert.ok(pdfSummary.includes(money(amount)), 'Totaux PDF différents du drawer');
+      for (const amount of [expectedReceived, 5, 581, 42, 544, 60, 255, 18, 260]) assert.ok(pdfText.includes(money(amount)), 'Composantes PDF différentes du registre/drawer');
+      assert.ok(pdfText.includes('Selon le filtre') && pdfText.includes('Situation globale de la rubrique'), 'Périmètres financiers absents du PDF');
+      const globalDetail = pdfText.slice(pdfText.lastIndexOf('Situation globale de la rubrique'));
+      assert.ok(globalDetail.includes('Rubrique fictive 1') && globalDetail.includes('Non affecté'), 'Rubriques absentes du détail global');
       // OCR traverses adjacent header columns and may interleave their wrapped
       // lines. Require every filter token, not an artificial contiguous phrase.
       assert.ok(expectedFilter.split(/\s+/).every(token => pdfText.includes(token)) && pdfText.includes('ouverture'), 'Filtre ou ouverture absent du PDF rendu');
