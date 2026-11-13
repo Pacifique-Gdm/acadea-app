@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import { expect, test, type BrowserContext } from "@playwright/test";
+import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { createCanvas } from "@napi-rs/canvas";
 import handler from "../api/manage-financial-transaction.js";
@@ -7,7 +7,7 @@ import { fixture, invoke } from "./support/emulatorRecipe";
 
 test("répartition préparatoire : quatre rôles authentifiés, transaction, versions, refus et PDF", async ({ browser }) => {
   test.setTimeout(360_000);
-  const f = fixture(); let context: BrowserContext | undefined;
+  const f = fixture(); let context: BrowserContext | undefined; let activePage: Page | undefined;
   try {
     await f.seed(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin", "teacher"]);
     const coord = `${f.tag}-coord`, sub = `${f.tag}-sub`;
@@ -26,7 +26,7 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     }
     const adminToken = await f.token("school_admin");
     const session = await f.session(browser, "school_admin", { "/api/manage-financial-transaction": handler });
-    context = session.context; let page = session.page;
+    context = session.context; let page = session.page; activePage = page;
     await page.getByRole("button", { name: "Menu", exact: true }).last().click();
     await page.getByRole("button", { name: "Répartition des frais", exact: true }).click();
     await page.getByRole("button", { name: "+ Ajouter", exact: true }).click();
@@ -36,7 +36,7 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     for (const [index, name, mode, value] of [[0, "Fonctionnement", "percent", "20"], [1, "Salaire", "fixed", "30"], [2, "Prime", "percent", "25"]] as const) {
       if (index) await editor.getByRole("button", { name: "+ Ajouter une rubrique", exact: true }).click();
       await editor.getByLabel(`Nom de la rubrique ${index + 1}`, { exact: true }).fill(name);
-      await editor.getByLabel("Mode", { exact: true }).nth(index).selectOption(mode);
+      await editor.getByRole("combobox", { name: "Mode", exact: true }).nth(index).selectOption(mode);
       await editor.locator('input[inputmode="decimal"]').nth(index).fill(value);
     }
     await expect(editor.getByText(/Non affecté :/)).toHaveCount(2);
@@ -62,7 +62,7 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     await page.getByRole("button", { name: "Fermer le détail de rubrique", exact: true }).click();
     await context.close(); context = undefined;
     for (const role of ["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"]) {
-      const s = await f.session(browser, role, { "/api/manage-financial-transaction": handler }); context = s.context; page = s.page;
+      const s = await f.session(browser, role, { "/api/manage-financial-transaction": handler }); context = s.context; page = s.page; activePage = page;
       await page.getByRole("button", { name: "Menu", exact: true }).last().click();
       await page.getByRole("button", { name: "Répartition des frais", exact: true }).click();
       const drawer = page.getByRole("dialog", { name: "Répartition des frais", exact: true });
@@ -102,5 +102,11 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     expect((await invoke(handler, await f.token("teacher"), { action: "fee-allocation.get-workspace", schoolId: f.school })).status).toBe(403);
     expect((await invoke(handler, adminToken, { action: "fee-allocation.activate" })).status).toBe(409);
     for (const collection of ["payments", "expenses", "feeAllocationMovements", "feeAllocationBalances", "feeAllocationOpeningAudits"]) expect((await f.db.collection(collection).where("schoolId", "==", f.school).get()).empty).toBe(true);
+  } catch (error) {
+    if (activePage && !activePage.isClosed() && !activePage.url().includes("/login")) {
+      await writeFile(test.info().outputPath("allocation-ui-error.txt"), await activePage.locator("body").ariaSnapshot());
+      await activePage.screenshot({ path: test.info().outputPath("allocation-ui-error.png"), fullPage: true });
+    }
+    throw error;
   } finally { await context?.close(); await f.cleanup(); }
 });
