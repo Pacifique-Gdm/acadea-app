@@ -146,8 +146,9 @@ async function returnOnline(context: BrowserContext, page: Page) {
 // This role marker is kept in the test process only; it is not written to the browser or logs.
 const pageRoles = new WeakMap<Page, string>();
 function roleOf(page: Page) { const role = pageRoles.get(page); if (!role) throw new Error("Rôle E2E absent."); return role; }
-async function offline(context: BrowserContext) {
-  const page = context.pages()[0];
+async function offline(context: BrowserContext, page: Page) {
+  // A persistent Chromium profile also owns its initial about:blank tab.
+  // Always target the authenticated application tab, never pages()[0].
   await context.setOffline(true);
   await expect.poll(() => page.evaluate(() => navigator.onLine), { timeout: 15_000 }).toBe(false);
   await page.getByRole("button", { name: "Voir les opérations" }).click();
@@ -203,7 +204,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     try {
       const initialGradeCount = (await db!.collection("gradeEntries").where("schoolId", "==", schoolId).get()).size;
       await session.login();
-      await offline(session.context);
+      await offline(session.context, session.page);
       await session.page.getByLabel("Cours préchargé").selectOption(ids!.assignment);
       await session.page.getByLabel("Période").selectOption("period_2");
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
@@ -227,7 +228,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     pageRoles.set(session.page, "discipline_director");
     try {
       await session.login();
-      await offline(session.context);
+      await offline(session.context, session.page);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
       await session.page.getByLabel("Motif manuel").fill("Contrôle E2E fictif");
       await draft(session.page);
@@ -251,7 +252,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     pageRoles.set(session.page, "secretary");
     try {
       await session.login();
-      await offline(session.context);
+      await offline(session.context, session.page);
       await session.page.getByLabel("Classe préchargée").selectOption(ids!.class);
       await session.page.getByLabel("Nom", { exact: true }).fill("Fictif");
       await session.page.getByLabel("Post-nom").fill("Essai");
@@ -283,7 +284,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
     try {
       await session.login();
       console.info("[allocation-offline] authenticated");
-      await offline(session.context);
+      await offline(session.context, session.page);
       await session.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
       await session.page.getByLabel("Type de frais").selectOption(ids!.fee);
       await session.page.getByLabel("Montant provisoire").fill("100");
@@ -321,7 +322,7 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       pageRoles.set(conflict.page, "cashier");
       try {
         await conflict.login();
-        await offline(conflict.context);
+        await offline(conflict.context, conflict.page);
         await conflict.page.getByLabel("Élève", { exact: true }).selectOption(ids!.student);
         await conflict.page.getByLabel("Type de frais").selectOption(ids!.feeConflict);
         await conflict.page.getByLabel("Montant provisoire").fill("50");
