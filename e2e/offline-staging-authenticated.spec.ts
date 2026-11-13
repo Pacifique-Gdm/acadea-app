@@ -8,6 +8,7 @@ import { expect, test, type Browser, type BrowserContext, type Page } from "@pla
 import gradingHandler from "../api/manage-teacher-grading.js";
 import enrollmentHandler from "../api/provision-school-account.js";
 import financialHandler from "../api/manage-financial-transaction.js";
+import { feeAllocationStateId } from "../api/_lib/feeAllocationReceipts.js";
 
 const origin = "http://127.0.0.1:4173";
 const local = process.env.ACADEA_E2E_LOCAL_EMULATORS === "YES";
@@ -57,7 +58,7 @@ async function invoke(handler: ApiHandler, method: string, headers: Record<strin
   return { status, payload: payload as Record<string, unknown> };
 }
 
-async function createSession(browser: Browser, role: string, transport = { dropNextAttendanceResponse: false }, persistent = false) {
+async function createSession(browser: Browser, role: string, transport: { dropNextAttendanceResponse: boolean; dropNextPaymentResponse?: boolean } = { dropNextAttendanceResponse: false }, persistent = false) {
   const profile = persistent ? await mkdtemp(join(tmpdir(), "acadea-offline-browser-")) : null;
   const openContext = (offline = false) => profile
     ? browser.browserType().launchPersistentContext(profile, { baseURL: origin, serviceWorkers: "allow", offline, headless: true })
@@ -74,6 +75,10 @@ async function createSession(browser: Browser, role: string, transport = { dropN
       authorization: route.request().headers().authorization });
     if (transport.dropNextAttendanceResponse && outcome.status === 200 && body.action === "sync-offline-attendance") {
       transport.dropNextAttendanceResponse = false;
+      return route.abort("connectionreset");
+    }
+    if (transport.dropNextPaymentResponse && outcome.status === 200 && body.action === "create-payment") {
+      transport.dropNextPaymentResponse = false;
       return route.abort("connectionreset");
     }
     return route.fulfill({ status: outcome.status, contentType: "application/json", body: JSON.stringify(outcome.payload) });
@@ -266,7 +271,12 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
   });
 
   test("paiement provisoire sans écriture locale, validation serveur et conflit financier", async ({ browser }) => {
-    const session = await createSession(browser, "cashier");
+    // Only fictitious local demo-acadea data can exercise the phase 3 engine.
+    if (local) await db!.doc(`feeAllocationStates/${feeAllocationStateId(schoolId, ids!.year, "CDF")}`).create({
+      schoolId, schoolYearId: ids!.year, currency: "CDF", status: "EN_PREPARATION", phase3FixtureId: fixture!.tag,
+      cutoffAt: new Date(Date.now() - 60_000).toISOString(), fixtureId: fixture!.tag,
+    });
+    const session = await createSession(browser, "cashier", { dropNextAttendanceResponse: false, dropNextPaymentResponse: local }, local);
     pageRoles.set(session.page, "cashier");
     try {
       await session.login();
@@ -276,6 +286,12 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       await session.page.getByLabel("Montant provisoire").fill("100");
       await draft(session.page);
       expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).empty).toBe(true);
+      if (local) {
+        expect((await db!.collection("feeAllocationMovements").where("schoolId", "==", schoolId).get()).empty).toBe(true);
+        await session.restartOffline();
+        pageRoles.set(session.page, "cashier");
+        expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).empty).toBe(true);
+      }
       await returnOnline(session.context, session.page);
       await expect.poll(async () => (await db!.collection("payments").where("schoolId", "==", schoolId).get()).size, { timeout: 45_000 }).toBe(1);
       const payment = (await db!.collection("payments").where("schoolId", "==", schoolId).get()).docs[0].data();
@@ -286,7 +302,13 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
       const repeated = await invoke(financialHandler, "POST", { authorization: paidCall!.authorization }, paidCall!.body);
       expect(repeated.status).toBe(200);
       expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).size).toBe(1);
-      await session.context.close();
+      if (local) {
+        await expect.poll(() => session.calls.some(c => c.body.action === "create-payment" && c.result.idempotent === true), { timeout: 45_000 }).toBe(true);
+        const allocated = await db!.collection("feeAllocationMovements").where("schoolId", "==", schoolId).get();
+        expect(allocated.size).toBe(1);
+        expect(allocated.docs[0].data()).toMatchObject({ sourceId: payment.id, amountMinor: 10000, configVersionId: null, lines: [{ rubricId: "UNALLOCATED", amountMinor: 10000 }] });
+      }
+      await session.dispose();
       const conflict = await createSession(browser, "cashier");
       pageRoles.set(conflict.page, "cashier");
       try {
@@ -300,7 +322,8 @@ test.describe(local ? "recette hors connexion authentifiée sur émulateurs" : "
         await returnOnline(conflict.context, conflict.page);
         await expect.poll(() => conflict.calls.some((item) => item.body.action === "create-payment" && item.status === 409), { timeout: 45_000 }).toBe(true);
         expect((await db!.collection("payments").where("schoolId", "==", schoolId).get()).size).toBe(1);
+        if (local) expect((await db!.collection("feeAllocationMovements").where("schoolId", "==", schoolId).get()).size).toBe(1);
       } finally { await conflict.context.close(); }
-    } finally { await session.context.close().catch(() => {}); }
+    } finally { await session.dispose().catch(() => {}); }
   });
 });

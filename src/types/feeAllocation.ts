@@ -1,4 +1,4 @@
-/** Phase 1 contracts only. No operational allocation is enabled by these types. */
+/** Allocation contracts. Hosted financial activation remains blocked. */
 export type FeeAllocationState = "NON_CONFIGURE" | "EN_PREPARATION" | "ACTIVE";
 export type FeeAllocationVersionStatus = "prepared" | "published" | "superseded" | "disabled";
 export type FeeAllocationMode = "percent" | "fixed";
@@ -106,6 +106,8 @@ export interface FeeAllocationAnchor {
   feeAmountMinor: number;
   currency: FeeAllocationCurrency;
   anchoredAt: string;
+  className?: string | null;
+  classOptionKey?: string | null;
 }
 
 export interface FeeAllocationMovement {
@@ -122,6 +124,17 @@ export interface FeeAllocationMovement {
   amountMinor: number;
   lines: Array<{ rubricId: string; amountMinor: number }>;
   postedAt: string;
+  anchorId?: string;
+  feeTypeId?: string;
+  studentId?: string;
+  collectedAt?: string;
+  paidAt?: string;
+  actorId?: string;
+  type?: "receipt" | "correction" | "reversal";
+  reversesMovementId?: string | null;
+  supportDecisionId?: string | null;
+  /** Phase 3 emits these movements only for isolated emulator fixtures. */
+  testOnly?: boolean;
 }
 
 export interface FeeAllocationBalance {
@@ -129,6 +142,11 @@ export interface FeeAllocationBalance {
   collectionSchoolYearId: string;
   currency: FeeAllocationCurrency;
   rubricId: string;
-  availableMinor: number;
+  /** Not populated by phase 3: no spendable balance before phases 4 and 5. */
+  availableMinor?: number;
+  receivedMinor?: number;
+  spentMinor?: number;
+  reservedMinor?: number;
+  operational?: false;
   updatedAt: string;
 }

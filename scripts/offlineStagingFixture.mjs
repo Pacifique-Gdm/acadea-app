@@ -9,6 +9,9 @@ const local = process.env.ACADEA_E2E_LOCAL_EMULATORS === "YES";
 const projectId = local ? "demo-acadea" : "acadea-staging";
 const manifestPath = resolve("test-results/offline-staging-fixture.json");
 const collections = [
+  // These fixtures exist only in the local phase 3 recipe; deletion is still
+  // limited to the manifest's exclusively fictitious school, never a prefix scan.
+  "feeAllocationStates", "feeAllocationAnchors", "feeAllocationRequests", "feeAllocationMovements", "feeAllocationBalances",
   "gradeEntries", "attendance", "students", "payments", "offlineOperationReceipts",
   "financialIdempotency", "financialCounters", "financialCashLocks",
   "studentMatriculeCounters", "studentIdentityLocks", "auditLogs", "notifications",
