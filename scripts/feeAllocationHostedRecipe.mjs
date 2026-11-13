@@ -69,7 +69,14 @@ async function put(collection, id, data) {
   const path = `${collection}/${id}`;
   assert.equal((await s.db.doc(path).get()).exists, false, 'Collision fixture.');
   manifest.paths.push(path); save();
-  await s.db.doc(path).create({ ...data, id, fixtureId: tag });
+  const ref = s.db.doc(path);
+  const created = await ref.create({ ...data, id, fixtureId: tag });
+  if (collection === 'students' && data.createdAt) {
+    // A workstation clock can run ahead of the hosted financial API. Synthetic
+    // new obligations use Firestore's actual creation instant, not that clock.
+    // Historical inputs without createdAt remain deliberately undated.
+    await ref.update({ createdAt: created.writeTime.toDate().toISOString() }, { lastUpdateTime: created.writeTime });
+  }
 }
 async function ownUpdate(collection, id, data) {
   const ref = s.db.doc(`${collection}/${id}`), snap = await ref.get();
@@ -87,7 +94,7 @@ async function api(role, body, status = 200) {
   const response = await fetch(`${origin}/api/manage-financial-transaction`, { method: 'POST',
     headers: { Authorization: tokens.get(role), 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(60000) });
   const data = await response.json();
-  assert.equal(response.status, status, `${body.action}: HTTP ${response.status}, code ${data.code ?? 'inconnu'}`);
+  assert.equal(response.status, status, `${body.action}: HTTP ${response.status}, code ${data.code ?? 'inconnu'} (${String(data.error ?? '').slice(0, 200)})`);
   return data;
 }
 const requestId = () => randomUUID();
