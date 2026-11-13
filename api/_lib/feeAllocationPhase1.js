@@ -113,7 +113,7 @@ async function mutateDraft({ db, caller, body, prepare }) {
     if (config && (config.schoolId !== schoolId || config.schoolYearId !== yearId || config.feeTypeId !== body.feeTypeId)) denied();
     const stateRef = db.doc(`feeAllocationStates/${sha([schoolId, yearId, currency])}`);
     const stateSnapshot = await transaction.get(stateRef);
-    if (stateSnapshot.exists && stateSnapshot.data()?.status === "ACTIVE") assertFeeAllocationActivationBlocked();
+    if (stateSnapshot.exists && ["ACTIVE", "PAUSED"].includes(stateSnapshot.data()?.status)) assertFeeAllocationActivationBlocked();
     let result;
     let auditType;
     const now = new Date().toISOString();

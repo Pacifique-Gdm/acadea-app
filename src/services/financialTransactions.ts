@@ -115,7 +115,7 @@ export async function loadStudentArrearsDetailsBatch(schoolYearId: string, stude
   return result.details;
 }
 
-export function createExpenseTransaction(input: { schoolYearId: string; amount: number; category: string; description: string; beneficiary: string; paymentMethod: string; reference?: string; clientRequestId: string }) {
+export function createExpenseTransaction(input: { schoolYearId: string; amount: number; category: string; description: string; beneficiary: string; paymentMethod: string; reference?: string; clientRequestId: string; allocationRubricId?: string }) {
   return financialRequest({ action: "create-expense", ...input }).then((result) => {
     if (!result.expense) throw new Error("Réponse de dépense incomplète.");
     return result.expense;

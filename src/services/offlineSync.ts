@@ -52,7 +52,8 @@ async function submit(scope: OfflineScope, operation: PendingOperation): Promise
       body = { action: "create-payment", schoolYearId: scope.schoolYearId,
         studentId: proposal.studentId, feeTypeId: proposal.feeTypeId, amount: proposal.amount,
         note: proposal.note ?? "", expectedCurrency: proposal.currency,
-        expectedFeeAmount: proposal.expectedFeeAmount, clientRequestId: operation.id };
+        expectedFeeAmount: proposal.expectedFeeAmount, clientRequestId: operation.id,
+        ...(proposal.proposedAt ? { proposedAt: proposal.proposedAt } : {}) };
       break;
     }
   }

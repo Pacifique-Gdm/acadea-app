@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, assertFeeAllocationMovement, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
+import { allocationTestProject, readOperationalAllocation } from "./feeAllocationRuntime.js";
 
 const hash = (parts) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const fail = (message) => { throw new FeeAllocationError(409, "allocation-reconciliation-required", message); };
@@ -60,7 +61,7 @@ function assertBinding(value, p) {
  * No endpoint accepts an allocation, version, amount or activation from clients.
  */
 export async function prepareFeeAllocationReceipt({ db, transaction, caller, payment, previous = null, requestId, now }) {
-  if (!isFeeAllocationReceiptSandbox(db)) return noop;
+  if (!isFeeAllocationReceiptSandbox(db) && !allocationTestProject(db)) return noop;
   const source = payment ?? previous;
   if (!source || !["USD", "CDF"].includes(source.currency)
     || ![source.id, source.schoolId, source.schoolYearId, source.studentId, source.feeTypeId, requestId].every(identifier)
@@ -71,10 +72,15 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     transaction.get(db.doc(`feeAllocationStates/${feeAllocationStateId(source.schoolId, collectionYear, source.currency)}`)),
   ]);
   const school = schoolSnap.data(), state = stateSnap.data();
-  if (!state?.phase3FixtureId) return noop;
-  if (!school?.fixtureId || !/^e2e-(recipe|offline)-/.test(school.fixtureId) || state.phase3FixtureId !== school.fixtureId
+  const operational = ["ACTIVE", "PAUSED"].includes(state?.status) ? await readOperationalAllocation({ db, transaction,
+    schoolId: source.schoolId, schoolYearId: collectionYear, currency: source.currency, now }) : null;
+  if (operational?.status === "PAUSED") fail("Répartition en pause : conservez la proposition pour sa reprise.");
+  if (!operational && !state?.phase3FixtureId) return noop;
+  if (!operational && (!isFeeAllocationReceiptSandbox(db) || !school?.fixtureId || !/^e2e-(recipe|offline)-/.test(school.fixtureId) || state.phase3FixtureId !== school.fixtureId
     || state.status !== "EN_PREPARATION" || state.schoolId !== source.schoolId || state.schoolYearId !== collectionYear
-    || state.currency !== source.currency || !Number.isFinite(Date.parse(state.cutoffAt)) || state.cutoffAt > now) fail("Environnement de recette financière non isolé.");
+    || state.currency !== source.currency || !Number.isFinite(Date.parse(state.cutoffAt)) || state.cutoffAt > now)) fail("Environnement de recette financière non isolé.");
+  if (operational && !previous && source.offlineProposal === true && (!source.proposedAt || !Number.isFinite(Date.parse(source.proposedAt))
+    || source.proposedAt < state.cutoffAt || source.proposedAt > now)) fail("Proposition antérieure à la coupure ou sans date prouvée : rapprochez-la sans la supprimer.");
   const [profileSnap, studentSnap, feeSnap, yearSnap] = await Promise.all([
     transaction.get(db.doc(`users/${caller.uid}`)), transaction.get(db.doc(`students/${source.studentId}`)),
     transaction.get(db.doc(`feeTypes/${source.feeTypeId}`)), transaction.get(db.doc(`schoolYears/${source.schoolYearId}`)),
@@ -99,7 +105,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   if (movementSnap.exists) fail("Mouvement déjà présent sans reçu financier cohérent.");
   const priorSource = sourceSnap.data();
   if (previous && !priorSource) {
-    if (previous.createdAt < state.cutoffAt) return noop; // pre-cutoff cash is NEVER reallocated retroactively
+    if (!operational && previous.createdAt < state.cutoffAt) return noop; // active openings cannot silently be invalidated
     fail("Encaissement sans trace de ventilation : rapprochement nécessaire.");
   }
   if (source.provenance !== "financial-api" || !source.clientRequestIdHash) fail("Seul un encaissement confirmé par le serveur peut être réparti.");
@@ -161,9 +167,11 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     if (balance && (balance.schoolId !== source.schoolId || balance.collectionSchoolYearId !== collectionYear || balance.currency !== source.currency
       || balance.rubricId !== line.rubricId || !safe(balance.receivedMinor) || !safe(balance.spentMinor) || !safe(balance.reservedMinor))) fail("Solde d'affectation incohérent.");
     const receivedMinor = (balance?.receivedMinor ?? 0) + line.amountMinor;
-    if (!safe(receivedMinor) || receivedMinor < (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0)) fail("Correction incompatible avec des fonds déjà imputés ou réservés.");
+    const openingMinor = balance?.openingMinor ?? 0;
+    if (!safe(openingMinor) || !safe(receivedMinor) || !safe(openingMinor + receivedMinor) || openingMinor + receivedMinor < (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0)) fail("Correction incompatible avec des fonds déjà imputés ou réservés.");
     return { ref, value: { schoolId: source.schoolId, collectionSchoolYearId: collectionYear, currency: source.currency, rubricId: line.rubricId,
-      receivedMinor, spentMinor: balance?.spentMinor ?? 0, reservedMinor: balance?.reservedMinor ?? 0, operational: false, updatedAt: now } };
+      receivedMinor, openingMinor, spentMinor: balance?.spentMinor ?? 0, reservedMinor: balance?.reservedMinor ?? 0, operational: !!operational,
+      ...(operational ? { availableMinor: openingMinor + receivedMinor - (balance?.spentMinor ?? 0) - (balance?.reservedMinor ?? 0) } : {}), updatedAt: now } };
   }));
   const movement = assertFeeAllocationMovement({ id: movementId, schoolId: source.schoolId, originSchoolYearId: source.schoolYearId,
     collectionSchoolYearId: collectionYear, currency: source.currency, sourceType: "payment", sourceId: source.id, sourceRevision: requestId,

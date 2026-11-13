@@ -76,7 +76,7 @@ export async function listPayrollHistoryPage(schoolId = "", cursor?: PayrollHist
 export async function createPersonnelPayment(input: {
   schoolYearId: string; beneficiaryId: string; kind: PersonnelPayment["kind"]; periodMonth?: number; periodYear?: number;
   paidAt: string; amount: number; recoveries: Array<{ advanceId: string; amount: number }>;
-  deduction: number; deductionReason: string; cnss: number; tax: number; description: string; clientRequestId: string;
+  deduction: number; deductionReason: string; cnss: number; tax: number; description: string; clientRequestId: string; allocationRubricId?: string;
 }) {
   const result = await request({ action: "create-personnel-payment", ...input });
   if (!result.payment) throw new Error("Paiement du personnel incomplet.");
