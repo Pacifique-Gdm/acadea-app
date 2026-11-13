@@ -42,6 +42,8 @@ const canonicalRules = value => value.replaceAll('\r\n', '\n').trim();
 assert.equal(canonicalRules(rules.source.files.find(f => f.name === 'firestore.rules').content), canonicalRules(readFileSync('firestore.rules', 'utf8')), 'Règles candidates non actives');
 const indexes = await googleRead('https://firestore.googleapis.com/v1/projects/acadea-staging/databases/(default)/collectionGroups/feeAllocationConfigs/indexes');
 assert.ok(indexes.indexes?.some(i => i.state === 'READY' && ['schoolId', 'schoolYearId'].every(key => i.fields.some(f => f.fieldPath === key))), 'Index de configuration non prêt');
+const ledgerIndexes = await googleRead('https://firestore.googleapis.com/v1/projects/acadea-staging/databases/(default)/collectionGroups/feeAllocationMovements/indexes');
+assert.ok(ledgerIndexes.indexes?.some(i => i.state === 'READY' && ['schoolId', 'collectionSchoolYearId', 'currency'].every(key => i.fields.some(f => f.fieldPath === key))), 'Index de pagination non prêt : aucune fixture créée');
 if (existsSync(manifestPath)) {
   const previous = JSON.parse(readFileSync(manifestPath, 'utf8'));
   assert.equal(previous.retired, true, 'Fixture précédente à clôturer.');
@@ -69,6 +71,11 @@ save(); // Durable identity-only inventory before the first write. No password/t
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
 let browser, pdfOcr;
 const tokens = new Map();
+const safeError = error => {
+  let message = String(error?.message ?? error).replaceAll(password, '[identifiant masqué]');
+  for (const token of tokens.values()) message = message.replaceAll(token, '[session masquée]').replaceAll(token.replace(/^Bearer /, ''), '[session masquée]');
+  return message.slice(0, 600);
+};
 const record = name => { results.push({ name, result: 'PASS' }); console.log(`PASS: ${name}`); };
 async function put(collection, id, data) {
   assert.ok(id.startsWith(tag));
@@ -538,15 +545,15 @@ try {
       assert.ok(expectedFilter.split(/\s+/).every(token => pdfText.includes(token)) && pdfText.includes('ouverture'), 'Filtre ou ouverture absent du PDF rendu');
       record(`${u.role} : connexion réelle, filtre frais/classe/période, disponible cumulé 544 USD, mobile Chromium et PDF multipage`);
     } catch (error) {
-      results.push({ name: `${u.role} : export/drawer`, result: 'FAIL', detail: String(error.message).slice(0, 600) });
+      results.push({ name: `${u.role} : export/drawer`, result: 'FAIL', detail: safeError(error) });
       process.exitCode = 1;
       console.error(`FAIL: ${u.role} : export/drawer (rapport expurgé conservé)`);
     } finally { await context.close(); }
   }
   if (!results.some(result => result.result === 'FAIL')) await runHostedAllocationVolume({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
-    put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), password, origin, record });
+    put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
 } catch (error) {
-  results.push({ name: 'Recette interrompue', result: 'FAIL', detail: String(error.message).slice(0, 600) }); process.exitCode = 1;
+  results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;
   console.error('FAIL: recette interrompue, consulter le rapport expurgé.');
 } finally {
   // Fixture neutralization must still run if a browser/OCR worker failed.

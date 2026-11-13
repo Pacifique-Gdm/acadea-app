@@ -47,7 +47,10 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
       setNotice(result.decision === 'rejected' ? `Justification refusée : ${result.reason ?? 'preuve non vérifiée'}`
         : result.decision === 'accepted' ? 'Justification vérifiée et conservée. Relancez le rapprochement avant toute approbation.'
           : "Opération confirmée par le serveur. Aucune autre école n'a été activée.");
-      setView(await loadAllocationActivation(schoolId)); onChanged();
+      setView(await loadAllocationActivation(schoolId));
+      // Keep the preparation panel mounted: its proof decision/progress is
+      // necessary feedback, not a reason to reload the entire workspace.
+      if (['publish-configuration', 'activate', 'pause', 'resume'].includes(action)) onChanged();
     } catch (e) {
       if (confirmed) { setView(null); setError(`Opération enregistrée ; consultation à actualiser. ${errorText(e)}`); }
       else {

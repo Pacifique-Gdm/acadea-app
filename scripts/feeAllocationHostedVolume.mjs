@@ -7,7 +7,7 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 /** Synthetic volume is explicitly separate from the real API/payment recipe.
  * No real school, secret, or asserted permission is accepted as a parameter. */
-export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put, api, allocation, manifest, save, output, browser, user, password, origin, record }) {
+export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put, api, allocation, manifest, save, output, browser, user, adminUser, password, origin, record }) {
   assert.equal(db.projectId, 'acadea-staging'); assert.equal(schoolId, `${tag}-volume`);
   assert.equal(manifest.projectId, 'acadea-staging'); assert.ok(manifest.schools.includes(schoolId));
   const fee = `${tag}-volume-fee`, student = `${tag}-volume-student`, rubricId = 'f'.repeat(32);
@@ -46,11 +46,30 @@ export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put
   const receipts = await db.collection('financialIdempotency').where('schoolId', '==', schoolId).get();
   const receipt = receipts.docs.find(d => d.data().result?.payment?.id === payment.payment.id); assert.ok(receipt);
   let blocked = await scan(); assert.equal(blocked.run.status, 'BLOCKED');
-  const proof = { collection: 'payments', sourceId: payment.payment.id, evidenceType: 'financialIdempotency', evidenceId: receipt.id, reason: 'Reçu serveur original de la fixture hébergée' };
-  assert.equal((await allocation('justify-history', { ...proof, evidenceId: `${tag}-missing` }, 'volume-admin')).decision, 'rejected');
-  assert.equal((await allocation('justify-history', proof, 'volume-admin')).decision, 'accepted');
+  const proofContext = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1440, height: 1000 } });
+  try {
+    const tab = await proofContext.newPage(); tab.setDefaultTimeout(60000);
+    await tab.goto(`${origin}/login`); await tab.getByPlaceholder('email@ecole.com').fill(adminUser.email);
+    await tab.getByPlaceholder('Votre mot de passe').fill(password); await tab.getByRole('button', { name: 'Se connecter', exact: true }).click();
+    await tab.getByRole('button', { name: 'Menu', exact: true }).last().click();
+    await tab.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
+    const panel = tab.getByRole('region', { name: 'Activation par établissement' });
+    for (const [evidenceId, decision] of [[`${tag}-missing`, 'rejected'], [receipt.id, 'accepted']]) {
+      await panel.getByLabel('Écriture bloquante', { exact: true }).selectOption(`payments/${payment.payment.id}`);
+      await panel.getByLabel('Référence de preuve', { exact: true }).fill(evidenceId);
+      await panel.getByLabel('Motif de justification', { exact: true }).fill('Reçu serveur original de la fixture hébergée');
+      const pending = tab.waitForResponse(response => {
+        if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
+        try { return response.request().postDataJSON()?.action === 'fee-allocation.justify-history'; } catch { return false; }
+      });
+      await panel.getByRole('button', { name: 'Vérifier et enregistrer la décision', exact: true }).click();
+      const response = await pending; assert.equal(response.status(), 200); assert.equal((await response.json()).decision, decision);
+      await expect(panel.getByText(decision === 'accepted' ? /Justification vérifiée et conservée/ : /Justification refusée/)).toBeVisible({ timeout: 45000 });
+    }
+    await tab.screenshot({ path: `${output}/justification-historique.png`, fullPage: true });
+  } finally { await proofContext.close(); }
   assert.deepEqual((await sourceRef.get()).data(), historical, 'Une justification ne réécrit pas la source');
-  record('Historique hébergé : pièce absente refusée, reçu serveur lié accepté, original conservé');
+  record('Formulaire Administrateur hébergé : pièce absente refusée, reçu serveur lié accepté, original conservé');
 
   // Durable inventory precedes every bounded fixture batch. All records are new,
   // tagged and scoped, and retained/neutralized by the caller even on failure.
