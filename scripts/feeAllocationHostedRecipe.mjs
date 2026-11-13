@@ -318,18 +318,31 @@ try {
     offlineContext = await chromium.launchPersistentContext(profile, { headless: true, serviceWorkers: 'allow', offline: true, viewport: { width: 1440, height: 1000 } });
     page = await offlineContext.newPage(); page.setDefaultTimeout(30000);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    await page.getByRole('button', { name: 'Voir les opérations' }).click();
+    // Cold offline reopening uses OfflineAccessScreen: the queue is already open.
+    await expect(page.getByRole('heading', { name: 'Acadéa hors connexion', exact: true })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'État des opérations hors connexion' })).toBeVisible();
     await expect(page.getByText('En attente', { exact: true })).toBeVisible();
     assert.equal((await ledger()).length, beforeOffline);
-    let lost = false, replay;
+    let lost = false, delivered = false, replay;
     await offlineContext.route('**/api/manage-financial-transaction', async route => {
       const input = route.request().postDataJSON();
-      if (input?.action !== 'create-payment' || input.studentId !== offlineStudent || lost) return route.continue();
+      if (input?.action !== 'create-payment' || input.studentId !== offlineStudent) return route.continue();
       // Send to the real hosted API, then lose only the confirmed network response.
       const response = await route.fetch(); assert.equal(response.status(), 200);
+      if (lost) {
+        assert.equal(input.clientRequestId, replay.clientRequestId);
+        await route.fulfill({ response }); delivered = true; return;
+      }
       lost = true; replay = input; await route.abort('connectionreset');
     });
     await offlineContext.setOffline(false);
+    // Reconnection reloads the normal authenticated screen. Wait for the real
+    // server write, then open its queue through the normal offline notice.
+    await expect(page.getByRole('button', { name: 'Menu', exact: true }).last()).toBeVisible({ timeout: 60000 });
+    await expect.poll(async () => (await ledger()).length, { timeout: 120000 }).toBe(beforeOffline + 1);
+    await expect.poll(() => delivered, { timeout: 120000 }).toBe(true);
+    await offlineContext.setOffline(true);
+    await page.getByRole('button', { name: 'Voir les opérations' }).click();
     await expect(page.getByText('Confirmée par le serveur', { exact: true })).toBeVisible({ timeout: 120000 });
     assert.equal(lost, true, 'Perte de réponse non exercée'); assert.ok(replay?.proposedAt && replay.clientRequestId);
     assert.equal((await api('cashier', replay)).idempotent, true);
@@ -339,6 +352,10 @@ try {
     record('Réouverture réelle hors ligne, proposition conservée, synchronisation automatique, réponse perdue et rejeu uniques');
   } finally { await offlineContext?.close(); }
   const finalWorkspace = await api('school_admin', { action: 'fee-allocation.get-workspace', schoolId: school });
+  for (const role of ['cashier', 'coordination_admin', 'sub_coordination_admin', 'teacher']) {
+    await allocation('pause', { reason: 'Tentative non autorisée fictive' }, role, 403);
+  }
+  record('Activation/pause réservées à l’administrateur : mutations refusées aux quatre autres rôles');
   const finalTotals = finalWorkspace.ledger.balances.reduce((a, b) => ({ opening: a.opening + b.openingMinor, received: a.received + b.receivedMinor, spent: a.spent + b.spentMinor, available: a.available + b.availableMinor }), { opening: 0, received: 0, spent: 0, available: 0 });
   assert.deepEqual(finalTotals, { opening: 500, received: 58100, spent: 4200, available: 54400 });
   writeFileSync(`${output}/reconciliation-proof.json`, JSON.stringify({ currency: 'USD', expected: { opening: 500, received: 58100, spent: 4200, available: 54400 }, actual: finalTotals, sha: expectedSha }, null, 2));
@@ -356,6 +373,27 @@ try {
       await expect(drawer.getByRole('button', { name: 'Exporter PDF', exact: true })).toBeEnabled({ timeout: 60000 });
       await expect(drawer.locator('tbody tr')).toHaveCount(21);
       await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(0);
+      let expectedReceived = 581, expectedSpent = 42;
+      if (u.role === 'school_admin') {
+        await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption(JSON.stringify([school, secondFee]));
+        expectedReceived = 200;
+      } else if (u.role === 'cashier') {
+        await drawer.getByLabel('Filtre', { exact: true }).selectOption('class');
+        await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption(JSON.stringify([school, '2ème Primaire']));
+        expectedReceived = 200;
+      } else {
+        await drawer.getByLabel('Filtre', { exact: true }).selectOption('period');
+        await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption('custom');
+        const day = new Date(Date.now() + (u.role === 'coordination_admin' ? 86400000 : 0)).toISOString().slice(0, 10);
+        await drawer.getByLabel('Du', { exact: true }).fill(day);
+        await drawer.getByLabel('Au', { exact: true }).fill(day);
+        if (u.role === 'coordination_admin') { expectedReceived = 0; expectedSpent = 0; }
+      }
+      const summary = drawer.locator('[aria-label="Synthèse des répartitions"]');
+      const money = amount => `$${amount.toFixed(2).replace('.', ',')}`;
+      await expect(summary.locator(':scope > div').nth(1)).toContainText(money(expectedReceived));
+      await expect(summary.locator(':scope > div').nth(2)).toContainText(money(expectedSpent));
+      await expect(summary.locator(':scope > div').nth(3)).toContainText(money(544));
       await page.setViewportSize({ width: 390, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
       await page.screenshot({ path: `${output}/${u.role}-mobile.png`, fullPage: true });
       await drawer.getByRole('button', { name: 'Exporter PDF', exact: true }).click();
@@ -363,12 +401,16 @@ try {
       const bytes = new Uint8Array(await page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector('[data-pdf-download]').href)).arrayBuffer()))));
       writeFileSync(`${output}/${u.role}.pdf`, bytes);
       const pdf = await getDocument({ data: bytes.slice(), standardFontDataUrl: fileURLToPath(new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)) }).promise; assert.ok(pdf.numPages >= 2, 'Tableau multipage attendu');
+      let pdfText = '';
       for (let i = 1; i <= pdf.numPages; i++) {
         const sheet = await pdf.getPage(i), viewport = sheet.getViewport({ scale: 1.2 }), canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        pdfText += (await sheet.getTextContent()).items.map(item => item.str ?? '').join(' ') + ' ';
         await sheet.render({ canvasContext: canvas.getContext('2d'), canvas, viewport }).promise;
         writeFileSync(`${output}/${u.role}-${i}.png`, canvas.toBuffer('image/png'));
       }
-      record(`${u.role} : connexion réelle, drawer rapproché, mobile Chromium et PDF multipage`);
+      for (const amount of [expectedReceived, expectedSpent, 544]) assert.ok(pdfText.includes(money(amount)), 'Totaux PDF différents du drawer');
+      assert.ok(pdfText.includes('Filtre') && pdfText.includes('ouverture'));
+      record(`${u.role} : connexion réelle, filtre frais/classe/période, disponible cumulé 544 USD, mobile Chromium et PDF multipage`);
     } finally { await context.close(); }
   }
 } catch (error) {
