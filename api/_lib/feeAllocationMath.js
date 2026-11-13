@@ -74,7 +74,10 @@ export function validateFeeAllocationOpeningProposal({ cutoffAt, cashAvailableMi
 export function assertFeeAllocationMovement(movement) {
   if (!movement || !["payment", "expense"].includes(movement.sourceType) || !movement.sourceId || !movement.sourceRevision || !safeMinor(Math.abs(movement.amountMinor)) || !Array.isArray(movement.lines) || movement.lines.length === 0) invalid("Mouvement de répartition invalide.");
   if (!movement.lines.every((line) => line && typeof line.rubricId === "string" && (line.rubricId === UNALLOCATED_RUBRIC_ID || RUBRIC_ID.test(line.rubricId)) && Number.isSafeInteger(line.amountMinor))) invalid("Ligne de mouvement invalide.");
-  if (movement.lines.reduce((sum, line) => sum + line.amountMinor, 0) !== movement.amountMinor) invalid("Le mouvement ne conserve pas le montant source.");
+  // A movement already has one source/revision and one configuration version.
+  // Its line key is therefore rubricId, including the reserved UNALLOCATED line.
+  if (new Set(movement.lines.map((line) => line.rubricId)).size !== movement.lines.length) invalid("Une rubrique ne peut apparaître qu'une fois par mouvement.");
+  if (movement.lines.reduce((sum, line) => sum + BigInt(line.amountMinor), 0n) !== BigInt(movement.amountMinor)) invalid("Le mouvement ne conserve pas le montant source.");
   return movement;
 }
 

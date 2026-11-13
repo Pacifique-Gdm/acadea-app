@@ -201,6 +201,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
           coordination={coordination}
           schools={activeSchools}
           selectedSchoolId={selectedSchoolId}
+          onSchoolChange={setSelectedSchoolId}
           principalCoordinatorName={user.name}
           user={user}
           subCoordination={subCoordination}

@@ -32,6 +32,7 @@ import { SecretaryMedicalRecordsDrawer } from "../secretary/SecretaryMedicalTool
 import { PersonnelDrawerContent } from "./PersonnelDrawerContent";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
+import { FeeAllocationEntry } from "./FeeAllocationDrawer";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
@@ -1383,6 +1384,7 @@ export function MenuModule({
         </p>
       )}
       <OwnPayrollEntry user={user} school={school} />
+      <FeeAllocationEntry user={user} schools={[school]} />
       {visibleMenuSections.filter((section) => section.id !== "years").map((section) => {
         const Icon = section.icon;
         const active = activeMenuSection === section.id;

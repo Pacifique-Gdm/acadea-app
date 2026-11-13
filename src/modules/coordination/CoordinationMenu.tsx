@@ -10,6 +10,7 @@ import { loadCoordinationPersonnelProfile, transferCoordinationPersonnel, update
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp, formatActivityDateTime, isSuperAdministratorAuditLog } from "../../utils/activityHistory";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
+import { FeeAllocationEntry } from "../menu/FeeAllocationDrawer";
 import { SubCoordinationManagement } from "./SubCoordinationManagement";
 import { INTERNAL_PERSONNEL_ROLES, isInternalPersonnel, personnelRoleLabels } from "../../services/personnel";
 import { PersonnelProfileReadOnly } from "../../components/personnel/PersonnelProfileReadOnly";
@@ -27,7 +28,7 @@ const PERSONNEL_TRANSFER_CONFIRMATION = "MUTER CE PERSONNEL";
 const localDate = localDateInputValue;
 const emptyTransferForm = () => ({ destinationSchoolId: "", mutationDate: localDate(), reason: "", confirmation: "" });
 
-export function CoordinationMenu({ coordination, schools, selectedSchoolId, principalCoordinatorName, user, subCoordination, onLogout, refreshToken = 0 }: { coordination: Coordination; schools: School[]; selectedSchoolId: string; principalCoordinatorName: string; user: AppUser; subCoordination?: SubCoordination | null; onLogout: () => void; refreshToken?: number }) {
+export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSchoolChange, principalCoordinatorName, user, subCoordination, onLogout, refreshToken = 0 }: { coordination: Coordination; schools: School[]; selectedSchoolId: string; onSchoolChange?: (id: string) => void; principalCoordinatorName: string; user: AppUser; subCoordination?: SubCoordination | null; onLogout: () => void; refreshToken?: number }) {
   const [drawer, setDrawer] = useState<Drawer | null>(null);
   const [model, setModel] = useState<CoordinationReadModel>(emptyModel);
   const expenseResolution = useExpenseCurrencyResolution(model.expenses);
@@ -235,6 +236,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, prin
   const transferAllowed = user.role === "coordination_admin" && selectedPersonnel?.active !== false && selectedPersonnel?.status !== "inactive" && transferDestinations.length > 0;
   const transferReady = Boolean(transferForm.destinationSchoolId && transferForm.mutationDate && transferForm.reason.trim() && transferForm.confirmation === PERSONNEL_TRANSFER_CONFIRMATION);
   return <section className="grid min-w-0 gap-3">
+    <FeeAllocationEntry user={user} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={onSchoolChange} institution={coordinationPdfInstitution(coordination)} />
     {items.filter(([id]) => id !== "years").map(([id, label, Icon]) => <button key={id} type="button" onClick={() => { setDrawerSchoolId(selectedSchoolId); setDrawer(id); setSearch(""); setSelectedPersonnel(undefined); setTransferMessage(""); }} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Icon className="h-5 w-5"/></div><span className="break-words font-bold text-ink">{label}</span></div></button>)}
     <button type="button" onClick={() => { setDrawerSchoolId(selectedSchoolId); setDrawer("years"); setSearch(""); setSelectedPersonnel(undefined); setTransferMessage(""); }} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><CalendarRange className="h-5 w-5"/></div><span className="break-words font-bold text-ink">Année scolaire</span></div></button>
     <div className="mt-2 border-t border-slate-200 pt-4"><LogoutButton onClick={onLogout}/></div>
