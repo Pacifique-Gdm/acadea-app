@@ -93,4 +93,27 @@ aucun effacement IndexedDB, aucune modification des identifiants d'idempotence.
 Une restauration du build Staging précédent n'est sûre qu'après clôture des seules
 fixtures activées et vérification qu'aucun périmètre actif n'en dépend.
 
-Cette mission n'autorise aucune fusion, promotion Production ou activation réelle.
+## Rapprochement des vues filtrées (13 novembre 2026)
+
+La vérification en lecture seule des fixtures hébergées ayant produit les PDF a
+confirmé deux écarts de périmètre, sans anomalie du registre :
+
+| Rubrique (USD) | Encaissé du frais/de la classe sélectionné(e) | Ouverture | Encaissements cumulés | Dépenses nettes cumulées | Disponible |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Rubrique fictive 1 | 4 | 0 | 60 | 42 | 18 |
+| Non affecté | 44 | 5 | 255 | 0 | 260 |
+
+Les 56 USD hors filtre de la première ligne comprennent 6 USD de recettes courantes
+et 50 USD d'arriérés. Les 211 USD hors filtre de la seconde comprennent 30 USD de
+recettes courantes, 31 USD de frais sans répartition (dont 11 USD synchronisés) et
+150 USD d'arriérés. L'ouverture de 5 USD reste distincte des encaissements.
+
+Le tableau et les quatre PDF séparent désormais « Selon le filtre » (prévu,
+encaissé) et « Situation globale de la rubrique à la fin de la période » (ouverture,
+encaissements cumulés, dépenses nettes cumulées, disponible). Chaque solde se
+vérifie par ouverture + encaissements cumulés − dépenses nettes cumulées, y compris
+avec un filtre sans mouvement. Aucun montant stocké n'est recalculé ou modifié.
+Une réservation non nulle, non gérée par cette candidate, bloque explicitement
+la projection plutôt que de présenter une égalité inexacte.
+
+L'intégration autorisée ne vaut ni promotion Production ni activation réelle.
