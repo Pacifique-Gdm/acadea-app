@@ -5,7 +5,8 @@ import type { FeeAllocationConfig, FeeAllocationRubric } from "../types/feeAlloc
 export type AllocationFilter = { kind: "fee" | "class" | "period"; value: string; from: string; to: string };
 export type AllocationRow = { key: string; schoolId: string; schoolName: string; yearName: string; feeName: string;
   classLabel: string; currency: "USD" | "CDF"; rubricName: string; rubric?: FeeAllocationRubric;
-  amountMinor: number; percent: number; config: FeeAllocationConfig; stale: boolean };
+  amountMinor: number; percent: number; config: FeeAllocationConfig; stale: boolean;
+  financial?: { receivedMinor: number; spentMinor: number; availableMinor: number; openingMinor: number; arrearsMinor: number } };
 export const unavailableAllocation = "Indisponible — répartition en préparation";
 export const allocationFeeKey = (schoolId: string, feeId: string) => JSON.stringify([schoolId, feeId]);
 export const allocationClassKey = (schoolId: string, classKey: string) => JSON.stringify([schoolId, classKey]);
@@ -26,7 +27,9 @@ export function allocationPeriod(value: string, from: string, to: string, now = 
 }
 export function projectAllocations(workspaces: AllocationWorkspace[], filter: AllocationFilter, now = new Date()): AllocationRow[] {
   const period = filter.kind === "period" ? allocationPeriod(filter.value, filter.from, filter.to, now) : null;
-  return workspaces.flatMap((workspace) => workspace.configs.flatMap((config) => {
+  return workspaces.flatMap((workspace) => {
+    if (workspace.ledger) return projectOperational(workspace, filter, period);
+    return workspace.configs.flatMap((config) => {
     if (!config.draft) return [];
     const fee = workspace.fees.find((item) => item.id === config.feeTypeId);
     if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(config.schoolId, config.feeTypeId)) return [];
@@ -44,7 +47,51 @@ export function projectAllocations(workspaces: AllocationWorkspace[], filter: Al
         rubricName: rubric?.name ?? "Non affecté", rubric, amountMinor: share.amountMinor,
         percent: share.amountMinor / config.draft!.feeAmountMinor * 100, config, stale };
     });
-  }));
+    });
+  });
+}
+
+function projectOperational(workspace: AllocationWorkspace, filter: AllocationFilter, period: { from: string; to: string } | null): AllocationRow[] {
+  const ledger = workspace.ledger!;
+  if (!workspace.configs.length) throw new Error("Configuration active manquante.");
+  const base = projectAllocations([{ ...workspace, ledger: null }], filter.kind === "period" ? { ...filter, value: "year" } : filter);
+  const expected = new Map<string, number>();
+  base.forEach(row => expected.set(row.rubric?.id ?? "UNALLOCATED", (expected.get(row.rubric?.id ?? "UNALLOCATED") ?? 0) + row.amountMinor));
+  return ledger.rubrics.map(rubric => {
+    let receivedMinor = 0, spentMinor = 0, availableMinor = 0, openingMinor = 0, arrearsMinor = 0;
+    for (const m of ledger.movements) {
+      const day = m.postedAt.slice(0, 10), amount = m.lines.find(l => l.rubricId === rubric.id)?.amountMinor ?? 0;
+      if (period?.to && day > period.to) continue;
+      // End-of-period availability is cumulative, not the period's cash variation.
+      // A rubric is shared: expenditure/availability cannot be invented per fee.
+      availableMinor += amount;
+      if (m.sourceType === "opening") { openingMinor += amount; continue; }
+      if (period?.from && day < period.from) continue;
+      if (m.sourceType === "expense") { spentMinor -= amount; continue; }
+      if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(workspace.school.id, m.feeTypeId ?? "")) continue;
+      if (filter.kind === "class" && filter.value && filter.value !== allocationClassKey(workspace.school.id, m.classOptionKey || m.className || "")) continue;
+      receivedMinor += amount;
+      if (m.originSchoolYearId !== workspace.year.id) arrearsMinor += amount;
+    }
+    const reserved = ledger.balances.find(b => b.rubricId === rubric.id)?.reservedMinor ?? 0;
+    if (reserved && period?.to) throw new Error("Historique des réservations requis pour cette période.");
+    availableMinor -= reserved;
+    if (![receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor].every(Number.isSafeInteger)) throw new Error("Totaux financiers hors limites.");
+    return { key: `${workspace.school.id}/${workspace.year.id}/${rubric.id}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
+      yearName: workspace.year.name, feeName: "Rubrique commune · disponible global", classLabel: "Toutes les classes", currency: workspace.currency,
+      rubricName: rubric.name, amountMinor: expected.get(rubric.id) ?? 0, percent: 0, config: workspace.configs[0], stale: false,
+      financial: { receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor } };
+  });
+}
+
+export function allocationFinancialTotals(rows: AllocationRow[], field: "receivedMinor" | "spentMinor" | "availableMinor") {
+  return [...new Set(rows.map(r => r.currency))].map(currency => {
+    const selected = rows.filter(r => r.currency === currency);
+    if (selected.some(r => !r.financial)) return { currency, value: null };
+    const value = selected.reduce((n, r) => n + r.financial![field], 0);
+    if (!Number.isSafeInteger(value)) throw new Error("Total financier hors limites.");
+    return { currency, value };
+  });
 }
 export function allocationTotals(rows: AllocationRow[]) {
   const totals = new Map<"USD" | "CDF", number>();

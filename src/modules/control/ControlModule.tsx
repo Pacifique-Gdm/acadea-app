@@ -3,6 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
+import { AllocationRubricSelect } from "../../components/AllocationRubricSelect";
 import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
 import { loadExpenseCashBalance, type PayrollCashBalance } from "../../services/personnelPayroll";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
@@ -75,6 +76,7 @@ export function ControlModule({
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
+  const [allocationRubricId, setAllocationRubricId] = useState("");
   const [expenseBeneficiary, setExpenseBeneficiary] = useState("");
   const [expensePaymentMethod, setExpensePaymentMethod] = useState("");
   const [expenseReference, setExpenseReference] = useState("");
@@ -644,7 +646,7 @@ export function ControlModule({
       setExpenseError("Opération impossible : solde de caisse insuffisant ou indisponible.");
       return;
     }
-    const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference]);
+    const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference, allocationRubricId]);
     const requestId = expenseAttemptRef.current?.signature === signature ? expenseAttemptRef.current.requestId : crypto.randomUUID();
     expenseAttemptRef.current = { signature, requestId };
     expenseSubmittingRef.current = true;
@@ -655,7 +657,7 @@ export function ControlModule({
         setExpenseError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
         return;
       }
-      const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId });
+      const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId, ...(allocationRubricId ? { allocationRubricId } : {}) });
       expenseHistory.prependItem(expense);
       expenseAttemptRef.current = null;
       setExpenseAmount("");
@@ -1516,6 +1518,7 @@ export function ControlModule({
             </select>
             <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
             {renderExpenseCashBalance(expenseDebitCents)}
+            <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId}/>
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
             <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
@@ -1634,6 +1637,7 @@ export function ControlModule({
               </select>
               <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
               {renderExpenseCashBalance(expenseDebitCents)}
+              <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId}/>
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
                 <textarea

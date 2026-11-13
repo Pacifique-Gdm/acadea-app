@@ -8,6 +8,11 @@ export type AllocationWorkspace = {
   year: { id: string; schoolId: string; name: string; status: string; startsAt: string | null; endsAt: string | null };
   currency: "USD" | "CDF"; canConfigure: boolean; operational: false;
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
+  ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: true; rubrics: { id: string; name: string }[];
+    movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
+      lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
+      originSchoolYearId: string; postedAt: string }[];
+    balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number }[] };
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;
   targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[] };

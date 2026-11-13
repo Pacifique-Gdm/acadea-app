@@ -3,6 +3,7 @@ import { FeeAllocationError, validateFeeAllocationRubrics } from "./feeAllocatio
 import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
+import { readFeeAllocationLedger } from "./feeAllocationLedger.js";
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const id = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
@@ -29,6 +30,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       fees: fees.docs.map((row) => { const fee = row.data(); return { id: row.id, name: fee.name,
         className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
       configs: configs.docs.map((row) => row.data()),
+      ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency }),
     };
   }
   if (body.action !== "save-drafts") fail(400, "invalid-argument", "Action préparatoire inconnue.");
@@ -68,7 +70,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
     const stateRef = db.doc(`feeAllocationStates/${hash([schoolId, body.schoolYearId, currency])}`);
     const state = await transaction.get(stateRef);
-    if (state.exists && state.data().status === "ACTIVE") fail(409, "phase-not-ready", "Modification préparatoire interdite après activation.");
+    if (state.exists && ["ACTIVE", "PAUSED"].includes(state.data().status)) fail(409, "phase-not-ready", "Modification préparatoire interdite après activation.");
     const rows = await Promise.all(targets.map(async (target) => {
       const configId = feeAllocationConfigId(schoolId, body.schoolYearId, target.feeTypeId);
       const ref = db.doc(`feeAllocationConfigs/${configId}`);

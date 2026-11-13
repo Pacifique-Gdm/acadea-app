@@ -4,9 +4,10 @@ import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { payrollWritesSuspended } from "./payrollRollbackMode.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { protectCashMutation, readCashBalance } from "./cashBalance.js";
+import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
 
 const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
-const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId"]);
+const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId", "allocationRubricId"]);
 
 function invalid(message, code = "invalid-argument", status = 400) { throw new FinancialApiError(status, code, message); }
 function field(value, max = 200) { return typeof value === "string" && value.trim().length <= max ? value.trim() : ""; }
@@ -142,7 +143,6 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
     const recoveryCents = recoveryLines.reduce((total, line) => total + line.recoveredCents, 0);
     const netCents = grossCents - recoveryCents - deductionCents - cnssCents - taxCents;
     if (netCents <= 0) invalid("Déductions supérieures ou égales au montant payable.");
-    await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency, deltaCents: -netCents, now });
     const reference = `PAY-${hash.slice(0, 12).toUpperCase()}`;
     const payment = {
       id: paymentRef.id, schoolId: caller.schoolId, schoolYearId, beneficiaryId, beneficiaryName: beneficiary.name,
@@ -156,12 +156,16 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
     };
     const expense = {
       id: expenseRef.id, schoolId: caller.schoolId, schoolYearId, currency, amount: netCents / 100,
+      ...(body.allocationRubricId !== undefined ? { allocationRubricId: body.allocationRubricId } : {}),
       category: kind === "salary" ? "Salaire" : "Autre",
       description: `${kind === "salary" ? "Salaire" : kind === "bonus" ? "Prime" : "Avance sur salaire"} — ${beneficiary.name}${description ? ` — ${description}` : ""}`,
       beneficiary: beneficiary.name, paymentMethod: "Paiement personnel", reference, spentAt: paidAt,
       createdAt: now, updatedAt: now, createdBy: caller.uid, updatedBy: caller.uid,
       cashierName: field(actor.data().name, 160), provenance: "personnel-payroll", personnelPaymentId: paymentRef.id,
     };
+    const writeAllocation = await prepareFeeAllocationExpense({ db, transaction, caller, expense, requestId: hash, now });
+    await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency, deltaCents: -netCents, now });
+    writeAllocation();
     transaction.create(paymentRef, payment);
     transaction.create(expenseRef, expense);
     const auditId = `audit_payroll_${hash.slice(0, 24)}`;
@@ -254,7 +258,11 @@ export async function updatePersonnelPayment({ db, caller, body, now = new Date(
     // A legacy linked expense inherits only its immutable payroll record's currency,
     // never the mutable currency currently configured on the school year.
     if (expense.currency && expense.currency !== currency) invalid("Devise de la dépense liée incohérente : correction bloquée.", "conflict", 409);
+    const writeAllocation = await prepareFeeAllocationExpense({ db, transaction, caller,
+      expense: { ...expense, id: expenseRef.id, amount: netCents / 100, currency, updatedAt: now },
+      previous: { ...expense, id: expenseRef.id, currency }, requestId: hash, now });
     await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: current.schoolYearId, currency, yearCurrency, deltaCents: cents(current.netPaid) - netCents, now });
+    writeAllocation();
     transaction.update(paymentRef, { amount: payment.amount, deduction: payment.deduction, deductionReason, cnss: payment.cnss, tax: payment.tax, description, paidAt,
       ...(current.kind === "advance" ? {} : { periodMonth, periodYear }), netPaid: payment.netPaid, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     transaction.update(expenseRef, { amount: payment.netPaid, spentAt: paidAt,

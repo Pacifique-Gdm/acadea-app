@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MoneyInput } from "../ui";
+import { AllocationRubricSelect } from "../AllocationRubricSelect";
 import { createPersonnelPayment, listPayrollAdvances, listPayrollPersonnel, loadPayrollCashBalance, PayrollCashError } from "../../services/personnelPayroll";
 import type { PayrollBeneficiary, PayrollCashBalance } from "../../services/personnelPayroll";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
@@ -31,6 +32,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   const [cnss, setCnss] = useState("");
   const [tax, setTax] = useState("");
   const [description, setDescription] = useState("");
+  const [allocationRubricId, setAllocationRubricId] = useState("");
   const [advances, setAdvances] = useState<PersonnelPayment[]>([]);
   const [recoveries, setRecoveries] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -94,7 +96,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     if (lines.some((line) => { const advance = advances.find((item) => item.id === line.advanceId); return !advance || advance.currency !== currency || toMoneyMinor(line.amount) > toMoneyMinor(remainingMoney(advance.amount, advance.recoveredAmount)); })) { setError("Une récupération dépasse le solde de l'avance ou utilise une autre devise."); return; }
     const draft = { schoolYearId: year.id, beneficiaryId, kind, ...(kind === "advance" ? {} : { periodMonth: month, periodYear }), paidAt, amount: Number(gross), recoveries: lines,
       deduction: kind === "advance" ? 0 : Number(deduction || 0), deductionReason: kind === "advance" ? "" : deductionReason.trim(), cnss: kind === "advance" ? 0 : Number(cnss || 0), tax: kind === "advance" ? 0 : Number(tax || 0), description: description.trim() };
-    const signature = JSON.stringify(draft);
+    const signature = JSON.stringify({ ...draft, allocationRubricId });
     const clientRequestId = attempt.current?.signature === signature ? attempt.current.id : crypto.randomUUID();
     attempt.current = { signature, id: clientRequestId };
     busyRef.current = true; setBusy(true);
@@ -106,7 +108,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
         setError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
         return;
       }
-      const payment = await createPersonnelPayment({ ...draft, clientRequestId });
+      const payment = await createPersonnelPayment({ ...draft, clientRequestId, ...(allocationRubricId ? { allocationRubricId } : {}) });
       attempt.current = null;
       setCashLoading(true);
       void loadPayrollCashBalance(year.id).then((updated) => { setCashBalance(updated); setCashError(""); })
@@ -131,6 +133,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   }
 
   return <form className="grid min-w-0 gap-3 text-sm" onSubmit={(event) => void submit(event)}>
+    <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId}/>
     {loading && <p role="status">Chargement du personnel…</p>}
     <label className="grid gap-1 font-semibold">Bénéficiaire<select className="input min-w-0" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)}><option value="">Choisir un personnel</option>{personnel.map((item) => <option key={item.id} value={item.id}>{item.name} — {personnelJobTitleLabel(item.jobTitle, item.hasAccount)}</option>)}</select></label>
     <label className="grid gap-1 font-semibold">Nature<select className="input" value={kind} onChange={(event) => { setKind(event.target.value as PersonnelPayment["kind"]); setRecoveries({}); }}><option value="salary">Salaire</option><option value="bonus">Prime</option><option value="advance">Versement d'une avance</option></select></label>

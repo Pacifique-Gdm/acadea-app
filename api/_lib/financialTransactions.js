@@ -4,10 +4,12 @@ import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { protectCashMutation } from "./cashBalance.js";
 import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
+import { prepareFeeAllocationReceipt } from "./feeAllocationReceipts.js";
+import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
 
-const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId", "expectedCurrency", "expectedFeeAmount", "supportDecisionId"];
+const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId", "expectedCurrency", "expectedFeeAmount", "supportDecisionId", "proposedAt"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
-const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId"];
+const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId", "allocationRubricId"];
 const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "categoryDetail", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
@@ -431,9 +433,12 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     cashierName: actorName,
     provenance: "financial-api",
     clientRequestIdHash: hash,
+    ...(body.expectedFeeAmount !== undefined || body.proposedAt !== undefined ? { offlineProposal: true, proposedAt: body.proposedAt ?? null } : {}),
   };
+  const writeAllocation = await prepareFeeAllocationReceipt({ db, transaction, caller, payment, requestId: hash, now });
   await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId,
     currency: payment.currency, yearCurrency: currency, deltaCents: toMoneyMinor(amount), now });
+  writeAllocation();
   transaction.set(db.doc(`payments/${paymentId}`), payment);
   transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
@@ -469,11 +474,14 @@ async function createExpense(transaction, db, caller, body, hash, now) {
   const expenseId = `expense_${hash.slice(0, 24)}`;
   const expense = {
     id: expenseId, schoolId: caller.schoolId, schoolYearId, currency, amount, category, description, beneficiary, paymentMethod,
+    ...(body.allocationRubricId !== undefined ? { allocationRubricId: body.allocationRubricId } : {}),
     ...(reference ? { reference } : {}), spentAt: now.slice(0, 10), createdAt: now, updatedAt: now,
     createdBy: caller.uid, updatedBy: caller.uid, cashierName: actorName, provenance: "financial-api", clientRequestIdHash: hash,
   };
+  const writeAllocation = await prepareFeeAllocationExpense({ db, transaction, caller, expense, requestId: hash, now });
   await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency,
     deltaCents: -toMoneyMinor(amount), now });
+  writeAllocation();
   transaction.set(db.doc(`expenses/${expenseId}`), expense);
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
   transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: "expense", resourceId: expenseId, metadata: { category, amount } }));
@@ -558,7 +566,11 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   let correction;
   if (isPayment && current.supportDecisionId) throw new FinancialApiError(409, "failed-precondition", "La correction d’un paiement tiers nécessite une réconciliation contrôlée.");
   if (operation === "delete") {
+    const writeAllocation = isPayment ? await prepareFeeAllocationReceipt({ db, transaction, caller,
+      payment: null, previous: { ...current, id: transactionId }, requestId: hash, now })
+      : await prepareFeeAllocationExpense({ db, transaction, caller, expense: null, previous: { ...current, id: transactionId }, requestId: hash, now });
     await cashImpact((isPayment ? -1 : 1) * recordedMinor(current.amount));
+    writeAllocation();
     transaction.delete(documentRef);
     result = { deletedId: transactionId, kind };
     if (!isPayment) correction = { oldValues: current, newValues: null, oldAmount: current.amount, newAmount: null, currency };
@@ -592,7 +604,10 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
         && (!Array.isArray(document.data()?.studentIds) || document.data().studentIds.includes(current.studentId)));
       if (eligible.length === 1) recipientUserId = eligible[0].id;
     }
+    const writeAllocation = await prepareFeeAllocationReceipt({ db, transaction, caller, payment,
+      previous: { ...current, id: transactionId }, requestId: hash, now });
     await cashImpact(toMoneyMinor(amount) - recordedMinor(current.amount));
+    writeAllocation();
     transaction.update(documentRef, { amount, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     if (recipientUserId) {
       transaction.create(db.doc(`notifications/${notificationId}`), {
@@ -610,7 +625,9 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     const description = text(body.description, 1000);
     if (!category || !description) throw new FinancialApiError(400, "invalid-argument", "Catégorie et description sont requises.");
     const expense = { ...current, id: transactionId, amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason };
+    const writeAllocation = await prepareFeeAllocationExpense({ db, transaction, caller, expense, previous: { ...current, id: transactionId }, requestId: hash, now });
     await cashImpact(recordedMinor(current.amount) - toMoneyMinor(amount));
+    writeAllocation();
     transaction.update(documentRef, { amount, category, description, updatedAt: now, updatedBy: caller.uid, correctionReason: reason });
     result = { expense };
     correction = { oldValues: current, newValues: expense, oldAmount: current.amount, newAmount: amount, currency };

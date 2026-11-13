@@ -18,7 +18,7 @@ type EnrollmentDraft = {
 };
 type PaymentProposal = {
   studentId: string; feeTypeId: string; amount: number; currency: "CDF" | "USD";
-  expectedFeeAmount: number; note?: string;
+  expectedFeeAmount: number; note?: string; proposedAt?: string;
 };
 
 export type OfflineDraftPayloads = {
@@ -94,7 +94,9 @@ export async function captureOfflineDraft<K extends OfflineOperationKind>(
       && operation.status !== "SERVER_CONFIRMED" && operation.status !== "REJECTED"
       && targetKey(kind, operation.payload) === targetKey(kind, draft));
     if (existing) throw new Error("Un brouillon pour cette même opération existe déjà. Vérifiez son statut avant une nouvelle saisie.");
-    return queueOfflineOperation(scope, kind, draft);
+    // Only new proposals receive a capture date. Never rewrite old queue entries
+    // or alter their request fingerprints after a potentially successful send.
+    return queueOfflineOperation(scope, kind, kind === "payment_proposal" ? { ...draft, proposedAt: new Date(now).toISOString() } : draft);
   };
   const operation = typeof navigator !== "undefined" && "locks" in navigator
     ? await navigator.locks.request(`acadea-offline-draft-${scope.userId}`, { mode: "exclusive" }, save)
