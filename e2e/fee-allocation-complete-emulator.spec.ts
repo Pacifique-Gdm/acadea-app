@@ -25,6 +25,18 @@ test("cycle rapproché : activation fictive, net de paie, concurrence de dépens
     const prepared = await allocation("prepare-version", { feeTypeId: fee, expectedRevision: 1 });
     await allocation("publish-configuration", { versionId: (prepared.version as { id: string }).id });
     await f.put(`students/${student}`, { id: student, schoolId: f.school, schoolYearId: f.year, status: "ACTIVE", className: "1ère Secondaire", createdAt: new Date().toISOString() });
+    type Run = { id: string; sequence: number; status: string; evidenceCount: number };
+    let run = (await allocation('start-reconciliation')).run as Run;
+    const premature = await invoke(handler, tokens.admin, { action: 'fee-allocation.prepare-opening', requestId: randomUUID(),
+      cashCountMinor: 0, lines: [{ rubricId: rubric, amountMinor: 0 }], confirmation: 'RAPPROCHER LA CAISSE' });
+    expect(premature.status).toBe(409);
+    while (run.status === 'RUNNING') {
+      const request = { action: 'fee-allocation.advance-reconciliation', runId: run.id, sequence: run.sequence };
+      const next = await good(request);
+      expect((await good(request)).idempotent).toBe(true);
+      run = next.run as Run;
+    }
+    expect(run.status).toBe('COMPLETE'); expect(run.evidenceCount).toBe(0);
     const opening = await allocation("prepare-opening", { cashCountMinor: 0, lines: [{ rubricId: rubric, amountMinor: 0 }], confirmation: "RAPPROCHER LA CAISSE" });
     await allocation("approve-opening", { openingId: opening.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" });
     const activation = { openingId: opening.openingId, confirmation: "ACTIVER LA REPARTITION FICTIVE", requestId: randomUUID() };
