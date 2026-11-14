@@ -151,20 +151,49 @@ describe("inscription : index des identités par école (lot 8)", () => {
   });
 });
 
-describe("inscription : chemin de la photo Storage (lot 9)", () => {
+describe("inscription : une fiche ne pointe que vers SA photo (lot 9)", () => {
   const uuid = "123e4567-e89b-42d3-a456-426614174000";
-  it("accepte une photo rangée sous l'école (y compris sous l'identifiant d'une année précédente)", async () => {
+  const photo = (studentId: string, school = "school-a", ext = "jpg") => `schools/${school}/student-photos/${studentId}/${uuid}.${ext}`;
+  const withStudents = (rows: Record<string, Row>) => memoryDb({ ...base(), ...rows });
+  const marie = { schoolId: "school-a", schoolYearId: "year-a", classId: "class-a", className: "1ère Primaire", nom: "MUAMBA", postnom: "", prenom: "MARIE", sexe: "F", status: "ACTIVE", sortName: "muamba marie" };
+  const paul = { schoolId: "school-a", schoolYearId: "year-a", classId: "class-a", className: "1ère Primaire", nom: "KALALA", postnom: "", prenom: "PAUL", sexe: "M", status: "ACTIVE", sortName: "kalala paul", photoPath: photo("student-paul") };
+
+  it("à la création, accepte seulement une photo rangée sous l'identifiant du nouvel élève", async () => {
     const db = memoryDb(base());
-    const own = await save(db, pupil("photo-1", { prenom: "ALICE", photoPath: `schools/school-a/student-photos/student-photo-1/${uuid}.jpg` }));
-    expect(own.student.photoPath).toBe(`schools/school-a/student-photos/student-photo-1/${uuid}.jpg`);
-    const imported = await save(db, pupil("photo-2", { prenom: "BRUNO", photoPath: `schools/school-a/student-photos/ancien-id/${uuid}.png` }));
-    expect(imported.student.photoPath).toContain("ancien-id");
+    const own = await save(db, pupil("photo-1", { prenom: "ALICE", photoPath: photo("student-photo-1") }));
+    expect(own.student.photoPath).toBe(photo("student-photo-1"));
+    await expect(save(db, pupil("photo-2", { prenom: "BRUNO", photoPath: photo("student-quelqu-un") }))).rejects.toThrow("Photo de l'élève invalide");
   });
 
-  it("refuse une photo d'une autre école ou un chemin libre", async () => {
-    const db = memoryDb(base());
-    for (const photoPath of [`schools/school-b/student-photos/student-x/${uuid}.jpg`, "personnel-photos/school-a/x.jpg", `schools/school-a/student-photos/student-x/photo.jpg`]) {
-      await expect(save(db, pupil("photo-3", { prenom: "CLAIRE", photoPath }))).rejects.toThrow("Photo de l'élève invalide");
+  it("la fiche de Marie ne peut pas pointer vers la photo de Paul (même école)", async () => {
+    const db = withStudents({ "students/student-marie": marie, "students/student-paul": paul });
+    await expect(save(db, { ...marie, id: "student-marie", photoPath: photo("student-paul") }, "update")).rejects.toThrow("Photo de l'élève invalide");
+    expect(db.rows.get("students/student-marie")).not.toHaveProperty("photoPath");
+  });
+
+  it("elle ne peut pas pointer vers une photo d'une autre école, ni vers un chemin libre", async () => {
+    const db = withStudents({ "students/student-marie": marie });
+    for (const photoPath of [photo("student-marie", "school-b"), "personnel-photos/school-a/x.jpg", `schools/school-a/student-photos/student-marie/photo.jpg`]) {
+      await expect(save(db, { ...marie, id: "student-marie", photoPath }, "update")).rejects.toThrow("Photo de l'élève invalide");
     }
+  });
+
+  it("après le passage d'année (même sur deux années), Marie garde bien sa photo", async () => {
+    const db = withStudents({
+      "students/marie-2025": { ...marie, schoolYearId: "year-old", photoPath: photo("marie-2025") },
+      "students/marie-2026": { ...marie, schoolYearId: "year-mid", importedFromStudentId: "marie-2025", photoPath: photo("marie-2025") },
+      "students/student-marie": { ...marie, importedFromStudentId: "marie-2026", photoPath: photo("marie-2025") },
+      "students/student-paul": paul,
+    });
+    const saved = await save(db, { ...marie, id: "student-marie", address: "Nouvelle adresse", photoPath: photo("marie-2025") }, "update");
+    expect(saved.student.photoPath).toBe(photo("marie-2025"));
+    // Le lien d'import ne permet pas pour autant de prendre la photo d'un autre élève.
+    await expect(save(db, { ...marie, id: "student-marie", photoPath: photo("student-paul") }, "update")).rejects.toThrow("Photo de l'élève invalide");
+  });
+
+  it("une photo migrée (rangée sous l'identifiant de la fiche) reste acceptée et affichée", async () => {
+    const db = withStudents({ "students/student-marie": { ...marie, photoUrl: "data:image/jpeg;base64,AAAA", photoPath: photo("student-marie"), photoMigratedAt: "2026-11-14T10:00:00.000Z" } });
+    const saved = await save(db, { ...marie, id: "student-marie", photoUrl: "data:image/jpeg;base64,AAAA", photoPath: photo("student-marie"), address: "X" }, "update");
+    expect(saved.student).toMatchObject({ photoPath: photo("student-marie"), photoUrl: "data:image/jpeg;base64,AAAA" });
   });
 });
