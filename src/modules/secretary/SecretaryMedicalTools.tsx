@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Pencil, Printer, RotateCcw, Search } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
 import { canManageStudentMedicalRecords, saveStudentMedicalRecord, getMedicalRecordStatus, medicalRecordSaveErrorMessage } from "../../services/studentMedicalRecords";
@@ -47,6 +47,18 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
   const [queryText, setQueryText] = useState("");
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [viewingStudent, setViewingStudent] = useState<Student | null>(null);
+  // Lot 9 : à l'ouverture de la fiche, la photo Storage est préparée pour le PDF
+  // (sinon le PDF garde l'ancienne photo de la fiche).
+  const viewingId = viewingStudent?.id ?? "";
+  const viewingPhotoPath = viewingStudent?.photoPath ?? "";
+  useEffect(() => {
+    if (!viewingId || !viewingPhotoPath) return undefined;
+    let active = true;
+    void withPhotoForPdf({ photoPath: viewingPhotoPath, photoUrl: undefined }).then((resolved) => {
+      if (active && resolved.photoUrl) setViewingStudent((current) => (current?.id === viewingId ? { ...current, photoUrl: resolved.photoUrl } : current));
+    });
+    return () => { active = false; };
+  }, [viewingId, viewingPhotoPath]);
   const [input, setInput] = useState<MedicalRecordInput>(emptyMedicalRecordInput);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
@@ -129,7 +141,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
     </AdminDrawer>}
     {viewingStudent && <AdminDrawer title={`Fiche médicale · ${viewingStudent.nom} ${viewingStudent.prenom}`} onClose={() => setViewingStudent(null)} closeLabel="Fermer">
       <div className="grid gap-4 text-sm">
-        <div className="flex flex-wrap justify-end gap-2">{canEditMedicalRecords && viewingRecord && <button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button>}{viewingRecord && <button className="secondary-button" type="button" onClick={() => void (async () => renderAcadPdfPreview({ filename: `fiche-medicale-${viewingStudent.matricule}.pdf`, title: "FICHE MÉDICALE", school, year, sections: medicalRecordPdfSections(await withPhotoForPdf(viewingStudent), viewingRecord), singlePageFit: true }))()}><Printer className="h-4 w-4" /> Imprimer</button>}</div>
+        <div className="flex flex-wrap justify-end gap-2">{canEditMedicalRecords && viewingRecord && <button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button>}{viewingRecord && <button className="secondary-button" type="button" onClick={() => void renderAcadPdfPreview({ filename: `fiche-medicale-${viewingStudent.matricule}.pdf`, title: "FICHE MÉDICALE", school, year, sections: medicalRecordPdfSections(viewingStudent, viewingRecord), singlePageFit: true })}><Printer className="h-4 w-4" /> Imprimer</button>}</div>
         <MedicalRecordFields mode="view" record={viewingRecord} />
       </div>
     </AdminDrawer>}
