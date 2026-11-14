@@ -388,3 +388,30 @@ describe("API financière transactionnelle", () => {
     expect(updated.expense).toMatchObject({ amount: 45, updatedBy: "admin-a", correctionReason: "Erreur de saisie" });
   });
 });
+
+describe("trace complète d'un paiement supprimé", () => {
+  it("garde montant, devise, reçu, élève et frais dans le journal et la trace immuable", async () => {
+    const db = fakeDb(baseSeed());
+    const created = await executeFinancialOperation({ db, caller: cashier, body: paymentBody("payment-for-delete-01"), now: "2026-10-10T09:00:00.000Z" });
+    const payment = created.payment;
+    if (!payment) throw new Error("Paiement de test absent.");
+    await executeFinancialOperation({ db, caller: admin, body: { action: "delete-payment", transactionId: payment.id, reason: "Doublon de saisie", clientRequestId: "payment-delete-request-01" } });
+    expect(db.documents.has(`payments/${payment.id}`)).toBe(false);
+    const trace = [...db.documents.entries()].find(([path]) => path.startsWith("financialCorrectionAudits/"))?.[1];
+    expect(trace).toMatchObject({ kind: "payment", oldAmount: 25, newAmount: null, currency: payment.currency, receiptNumber: payment.receiptNumber, studentId: "student-a", feeTypeId: "fee-a", actorId: "admin-a", reason: "Doublon de saisie" });
+    expect((trace?.oldValues as Record<string, unknown>)?.receiptNumber).toBe(payment.receiptNumber);
+    const journal = [...db.documents.entries()].find(([path, value]) => path.startsWith("auditLogs/") && value.resourceId === payment.id && (value.metadata as Record<string, unknown>)?.operation === "delete")?.[1];
+    expect(journal?.metadata).toMatchObject({ reason: "Doublon de saisie", operation: "delete", amount: 25, currency: payment.currency, receiptNumber: payment.receiptNumber, studentId: "student-a", feeTypeId: "fee-a" });
+  });
+
+  it("reste réservée à l'administrateur de l'école et n'écrit qu'une trace en cas de rejeu", async () => {
+    const db = fakeDb(baseSeed());
+    const created = await executeFinancialOperation({ db, caller: cashier, body: paymentBody("payment-for-delete-02") });
+    const body = { action: "delete-payment", transactionId: created.payment?.id, reason: "Erreur", clientRequestId: "payment-delete-request-02" };
+    await expect(executeFinancialOperation({ db, caller: cashier, body })).rejects.toMatchObject({ status: 403 });
+    await expect(executeFinancialOperation({ db, caller: { ...admin, schoolId: "school-b" }, body })).rejects.toBeInstanceOf(FinancialApiError);
+    await executeFinancialOperation({ db, caller: admin, body });
+    await executeFinancialOperation({ db, caller: admin, body }).catch(() => undefined);
+    expect([...db.documents.keys()].filter((path) => path.startsWith("financialCorrectionAudits/"))).toHaveLength(1);
+  });
+});

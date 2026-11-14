@@ -535,6 +535,14 @@ async function createCashInflow(transaction, db, caller, body, hash, now) {
   return { cashInflow: inflow };
 }
 
+/** Résumé lisible d'une écriture supprimée, gardé dans le journal d'audit. */
+function deletedTransactionMetadata(current, isPayment) {
+  const pick = (value) => (typeof value === "string" || typeof value === "number" ? value : "");
+  return isPayment
+    ? { amount: pick(current.amount), currency: pick(current.currency), receiptNumber: pick(current.receiptNumber), studentId: pick(current.studentId), feeTypeId: pick(current.feeTypeId) }
+    : { amount: pick(current.amount), currency: pick(current.currency), category: pick(current.category) };
+}
+
 async function mutateExisting(transaction, db, caller, body, hash, now, kind, operation) {
   const isPayment = kind === "payment";
   assertAllowedKeys(body, operation === "delete" ? DELETE_KEYS : isPayment ? PAYMENT_UPDATE_KEYS : EXPENSE_UPDATE_KEYS);
@@ -573,7 +581,11 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
     writeAllocation();
     transaction.delete(documentRef);
     result = { deletedId: transactionId, kind };
-    if (!isPayment) correction = { oldValues: current, newValues: null, oldAmount: current.amount, newAmount: null, currency };
+    // Trace probante de toute suppression : montant, devise, reçu, élève et frais conservés.
+    correction = isPayment
+      ? { oldValues: current, newValues: null, oldAmount: current.amount, newAmount: null, currency: current.currency,
+        receiptNumber: current.receiptNumber ?? null, studentId: current.studentId ?? null, feeTypeId: current.feeTypeId ?? null }
+      : { oldValues: current, newValues: null, oldAmount: current.amount, newAmount: null, currency };
   } else if (isPayment) {
     const amount = positiveAmount(body.amount);
     const [studentSnapshot, feeSnapshot] = await Promise.all([
@@ -636,7 +648,7 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   const eventType = isPayment
     ? operation === "delete" ? AUDIT_EVENT_TYPES.FINANCE_PAYMENT_DELETED : AUDIT_EVENT_TYPES.FINANCE_PAYMENT_UPDATED
     : operation === "delete" ? AUDIT_EVENT_TYPES.FINANCE_EXPENSE_DELETED : AUDIT_EVENT_TYPES.FINANCE_EXPENSE_UPDATED;
-  transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: kind, resourceId: transactionId, metadata: { reason, operation } }));
+  transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId, resourceType: kind, resourceId: transactionId, metadata: { reason, operation, ...(operation === "delete" ? deletedTransactionMetadata(current, isPayment) : {}) } }));
   if (correction) transaction.create(db.doc(`financialCorrectionAudits/${auditId}`), {
     id: auditId, operationId: transactionId, kind, schoolId: caller.schoolId, schoolYearId,
     actorId: caller.uid, actorName, createdAt: now, serverTimestamp: FieldValue.serverTimestamp(), reason, ...correction,
