@@ -21,6 +21,8 @@ import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyP
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
+import { failureKind, plainFailureMessage, publicServerMessage } from "../../services/requestFailure";
+import { findSavedStudent } from "../../services/studentSaveVerification";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -223,6 +225,7 @@ export function StudentsModule({
     setIsSaving(true);
     setSaveError("");
     setSaveMessage("");
+    let attemptedCreation: { id: string; schoolYearId: string; withParent: boolean } | undefined;
     try {
       const exists = !form.id.startsWith("new-");
       if ((exists && !studentCapabilities.canEdit) || (!exists && !studentCapabilities.canCreate)) {
@@ -280,6 +283,7 @@ export function StudentsModule({
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
       const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
+      if (!exists) attemptedCreation = { id: student.id, schoolYearId: targetYearId, withParent: Boolean(selectedParentId) };
       const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
       const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
 
@@ -370,9 +374,30 @@ export function StudentsModule({
       setSaveMessage(exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");
     } catch (error) {
       if (import.meta.env.DEV) console.error("Enregistrement de l'élève impossible.", error);
-      setSaveError(error instanceof Error && error.message.includes("Un élève avec le même nom, post-nom et prénom existe déjà.")
-        ? error.message
-        : "Impossible d'enregistrer l'élève. Vérifiez les informations saisies.");
+      const serverMessage = publicServerMessage(error);
+      const kind = failureKind(error);
+      if (serverMessage.includes("Un élève avec le même nom, post-nom et prénom existe déjà.")) {
+        setSaveError(serverMessage);
+      } else if (kind === "network" && attemptedCreation) {
+        // La réponse s'est perdue : vérifier la fiche avant d'annoncer un échec.
+        const saved = await findSavedStudent(attemptedCreation.id, school.id, attemptedCreation.schoolYearId);
+        if (saved) {
+          updateData({ students: [...studentRecords.filter((item) => item.id !== saved.id), saved] }, { persist: false });
+          setForm(emptyCurrentStudent());
+          setShowForm(false);
+          setSaveMessage(attemptedCreation.withParent
+            ? "La connexion a été interrompue, mais l'élève a bien été enregistré. La liaison au parent reste à faire depuis sa fiche."
+            : "La connexion a été interrompue, mais l'élève a bien été enregistré.");
+        } else {
+          setSaveError(saved === null
+            ? "L'élève n'a pas été enregistré : la connexion a été interrompue. Réessayez quand la connexion revient ; aucun doublon ne sera créé."
+            : "Connexion interrompue : impossible de vérifier si l'élève a été enregistré. Vérifiez la liste avant de réessayer ; aucun doublon ne sera créé.");
+        }
+      } else if (kind === "network" || kind === "rate-limit" || kind === "inactive-year" || kind === "unavailable") {
+        setSaveError(`Impossible d'enregistrer l'élève : ${plainFailureMessage(kind, false)}`);
+      } else {
+        setSaveError(`Impossible d'enregistrer l'élève : ${serverMessage || "vérifiez les informations saisies."}`);
+      }
     } finally {
       saveInProgressRef.current = false;
       setIsSaving(false);
