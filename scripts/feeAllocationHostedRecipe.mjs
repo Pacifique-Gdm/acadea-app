@@ -13,6 +13,7 @@ import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
 import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
 import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
 import { runHostedAllocationPanel } from './feeAllocationHostedPanel.mjs';
+import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
 
 const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.ACADEA_EXPECTED_SHA;
 const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume';
@@ -79,11 +80,7 @@ save(); // Durable identity-only inventory before the first write. No password/t
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
 let browser, pdfOcr;
 const tokens = new Map();
-const safeError = error => {
-  let message = String(error?.message ?? error).replaceAll(password, '[identifiant masqué]');
-  for (const token of tokens.values()) message = message.replaceAll(token, '[session masquée]').replaceAll(token.replace(/^Bearer /, ''), '[session masquée]');
-  return message.slice(0, 600);
-};
+const safeError = error => redactRecipeError(error, [password, ...tokens.values()]);
 const record = name => { results.push({ name, result: 'PASS' }); console.log(`PASS: ${name}`); };
 async function put(collection, id, data) {
   assert.ok(id.startsWith(tag));
@@ -367,13 +364,14 @@ try {
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Activation par établissement' });
-    await page.route('**/api/manage-financial-transaction', async route => {
+    const transportFailures = [];
+    await page.route('**/api/manage-financial-transaction', guardedRoute(async route => {
       const action = route.request().postDataJSON()?.action;
       if (!['publish-configuration', 'start-reconciliation', 'prepare-opening', 'approve-opening', 'activate', 'pause', 'resume'].some(a => action === `fee-allocation.${a}`)) return route.continue();
-      const response = await route.fetch();
+      const response = await route.fetch({ maxRetries: 1 });
       await new Promise(resolve => setTimeout(resolve, 800));
       await route.fulfill({ response });
-    });
+    }, transportFailures));
     // Wait for the actual authenticated mutation, not Playwright's five-second
     // assertion default. A slow confirmed reply is not a server rejection.
     async function activationClick(label, action) {
@@ -381,6 +379,7 @@ try {
         if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
         try { return response.request().postDataJSON()?.action === `fee-allocation.${action}`; } catch { return false; }
       }, { timeout: 45000 });
+      void responsePromise.catch(() => {}); // Awaited below; never leak a raw event error.
       const control = panel.getByRole('button', { name: label, exact: true });
       const before = await control.boundingBox();
       await control.click();
@@ -389,6 +388,7 @@ try {
       const during = await waiting.boundingBox();
       assert.equal(before.width, during.width); assert.equal(before.height, during.height);
       const response = await responsePromise;
+      assert.equal(transportFailures.length, 0, 'Transport hébergé interrompu');
       const reply = await response.json();
       assert.equal(response.status(), 200, `Activation ${action}: HTTP ${response.status()}, code ${reply.code ?? 'inconnu'}`);
       assert.equal(reply.operational, false, 'Contrat de confirmation invalide');
@@ -463,7 +463,8 @@ try {
     await expect(page.getByText('En attente', { exact: true })).toBeVisible();
     assert.equal((await ledger()).length, beforeOffline);
     let lost = false, delivered = false, replay;
-    await offlineContext.route('**/api/manage-financial-transaction', async route => {
+    const offlineTransportFailures = [];
+    await offlineContext.route('**/api/manage-financial-transaction', guardedRoute(async route => {
       const input = route.request().postDataJSON();
       if (input?.action !== 'create-payment' || input.studentId !== offlineStudent) return route.continue();
       // Send to the real hosted API, then lose only the confirmed network response.
@@ -473,7 +474,7 @@ try {
         await route.fulfill({ response }); delivered = true; return;
       }
       lost = true; replay = input; await route.abort('connectionreset');
-    });
+    }, offlineTransportFailures));
     await offlineContext.setOffline(false);
     // Reconnection reloads the normal authenticated screen. Wait for the real
     // server write, then open its queue through the normal offline notice.
@@ -484,6 +485,7 @@ try {
     await page.getByRole('button', { name: 'Voir les opérations' }).click();
     await expect(page.getByText('Confirmée par le serveur', { exact: true })).toBeVisible({ timeout: 120000 });
     assert.equal(lost, true, 'Perte de réponse non exercée'); assert.ok(replay?.proposedAt && replay.clientRequestId);
+    assert.equal(offlineTransportFailures.length, 0, 'Transport hors connexion interrompu');
     assert.equal((await api('cashier', replay)).idempotent, true);
     const after = await ledger(); assert.equal(after.length, beforeOffline + 1);
     assert.ok(after.some(m => m.studentId === offlineStudent && m.amountMinor === 1100 && m.lines.length === 1 && m.lines[0].rubricId === 'UNALLOCATED'));

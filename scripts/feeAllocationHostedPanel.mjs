@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { expect } from '@playwright/test';
+import { guardedRoute } from './hostedRecipeSafety.mjs';
 
 /** Uses the shared hosted recipe's scoped, durable fixture lifecycle. No real
  * account, guessed authorization, or simulated server response is accepted. */
@@ -87,7 +88,8 @@ export async function runHostedAllocationPanel({ db, tag, schoolId, yearId, put,
     await select.selectOption(`personnelPayments/${salary.id}`);
     await panel.getByRole('textbox', { name: 'Motif de justification', exact: true }).fill('Paie fictive liée vérifiée par le serveur');
     let calls = 0, firstId;
-    await page.route('**/api/manage-financial-transaction', async route => {
+    const transportFailures = [];
+    await page.route('**/api/manage-financial-transaction', guardedRoute(async route => {
       const body = route.request().postDataJSON();
       if (body?.action !== 'fee-allocation.justify-history') return route.continue();
       calls++;
@@ -95,7 +97,7 @@ export async function runHostedAllocationPanel({ db, tag, schoolId, yearId, put,
       const response = await route.fetch(); assert.equal(response.status(), 200);
       await new Promise(resolve => setTimeout(resolve, 1200));
       if (calls === 1) await route.abort('connectionreset'); else await route.fulfill({ response });
-    });
+    }, transportFailures));
     const button = panel.getByRole('button', { name: 'Vérifier la preuve', exact: true });
     const before = await button.boundingBox();
     await button.evaluate(node => { node.click(); node.click(); });
@@ -107,6 +109,7 @@ export async function runHostedAllocationPanel({ db, tag, schoolId, yearId, put,
     await panel.getByRole('button', { name: 'Vérifier la même demande', exact: true }).click();
     await expect(panel.getByText('Justification vérifiée et conservée.', { exact: false })).toBeVisible();
     assert.equal(calls, 2); assert.deepEqual((await expenseRef.get()).data(), original);
+    assert.equal(transportFailures.length, 0, 'Transport de justification interrompu');
     await expect(panel.getByRole('group', { name: /Justifier/ })).toHaveCount(0);
     await page.screenshot({ path: `${output}/preuve-confirmee-source-preservee.png`, fullPage: true });
     writeFileSync(`${output}/panel-proof.json`, JSON.stringify({ scanned: run.scanned, blocked: run.blockedCount, calls,
