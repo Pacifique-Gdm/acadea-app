@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useDashboardArrears } from "../../hooks/useDashboardArrears";
+import { usePersistentMemo } from "../../hooks/usePersistentMemo";
 import { DashboardArrearsValue } from "../../components/financial/DashboardArrearsValue";
 import type { CSSProperties } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound, X } from "lucide-react";
@@ -347,7 +348,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
   const [transactionPeriod, setTransactionPeriod] = useState<TransactionPeriod>("last5");
   const [pdfExportError, setPdfExportError] = useState("");
   const [schoolClasses, setSchoolClasses] = useState<SchoolClassRecord[]>([]);
-  const dashboardSectionChoices = useMemo(() => getSchoolSections(school), [school]);
+  const dashboardSectionChoices = usePersistentMemo(() => getSchoolSections(school), [school], "dashboard.dashboardSectionChoices");
   useEffect(() => {
     if (sectionFilter !== "all" && !dashboardSectionChoices.includes(sectionFilter)) {
       setSectionFilter("all");
@@ -359,40 +360,40 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
     setSchoolClasses,
     (error) => console.warn("Actualisation des classes du Dashboard indisponible.", error),
   ), [school.id, year.id]);
-  const yearIndexes = useMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments]);
-  const activeStudents = useMemo(() => data.students.filter((student) => !isArchivedStudent(student)), [data.students]);
-  const filteredStudents = useMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter]);
-  const filteredStudentIds = useMemo(() => new Set(filteredStudents.map((student) => student.id)), [filteredStudents]);
+  const yearIndexes = usePersistentMemo(() => buildSchoolYearDataIndexes(data.students, data.feeTypes, data.payments), [data.students, data.feeTypes, data.payments], "dashboard.yearIndexes");
+  const activeStudents = usePersistentMemo(() => data.students.filter((student) => !isArchivedStudent(student)), [data.students], "dashboard.activeStudents");
+  const filteredStudents = usePersistentMemo(() => activeStudents.filter((student) => sectionFilter === "all" || getClassSection(student.className) === sectionFilter), [activeStudents, sectionFilter], "dashboard.filteredStudents");
+  const filteredStudentIds = usePersistentMemo(() => new Set(filteredStudents.map((student) => student.id)), [filteredStudents], "dashboard.filteredStudentIds");
   const dashboardArrears = useDashboardArrears(filteredStudents, data.payments);
-  const filteredParents = useMemo(() => {
+  const filteredParents = usePersistentMemo(() => {
     const filteredParentIds = new Set(filteredStudents.map((student) => student.parentId).filter(Boolean));
     return data.parents.filter((parent) => filteredParentIds.has(parent.id) || parent.studentIds.some((studentId) => filteredStudentIds.has(studentId)));
-  }, [data.parents, filteredStudentIds, filteredStudents]);
-  const filteredPayments = useMemo(
+  }, [data.parents, filteredStudentIds, filteredStudents], "dashboard.filteredParents");
+  const filteredPayments = usePersistentMemo(
     () =>
       data.payments.filter((payment) => {
         const normalized = payment.paidAt.slice(0, 10);
         return filteredStudentIds.has(payment.studentId) && (!dateFilterActive || ((!startDate || normalized >= startDate) && (!endDate || normalized <= endDate)));
       }),
     [data.payments, dateFilterActive, endDate, filteredStudentIds, startDate],
-  );
-  const filteredExpenses = useMemo(
+  "dashboard.filteredPayments");
+  const filteredExpenses = usePersistentMemo(
     () =>
       resolvedExpenses.filter((expense) => {
         const normalized = expense.spentAt.slice(0, 10);
         return sectionFilter === "all" && (!dateFilterActive || ((!startDate || normalized >= startDate) && (!endDate || normalized <= endDate)));
       }),
     [resolvedExpenses, dateFilterActive, endDate, sectionFilter, startDate],
-  );
-  const filteredPaymentIndexes = useMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments]);
-  const dashboardFinancialAggregates = useMemo(
+  "dashboard.filteredExpenses");
+  const filteredPaymentIndexes = usePersistentMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments], "dashboard.filteredPaymentIndexes");
+  const dashboardFinancialAggregates = usePersistentMemo(
     () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes),
     [data.feeTypes, filteredPaymentIndexes, filteredPayments, filteredStudents],
-  );
-  const fullYearFinancialAggregates = useMemo(
+  "dashboard.dashboardFinancialAggregates");
+  const fullYearFinancialAggregates = usePersistentMemo(
     () => buildDashboardFinancialAggregates(activeStudents, data.feeTypes, data.payments, yearIndexes),
     [activeStudents, data.feeTypes, data.payments, yearIndexes],
-  );
+  "dashboard.fullYearFinancialAggregates");
   const hasDashboardFinancialFilter = sectionFilter !== "all" || dateFilterActive;
   const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
   const dashboardFinancialStats = activeFinancialAggregates.financialStats;
@@ -404,66 +405,66 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
   const pdfExportBlocked = financialExportBlocked || refreshing || Boolean(refreshError) || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const transactionStartDate = dateFilterActive ? startDate : today;
   const transactionEndDate = dateFilterActive ? endDate : today;
-  const arrearsCollections = useMemo(() => buildDashboardCollectedArrears(data.payments, {
+  const arrearsCollections = usePersistentMemo(() => buildDashboardCollectedArrears(data.payments, {
     currentYearBySchoolId: new Map([[school.id, year.id]]),
     visibleStudentKeys: new Set([...filteredStudentIds].map((studentId) => `${school.id}:${studentId}`)),
     startDate: transactionStartDate,
     endDate: transactionEndDate,
     applicableCurrencies: [currentCurrency],
-  }), [currentCurrency, data.payments, filteredStudentIds, school.id, transactionEndDate, transactionStartDate, year.id]);
-  const fullYearExpenses = useMemo(() => sumMoney(resolvedExpenses.map((expense) => expense.amount)), [resolvedExpenses]);
-  const filteredExpensesTotal = useMemo(() => sumMoney(filteredExpenses.map((expense) => expense.amount)), [filteredExpenses]);
+  }), [currentCurrency, data.payments, filteredStudentIds, school.id, transactionEndDate, transactionStartDate, year.id], "dashboard.arrearsCollections");
+  const fullYearExpenses = usePersistentMemo(() => sumMoney(resolvedExpenses.map((expense) => expense.amount)), [resolvedExpenses], "dashboard.fullYearExpenses");
+  const filteredExpensesTotal = usePersistentMemo(() => sumMoney(filteredExpenses.map((expense) => expense.amount)), [filteredExpenses], "dashboard.filteredExpensesTotal");
   const totalExpenses = hasDashboardFinancialFilter ? filteredExpensesTotal : fullYearExpenses;
   const remaining = dashboardFinancialStats.remaining;
   const recoveryRate = dashboardFinancialStats.expected > 0 ? Math.round((totalPayments / dashboardFinancialStats.expected) * 100) : 0;
   const recoveryTone = recoveryRate >= 80 ? "text-mint bg-mint/10" : recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
   const feeProgressRows = activeFinancialAggregates.feeProgressRows;
-  const feeShares = useMemo(() => buildDashboardFeeShares(feeProgressRows), [feeProgressRows]);
+  const feeShares = usePersistentMemo(() => buildDashboardFeeShares(feeProgressRows), [feeProgressRows], "dashboard.feeShares");
   const totalActiveStudents = filteredStudents.length;
-  const totalUniqueParents = useMemo(() => uniqueActiveParentCount(filteredParents), [filteredParents]);
-  const personnelCounts = useMemo(() => activeDashboardPersonnelCounts(data.users, school.id), [data.users, school.id]);
-  const operationalClassCount = useMemo(() => canonicalOperationalClasses(
+  const totalUniqueParents = usePersistentMemo(() => uniqueActiveParentCount(filteredParents), [filteredParents], "dashboard.totalUniqueParents");
+  const personnelCounts = usePersistentMemo(() => activeDashboardPersonnelCounts(data.users, school.id), [data.users, school.id], "dashboard.personnelCounts");
+  const operationalClassCount = usePersistentMemo(() => canonicalOperationalClasses(
     schoolClasses,
     activeStudents,
     school.id,
     year.id,
     sectionFilter === "all" ? undefined : [sectionFilter],
-  ).length, [activeStudents, school.id, schoolClasses, sectionFilter, year.id]);
-  const classDisplayRows = useMemo(
+  ).length, [activeStudents, school.id, schoolClasses, sectionFilter, year.id], "dashboard.operationalClassCount");
+  const classDisplayRows = usePersistentMemo(
     () => buildDashboardClassRows(filteredStudents),
     [filteredStudents],
-  );
-  const totalGirls = useMemo(() => classDisplayRows.reduce((sum, row) => sum + row.girls, 0), [classDisplayRows]);
-  const totalBoys = useMemo(() => classDisplayRows.reduce((sum, row) => sum + row.boys, 0), [classDisplayRows]);
+  "dashboard.classDisplayRows");
+  const totalGirls = usePersistentMemo(() => classDisplayRows.reduce((sum, row) => sum + row.girls, 0), [classDisplayRows], "dashboard.totalGirls");
+  const totalBoys = usePersistentMemo(() => classDisplayRows.reduce((sum, row) => sum + row.boys, 0), [classDisplayRows], "dashboard.totalBoys");
   const totalStudents = totalGirls + totalBoys;
   const studentsById = yearIndexes.studentsById;
   const feeTypesById = yearIndexes.feeTypesById;
-  const transactionPayments = useMemo(
+  const transactionPayments = usePersistentMemo(
     () =>
       data.payments.filter((payment) => {
         const normalized = payment.paidAt.slice(0, 10);
         return filteredStudentIds.has(payment.studentId) && (!transactionStartDate || normalized >= transactionStartDate) && (!transactionEndDate || normalized <= transactionEndDate);
       }),
     [data.payments, filteredStudentIds, transactionEndDate, transactionStartDate],
-  );
-  const transactionExpenses = useMemo(
+  "dashboard.transactionPayments");
+  const transactionExpenses = usePersistentMemo(
     () =>
       resolvedExpenses.filter((expense) => {
         const normalized = expense.spentAt.slice(0, 10);
         return sectionFilter === "all" && (!transactionStartDate || normalized >= transactionStartDate) && (!transactionEndDate || normalized <= transactionEndDate);
       }),
     [resolvedExpenses, sectionFilter, transactionEndDate, transactionStartDate],
-  );
-  const transactions = useMemo(
+  "dashboard.transactionExpenses");
+  const transactions = usePersistentMemo(
     () =>
       [
         ...transactionPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
         ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expenseCategoryLabel(expense.category), amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
       ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)),
     [transactionExpenses, transactionPayments],
-  );
-  const chartDates = useMemo(() => getTransactionPeriodDates(transactionPeriod), [transactionPeriod]);
-  const transactionDayRows = useMemo(
+  "dashboard.transactions");
+  const chartDates = usePersistentMemo(() => getTransactionPeriodDates(transactionPeriod), [transactionPeriod], "dashboard.chartDates");
+  const transactionDayRows = usePersistentMemo(
     () =>
       buildDashboardTransactionDayRows({
         dates: chartDates,
@@ -473,8 +474,8 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
         includeExpenses: sectionFilter === "all",
       }),
     [chartDates, resolvedExpenses, data.payments, filteredStudentIds, sectionFilter],
-  );
-  const transactionChartRows = useMemo(
+  "dashboard.transactionDayRows");
+  const transactionChartRows = usePersistentMemo(
     () =>
       transactionDayRows.map((row) => ({
         date: row.date,
@@ -513,7 +514,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
         ],
       })),
     [feeTypesById, studentsById, transactionDayRows],
-  );
+  "dashboard.transactionChartRows");
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter];
   const dateLabel = dateFilterActive ? (startDate || "D\u00e9but") + " au " + (endDate || "Fin") : "Année scolaire complète";
   const cards = [
