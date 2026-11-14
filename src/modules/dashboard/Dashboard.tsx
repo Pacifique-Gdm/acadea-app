@@ -463,7 +463,8 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
       ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)),
     [transactionExpenses, transactionPayments],
   "dashboard.transactions");
-  const chartDates = usePersistentMemo(() => getTransactionPeriodDates(transactionPeriod), [transactionPeriod], "dashboard.chartDates");
+  // La date du jour fait partie des dépendances : après minuit, les dates sont recalculées.
+  const chartDates = usePersistentMemo(() => getTransactionPeriodDates(transactionPeriod, new Date(`${today}T12:00:00`)), [transactionPeriod, today], "dashboard.chartDates");
   const transactionDayRows = usePersistentMemo(
     () =>
       buildDashboardTransactionDayRows({

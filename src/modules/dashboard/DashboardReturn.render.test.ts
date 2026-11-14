@@ -51,4 +51,9 @@ describe("retour sur le Dashboard sans changement", () => {
     expect(html).not.toBe(show());
   });
 
+  it("recalcule les dates du graphique après minuit", () => {
+    const today = show();
+    vi.setSystemTime(new Date("2026-10-04T08:00:00"));
+    expect(show()).not.toBe(today);
+  });
 });
