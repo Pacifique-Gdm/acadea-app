@@ -49,6 +49,7 @@ function memoryDb(seed: Record<string, Row>) {
         set: ((ref: { path: string }, value: Row) => writes.push(() => rows.set(ref.path, value))) as never,
         create: ((ref: { path: string }, value: Row) => writes.push(() => { if (rows.has(ref.path)) throw new Error("already-exists"); rows.set(ref.path, value); })) as never,
         delete: ((ref: { path: string }) => writes.push(() => rows.delete(ref.path))) as never,
+        update: ((ref: { path: string }, value: Row) => writes.push(() => { if (!rows.has(ref.path)) throw new Error("not-found"); rows.set(ref.path, { ...rows.get(ref.path), ...value }); })) as never,
       });
       writes.forEach((write) => write());
       return result;
@@ -148,5 +149,38 @@ describe("inscription : index des identités par école (lot 8)", () => {
 
   it("refuse un identifiant d'école invalide", async () => {
     await expect(migrateStudentIdentityIndex({ db: memoryDb(base()), schoolId: "../autre" })).rejects.toThrow("invalide");
+  });
+});
+
+describe("migration : élève modifié pendant la migration (lot 8)", () => {
+  /** Simule un collègue qui renomme l'élève ancien juste après la lecture de la migration. */
+  function renamedDuringMigration() {
+    const db = memoryDb(base());
+    const getAll = db.getAll;
+    db.getAll = async (...refs: Array<{ path: string }>) => {
+      db.rows.set("students/legacy", { ...db.rows.get("students/legacy"), nom: "NOUVEAU", sortName: "nouveau ilunga jean" });
+      return getAll(...refs);
+    };
+    return db;
+  }
+
+  it("n'écrit ni l'ancien nom de recherche ni l'ancien verrou, et ne pose pas le marqueur", async () => {
+    const db = renamedDuringMigration();
+    const result = await migrateStudentIdentityIndex({ db, schoolId: "school-a", apply: true });
+    const oldLock = `studentIdentityLocks/${identityLockId("school-a", studentIdentityKey(base()["students/legacy"]))}`;
+    expect(db.rows.has(oldLock)).toBe(false);
+    expect(db.rows.get("students/legacy")).toMatchObject({ nom: "NOUVEAU", sortName: "nouveau ilunga jean" });
+    expect(db.rows.has("studentIdentityIndexStates/school-a")).toBe(false);
+    expect(result).toMatchObject({ applied: true, consistent: false });
+  });
+
+  it("relancée ensuite, elle complète proprement et pose le marqueur", async () => {
+    const db = renamedDuringMigration();
+    await migrateStudentIdentityIndex({ db, schoolId: "school-a", apply: true });
+    const fresh = memoryDb(Object.fromEntries(db.rows));
+    const second = await migrateStudentIdentityIndex({ db: fresh, schoolId: "school-a", apply: true });
+    expect(second).toMatchObject({ applied: true, consistent: true });
+    expect(fresh.rows.get("studentIdentityIndexStates/school-a")).toMatchObject({ status: "complete" });
+    expect(fresh.rows.has(`studentIdentityLocks/${identityLockId("school-a", studentIdentityKey(fresh.rows.get("students/legacy")))}`)).toBe(true);
   });
 });

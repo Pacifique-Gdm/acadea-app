@@ -5,9 +5,8 @@ import { studentAlphabeticalKey, studentIdentityKey } from "../../src/utils/stud
  * Tant que le marqueur d'une école n'indique pas « complete », l'inscription
  * garde l'ancienne vérification complète des doublons : le code est sûr même
  * s'il est mis en production avant la migration. La migration ne lit que les
- * noms (jamais les photos) et n'efface rien. */
+ * noms (jamais les photos) et n'efface rien. */ 
 export const IDENTITY_INDEX_VERSION = 1;
-const BATCH_LIMIT = 400;
 
 export function identityLockId(schoolId, key) {
   return createHash("sha256").update(`${schoolId}\0${key}`).digest("hex");
@@ -50,16 +49,41 @@ export async function migrateStudentIdentityIndex({ db, schoolId, apply = false,
   const plan = { schoolId, students: snapshot.size, identities: keys.length, locksToCreate: locksToCreate.length, sortNameToBackfill: missingSortName.length, applied: false };
   if (!apply) return plan;
 
-  const writes = [
-    ...locksToCreate.map((lock) => (batch) => batch.create(db.doc(`studentIdentityLocks/${identityLockId(schoolId, lock.key)}`), { schoolId, studentId: lock.studentId, key: lock.key, createdBy: "identity-index-migration", createdAt: now })),
-    ...missingSortName.map((row) => (batch) => batch.update(db.doc(`students/${row.id}`), { sortName: row.sortName })),
-  ];
-  for (let offset = 0; offset < writes.length; offset += BATCH_LIMIT) {
-    const batch = db.batch();
-    for (const write of writes.slice(offset, offset + BATCH_LIMIT)) write(batch);
-    await batch.commit();
+  // Chaque écriture vérifie, dans une transaction, que la fiche n'a pas changé
+  // depuis la lecture : un élève renommé entre-temps n'est jamais remis à l'ancien nom.
+  let conflicts = 0;
+  for (const lock of locksToCreate) {
+    const written = await db.runTransaction(async (transaction) => {
+      const lockRef = db.doc(`studentIdentityLocks/${identityLockId(schoolId, lock.key)}`);
+      const [lockSnapshot, studentSnapshot] = await Promise.all([transaction.get(lockRef), transaction.get(db.doc(`students/${lock.studentId}`))]);
+      const student = studentSnapshot.exists ? studentSnapshot.data() : undefined;
+      if (lockSnapshot.exists || student?.schoolId !== schoolId || studentIdentityKey(student) !== lock.key) return false;
+      transaction.create(lockRef, { schoolId, studentId: lock.studentId, key: lock.key, createdBy: "identity-index-migration", createdAt: now });
+      return true;
+    });
+    if (!written) conflicts += 1;
   }
+  for (const row of missingSortName) {
+    const written = await db.runTransaction(async (transaction) => {
+      const reference = db.doc(`students/${row.id}`);
+      const snapshot = await transaction.get(reference);
+      const current = snapshot.exists ? snapshot.data() : undefined;
+      if (!current || current.schoolId !== schoolId || studentAlphabeticalKey(current) !== row.sortName || current.sortName === row.sortName) return false;
+      transaction.update(reference, { sortName: row.sortName });
+      return true;
+    });
+    if (!written) conflicts += 1;
+  }
+  // Contrôle de cohérence AVANT le marqueur : chaque identité a son verrou et
+  // chaque fiche son nom de recherche exact ; sinon la migration sera relancée.
+  const check = await db.collection("students").where("schoolId", "==", schoolId).select("nom", "postnom", "prenom", "sortName").get();
+  const checkKeys = [...new Set(check.docs.map((document) => studentIdentityKey(document.data())))];
+  const checkLocks = checkKeys.length ? await db.getAll(...checkKeys.map((key) => db.doc(`studentIdentityLocks/${identityLockId(schoolId, key)}`))) : [];
+  const consistent = checkLocks.every((snapshot) => snapshot.exists)
+    && check.docs.every((document) => document.data().sortName === studentAlphabeticalKey(document.data()));
+  if (!consistent) return { ...plan, applied: true, consistent: false, conflicts };
   await identityIndexStateRef(db, schoolId).set({ schoolId, status: "complete", version: IDENTITY_INDEX_VERSION, completedAt: now,
-    students: plan.students, identities: plan.identities, locksCreated: plan.locksToCreate, sortNameBackfilled: plan.sortNameToBackfill });
-  return { ...plan, applied: true };
+    students: check.size, identities: checkKeys.length, locksCreated: plan.locksToCreate - conflicts, sortNameBackfilled: plan.sortNameToBackfill });
+  return { ...plan, applied: true, consistent: true, conflicts };
 }
+
