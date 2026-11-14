@@ -53,22 +53,50 @@ export function readCachedArrears(students: readonly ArrearsStudent[], payments:
 
 /** Recalcule seulement les élèves périmés, par paquets de 50 et par année ;
  * chaque paquet réussi est gardé même si un paquet suivant échoue. */
+/** Coordination : 4 paquets à la fois, sans dépasser 60 appels par minute glissante
+ * (limite serveur de la lecture des arriérés de coordination). École : un par un. */
+const COORDINATION_CONCURRENCY = 4;
+const COORDINATION_CALLS_PER_MINUTE = 60;
+
 export async function refreshStaleArrears(stale: readonly ArrearsStudent[], prints: ReadonlyMap<string, string>, scope: string, coordination: boolean,
-  options: { isCancelled?: () => boolean; loader?: ArrearsLoader } = {}) {
+  options: { isCancelled?: () => boolean; loader?: ArrearsLoader; now?: () => number; sleep?: (ms: number) => Promise<void> } = {}) {
   const loader: ArrearsLoader = options.loader ?? (coordination ? (_year, ids) => loadCoordinationStudentArrearsBatch(ids) : loadStudentArrearsBatch);
+  const now = options.now ?? (() => Date.now());
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  // La lecture de coordination ne dépend pas de l'année : un seul groupe, donc moins d'appels.
   const groups = new Map<string, string[]>();
-  for (const student of stale) groups.set(student.schoolYearId, [...(groups.get(student.schoolYearId) ?? []), student.id]);
-  for (const [yearId, ids] of groups) {
-    for (let offset = 0; offset < ids.length; offset += BATCH_SIZE) {
+  for (const student of stale) {
+    const key = coordination ? "" : student.schoolYearId;
+    groups.set(key, [...(groups.get(key) ?? []), student.id]);
+  }
+  const batches: Array<{ yearId: string; ids: string[] }> = [];
+  for (const [yearId, ids] of groups) for (let offset = 0; offset < ids.length; offset += BATCH_SIZE) batches.push({ yearId, ids: ids.slice(offset, offset + BATCH_SIZE) });
+
+  const starts: number[] = [];
+  const reserveSlot = async () => {
+    if (!coordination) return;
+    for (;;) {
+      const current = now();
+      while (starts.length && current - starts[0] >= 60_000) starts.shift();
+      if (starts.length < COORDINATION_CALLS_PER_MINUTE) { starts.push(current); return; }
+      await sleep(60_000 - (current - starts[0]));
+    }
+  };
+  let next = 0;
+  const worker = async () => {
+    while (next < batches.length) {
       if (options.isCancelled?.()) return;
-      const batch = ids.slice(offset, offset + BATCH_SIZE);
-      const values = await loader(yearId, batch);
-      for (const id of batch) {
+      const { yearId, ids } = batches[next++];
+      await reserveSlot();
+      if (options.isCancelled?.()) return;
+      const values = await loader(yearId, ids);
+      for (const id of ids) {
         const print = prints.get(id);
         if (print !== undefined && values[id]) cache.set(cacheKey(scope, coordination, id), { fingerprint: print, totals: { USD: values[id].USD, CDF: values[id].CDF } });
       }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: coordination ? Math.min(COORDINATION_CONCURRENCY, batches.length) : 1 }, worker));
 }
 
 export function clearDashboardArrearsCache() {
