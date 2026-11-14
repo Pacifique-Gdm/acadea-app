@@ -22,8 +22,8 @@ import { useStudentPage } from "../../hooks/useStudentPage";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
 import { failureKind, plainFailureMessage, publicServerMessage } from "../../services/requestFailure";
-import { findSavedStudent } from "../../services/studentSaveVerification";
-import { deleteStudentPhoto, needsStorageUpload, uploadStudentPhoto } from "../../services/studentPhotoStorage";
+import { discardUploadedPhotoIfUnused, findSavedStudent } from "../../services/studentSaveVerification";
+import { needsStorageUpload, uploadStudentPhoto } from "../../services/studentPhotoStorage";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -228,6 +228,7 @@ export function StudentsModule({
     setSaveMessage("");
     let attemptedCreation: { id: string; schoolYearId: string; withParent: boolean } | undefined;
     let uploadedPhotoPath = "";
+    let attemptedPhotoTarget: { studentId: string; schoolId: string; schoolYearId: string } | undefined;
     try {
       const exists = !form.id.startsWith("new-");
       if ((exists && !studentCapabilities.canEdit) || (!exists && !studentCapabilities.canCreate)) {
@@ -290,6 +291,7 @@ export function StudentsModule({
       if (needsStorageUpload(student, previousPhoto) && student.photoUrl) {
         uploadedPhotoPath = await uploadStudentPhoto({ schoolId: school.id, studentId: student.id, dataUrl: student.photoUrl });
         student.photoPath = uploadedPhotoPath;
+        attemptedPhotoTarget = { studentId: student.id, schoolId: school.id, schoolYearId: targetYearId };
         if (previousPhoto) student.photoUrl = previousPhoto; else delete student.photoUrl;
       }
       if (!student.photoPath) delete student.photoPath;
@@ -387,8 +389,8 @@ export function StudentsModule({
       if (import.meta.env.DEV) console.error("Enregistrement de l'élève impossible.", error);
       const serverMessage = publicServerMessage(error);
       const kind = failureKind(error);
-      // Refus définitif : la photo envoyée pour cette tentative ne sert à rien, on la retire.
-      if (uploadedPhotoPath && kind !== "network") void deleteStudentPhoto(uploadedPhotoPath);
+      // La photo envoyée n'est retirée qu'après confirmation qu'aucune fiche ne l'utilise.
+      if (uploadedPhotoPath && attemptedPhotoTarget) void discardUploadedPhotoIfUnused({ path: uploadedPhotoPath, ...attemptedPhotoTarget });
       if (serverMessage.includes("Un élève avec le même nom, post-nom et prénom existe déjà.")) {
         setSaveError(serverMessage);
       } else if (kind === "network" && attemptedCreation) {
