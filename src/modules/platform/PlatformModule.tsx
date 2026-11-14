@@ -12,7 +12,7 @@ import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hook
 import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
 import type { SuperAdminGlobalCounts } from "../../services/superAdminData";
-import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin } from "../../services/provisioning";
+import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin, setSchoolAdminStatus } from "../../services/provisioning";
 import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, resetSchoolAiMonthlyUsage, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
 import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } from "../../utils/adminRemoval";
 import { aiAssistantConfirmationPhrase, canConfirmAiAssistantChange } from "../../utils/aiAssistantConfirmation";
@@ -792,15 +792,19 @@ export function PlatformModule({
     }
   }
 
-  function toggleAdminStatus(admin: AppUser) {
+  async function toggleAdminStatus(admin: AppUser) {
     const nextStatus = admin.status === "inactive" ? "active" : "inactive";
     const label = nextStatus === "inactive" ? "désactiver" : "réactiver";
     if (!confirm(`Confirmer: ${label} ${admin.name} ?`)) return;
-
-    updateData({
-      users: data.users.map((item) => (item.id === admin.id ? { ...item, status: nextStatus } : item)),
-      auditLogs: [writeAudit(admin.schoolId, `${nextStatus === "inactive" ? "Désactivation" : "Réactivation"} de l'administrateur ${admin.name}`), ...data.auditLogs],
-    });
+    setSchoolActionError("");
+    try {
+      // Le serveur coupe le compte et révoque les sessions ; l'audit est écrit côté serveur.
+      const result = await setSchoolAdminStatus({ schoolId: admin.schoolId ?? "", adminId: admin.id, status: nextStatus });
+      updateData({ users: data.users.map((item) => (item.id === admin.id ? { ...item, status: result.status, active: result.status === "active" } : item)) }, { persist: false });
+      setSchoolActionSuccess(nextStatus === "inactive" ? `${admin.name} est désactivé et déconnecté.` : `${admin.name} est réactivé.`);
+    } catch (error) {
+      setSchoolActionError(error instanceof Error ? error.message : "Changement de statut impossible.");
+    }
   }
 
   function openCurrencyChangeDialog(school: School, currency: "USD" | "CDF") {
@@ -1590,7 +1594,7 @@ export function PlatformModule({
                       <button onClick={() => openEditAdminModal(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">
                         Modifier
                       </button>
-                      <button onClick={() => toggleAdminStatus(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">
+                      <button onClick={() => void toggleAdminStatus(admin)} className="rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700" type="button">
                         {admin.status === "inactive" ? "Réactiver" : "Désactiver"}
                       </button>
                       <button onClick={() => openAdminRemovalDialog(admin)} className="rounded bg-red-50 px-3 py-2 text-xs font-semibold text-red-700" type="button">

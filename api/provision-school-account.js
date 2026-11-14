@@ -545,6 +545,54 @@ export async function removeSchoolAdmin({ auth, db, caller, body }) {
   return { adminId, status: "inactive", authStatus: "disabled", removedAt };
 }
 
+/** Désactivation réelle d'un administrateur d'école : compte Auth coupé,
+ * sessions révoquées et profil marqué inactif (les règles et l'API refusent
+ * alors immédiatement toute lecture ou écriture). La réactivation rouvre le compte. */
+export async function setSchoolAdminStatus({ auth, db, caller, body }) {
+  if (caller.role !== "super_admin") {
+    throw Object.assign(new Error("Action reservee au Super Administrateur."), { statusCode: 403, code: "permission-denied" });
+  }
+  if (Object.keys(body).some((key) => !["action", "schoolId", "adminId", "status"].includes(key))) {
+    throw Object.assign(new Error("Champs non autorises."), { statusCode: 400, code: "invalid-argument" });
+  }
+  const schoolId = normalizeText(body.schoolId);
+  const adminId = normalizeText(body.adminId);
+  const status = body.status;
+  if (!schoolId || !adminId || (status !== "active" && status !== "inactive")) {
+    throw Object.assign(new Error("Ecole, administrateur et statut requis."), { statusCode: 400, code: "invalid-argument" });
+  }
+  if (adminId === caller.uid) {
+    throw Object.assign(new Error("Vous ne pouvez pas modifier votre propre statut."), { statusCode: 400, code: "invalid-argument" });
+  }
+  const adminRef = db.doc(`users/${adminId}`);
+  const adminSnapshot = await adminRef.get();
+  if (!adminSnapshot.exists) throw Object.assign(new Error("Administrateur introuvable."), { statusCode: 404, code: "not-found" });
+  const admin = adminSnapshot.data() ?? {};
+  if (admin.role !== "school_admin" || admin.schoolId !== schoolId) {
+    throw Object.assign(new Error("Administrateur hors de cette ecole."), { statusCode: 403, code: "permission-denied" });
+  }
+  if (status === "active" && admin.removedAt) {
+    throw Object.assign(new Error("Cet administrateur a ete retire : creez un nouveau compte."), { statusCode: 409, code: "failed-precondition" });
+  }
+  const changedAt = new Date().toISOString();
+  const disabled = status === "inactive";
+  await auth.updateUser(adminId, { disabled });
+  const auditRef = db.collection("auditLogs").doc(uid("audit"));
+  const batch = db.batch();
+  batch.update(adminRef, disabled
+    ? { status: "inactive", active: false, deactivatedAt: changedAt, deactivatedBy: caller.uid }
+    : { status: "active", active: true, reactivatedAt: changedAt, reactivatedBy: caller.uid });
+  batch.create(auditRef, buildServerAudit({ id: auditRef.id, eventType: disabled ? AUDIT_EVENT_TYPES.USER_DISABLED : AUDIT_EVENT_TYPES.USER_REACTIVATED, actor: caller, schoolId, resourceType: "user", resourceId: adminId, metadata: { role: "school_admin", status } }));
+  try {
+    await batch.commit();
+  } catch (error) {
+    await auth.updateUser(adminId, { disabled: !disabled }).catch(() => undefined);
+    throw error;
+  }
+  if (disabled) await auth.revokeRefreshTokens(adminId);
+  return { adminId, status, authStatus: disabled ? "disabled" : "enabled", changedAt };
+}
+
 export async function createServicePersonnel({ db, caller, body }) {
   if (Object.keys(body).some((key) => !["action", "schoolId", "name", "phone", "jobTitle", "otherJobTitle"].includes(key))) {
     throw Object.assign(new Error("Champs non autorisés pour une fiche sans compte Acadéa."), { statusCode: 400, code: "invalid-argument" });
@@ -873,7 +921,7 @@ export default async function handler(req, res) {
       sendJson(res, 200, result);
       return;
     }
-    const destructive = action === "delete-parent" || action === "delete-school-subclass" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "archive-personnel" || action === "reactivate-personnel";
+    const destructive = action === "delete-parent" || action === "delete-school-subclass" || action === "unlink-parent-from-student" || action === "remove-school-admin" || action === "set-school-admin-status" || action === "archive-personnel" || action === "reactivate-personnel";
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? "platform"), action: destructive ? `provision.${action}` : "provision.account", ...(destructive ? API_RATE_LIMITS.PROVISION_DESTRUCTIVE : API_RATE_LIMITS.PROVISION_ACCOUNT) });
 
     if (action === "delete-parent") {
@@ -907,6 +955,11 @@ export default async function handler(req, res) {
     if (action === "remove-school-admin") {
       const result = await removeSchoolAdmin({ auth, db, caller, body });
       sendJson(res, 200, result);
+      return;
+    }
+
+    if (action === "set-school-admin-status") {
+      sendJson(res, 200, await setSchoolAdminStatus({ auth, db, caller, body }));
       return;
     }
 

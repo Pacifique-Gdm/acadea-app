@@ -416,6 +416,15 @@ export async function removeSchoolAdmin(input: RemoveSchoolAdminInput) {
   return payload;
 }
 
+export type SchoolAdminStatusResponse = { adminId: string; status: "active" | "inactive"; authStatus: "enabled" | "disabled"; changedAt: string };
+
+/** Désactive (compte coupé, sessions révoquées) ou réactive un administrateur d'école, côté serveur. */
+export async function setSchoolAdminStatus(input: { schoolId: string; adminId: string; status: "active" | "inactive" }) {
+  const payload = await provisionSchoolAccount<SchoolAdminStatusResponse>({ action: "set-school-admin-status", ...input });
+  if (payload.adminId !== input.adminId || payload.status !== input.status || !payload.changedAt) throw new Error("Réponse de changement de statut incomplète.");
+  return payload;
+}
+
 type ManageSchoolAction = "update" | "change-acronym" | "change-currency" | "rename-option" | "suspend" | "reactivate" | "delete";
 
 type ManageSchoolInput = {
