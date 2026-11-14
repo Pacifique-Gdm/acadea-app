@@ -16,6 +16,7 @@ import { DisciplineBottomNavigation } from "./components/layout/DisciplineBottom
 import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
 import { trackPersistence } from "./services/persistenceStatus";
 import { patchIdentities, previousWithoutUnconfirmed } from "./utils/persistencePlan";
+import { reuseShallow, reuseUnchanged } from "./utils/structuralSharing";
 import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
 import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
@@ -81,6 +82,7 @@ import type {
   AppUser,
   AttendanceSettings,
   FeeType,
+  School,
   SchoolYear,
 } from "./types";
 
@@ -186,7 +188,7 @@ export default function App() {
   const [selectedYearId, setSelectedYearId] = useState("");
   const yearRequestVersion = useRef(0);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
-  const [secretaryActiveTab, setSecretaryActiveTab] = useState<SecretaryTab>("students");
+  const [, setSecretaryActiveTab] = useState<SecretaryTab>("students");
   const [parentFormRequest, setParentFormRequest] = useState<{ parentId?: string; requestId: number } | null>(null);
   const [route, setRoute] = useState(() => getInitialRoute());
   const [authReady, setAuthReady] = useState(false);
@@ -293,11 +295,9 @@ export default function App() {
     user,
     schoolId: user?.schoolId ?? "",
     schoolYearId: selectedYearId,
-    includeStudents: user?.role === "school_admin"
-      ? activeTab !== "students" || route.startsWith("/admin/eleves/")
-      : user?.role === "secretary"
-        ? secretaryActiveTab !== "students" || route.startsWith("/secretariat/eleves/")
-        : true,
+    // L'écoute globale reste active sur l'onglet Élèves : la couper puis la
+    // rouvrir retéléchargeait toutes les fiches à chaque sortie de l'onglet.
+    includeStudents: true,
     onData: applyRealtimeSchoolRecords,
     onError: handleSchoolRecordsRealtimeError,
   });
@@ -1007,9 +1007,11 @@ export default function App() {
     );
   }
 
-  const currentSchool = schoolWithYearCurrency(school, selectedYear);
+  // Mêmes objets tant que le contenu ne change pas : les écrans (Dashboard…)
+  // ne recalculent ni ne réinterrogent le serveur pour un simple rafraîchissement.
+  const currentSchool = lastCurrentSchool = reuseShallow(schoolWithYearCurrency(school, selectedYear), lastCurrentSchool);
   const currentYear = selectedYear;
-  const yearData = scopeData(data, currentSchool.id, currentYear.id, user);
+  const yearData = lastYearData = reuseUnchanged(scopeData(data, currentSchool.id, currentYear.id, user), lastYearData);
   const studentDetailMatch = route.match(/^\/admin\/eleves\/(.+)$/);
   const secretaryStudentDetailMatch = route.match(/^\/secretariat\/eleves\/(.+)$/);
   const biometricRoute = route === "/admin/empreintes" ? "fingerprints" : route === "/admin/cartes" ? "cards" : null;
@@ -1444,6 +1446,9 @@ export default function App() {
     </div>
   );
 }
+
+let lastYearData: ReturnType<typeof scopeData> | undefined;
+let lastCurrentSchool: School | undefined;
 
 function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: AppUser) {
   const tenantStudents =
