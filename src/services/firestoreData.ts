@@ -1,6 +1,8 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { deleteField, doc as fieldDoc, setDoc as setFieldDoc, updateDoc, type Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import { conditionalFirestoreWrite } from "./conditionalFirestoreWrite";
+import { planCollectionWrites, type PersistableRecord, type PlannedWrite } from "../utils/persistencePlan";
 import { loadSuperAdminInitialData } from "./superAdminData";
 import type { AppData, AppUser } from "../types";
 import { resolveDefaultSchoolYear } from "../utils/schoolYears";
@@ -13,6 +15,8 @@ type PersistableItem = { id: string };
 type PersistFirestorePatchOptions = {
   throwOnError?: boolean;
   createIds?: Partial<Record<CollectionKey, readonly string[]>>;
+  /** État avant la modification : seules les fiches réellement modifiées sont écrites. */
+  previous?: Partial<AppData>;
 };
 export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "cashInflows" | "messages" | "valves" | "attendance" | "attendanceSettings" | "auditLogs">>;
 export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings" | "valves">;
@@ -513,8 +517,46 @@ export async function savePlatformSettings(settings: PlatformSettings) {
   return true;
 }
 
+/** Écrit une fiche modifiée champ par champ, pour ne pas écraser la modification
+ * simultanée d'un collègue sur d'autres champs de la même fiche. Si la fiche
+ * n'existe plus côté serveur, elle est réécrite entière, comme avant. */
+async function writePlanned(collectionName: string, write: PlannedWrite) {
+  if (!db) return;
+  if (write.mode !== "fields") {
+    if (write.mode === "create") return conditionalFirestoreWrite(collectionName, write.id, write.item, false);
+    return setDoc(doc(db, collectionName, write.id), write.item);
+  }
+  const reference = fieldDoc(db as unknown as Firestore, collectionName, write.id);
+  const fields: Record<string, unknown> = { ...write.changed };
+  for (const key of write.removed) fields[key] = deleteField();
+  try {
+    await updateDoc(reference, fields);
+  } catch (error) {
+    if ((error as { code?: string })?.code !== "not-found") throw error;
+    await setFieldDoc(reference, write.item);
+  }
+}
+
 export async function persistFirestorePatch(patch: Partial<AppData>, options: PersistFirestorePatchOptions = {}) {
   if (!canUseFirestoreData() || !db) return false;
+
+  if (options.previous) {
+    const previous = options.previous;
+    await Promise.all(
+      (Object.entries(patch) as [CollectionKey, AppData[CollectionKey]][])
+        .filter(([key, items]) => collectionMap[key] && Array.isArray(items))
+        .flatMap(([key, items]) => {
+          const collectionName = collectionMap[key]!;
+          const before = previous[key] as unknown as PersistableRecord[] | undefined;
+          return planCollectionWrites(Array.isArray(before) ? before : undefined, items as unknown as PersistableRecord[], options.createIds?.[key] ?? [])
+            .map((write) => writePlanned(collectionName, write).catch((error) => {
+              if (options.throwOnError) throw error;
+              console.warn(`Document Firestore ignoré (${collectionName}/${write.id}).`, error);
+            }));
+        }),
+    );
+    return true;
+  }
 
   await Promise.all(
     (Object.entries(patch) as [CollectionKey, AppData[CollectionKey]][])
