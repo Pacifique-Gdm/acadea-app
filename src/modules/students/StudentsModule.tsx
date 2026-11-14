@@ -396,7 +396,7 @@ export function StudentsModule({
       } else if (kind === "network" || kind === "rate-limit" || kind === "inactive-year" || kind === "unavailable") {
         setSaveError(`Impossible d'enregistrer l'élève : ${plainFailureMessage(kind, false)}`);
       } else {
-        setSaveError(`Impossible d'enregistrer l'élève : ${serverMessage || "vérifiez les informations saisies."}`);
+        setSaveError(serverMessage ? `Impossible d'enregistrer l'élève : ${serverMessage}` : "Impossible d'enregistrer l'élève. Vérifiez les informations saisies.");
       }
     } finally {
       saveInProgressRef.current = false;
