@@ -19,10 +19,12 @@ vi.mock("./conditionalFirestoreWrite", () => ({ conditionalFirestoreWrite: async
 vi.mock("./superAdminData", () => ({ loadSuperAdminInitialData: vi.fn() }));
 
 import { persistFirestorePatch } from "./firestoreData";
-import { planCollectionWrites, previousWithoutUnconfirmed } from "../utils/persistencePlan";
+import { planCollectionWrites, previousWithoutUnconfirmed, type PersistableRecord } from "../utils/persistencePlan";
+
+const records = (rows: unknown) => rows as PersistableRecord[];
 
 type Parent = AppData["parents"][number];
-const parent = (id: string, overrides: Partial<Parent> = {}) => ({ id, schoolId: "school-a", name: `Parent ${id}`, phone: "0810000000", email: `${id}@example.invalid`, studentIds: [], ...overrides }) as Parent;
+const parent = (id: string, overrides: Partial<Parent> = {}) => ({ id, schoolId: "school-a", fullName: `Parent ${id}`, phone: "0810000000", email: `${id}@example.invalid`, studentIds: [], ...overrides }) as Parent;
 const before = [parent("p1"), parent("p2"), parent("p3")];
 const writes = () => ({ full: calls.setDoc.map(([path]) => path), fields: calls.updateDoc, created: calls.created });
 
@@ -30,25 +32,25 @@ describe("écritures ciblées (updateData)", () => {
   beforeEach(() => { calls.setDoc = []; calls.updateDoc = []; calls.created = []; calls.updateError = undefined; });
 
   it("ancien comportement de référence : toute la collection est réécrite", async () => {
-    await persistFirestorePatch({ parents: [before[0], { ...before[1], name: "Nouveau" }, before[2]] }, { throwOnError: true });
+    await persistFirestorePatch({ parents: [before[0], { ...before[1], fullName: "Nouveau" }, before[2]] }, { throwOnError: true });
     expect(writes().full).toEqual(["parents/p1", "parents/p2", "parents/p3"]);
   });
 
   it("n'écrit que la fiche modifiée, et seulement le champ modifié", async () => {
-    await persistFirestorePatch({ parents: [before[0], { ...before[1], name: "Nouveau" }, before[2]] }, { throwOnError: true, previous: { parents: before } });
-    expect(writes()).toEqual({ full: [], fields: [["parents/p2", { name: "Nouveau" }]], created: [] });
+    await persistFirestorePatch({ parents: [before[0], { ...before[1], fullName: "Nouveau" }, before[2]] }, { throwOnError: true, previous: { parents: before } });
+    expect(writes()).toEqual({ full: [], fields: [["parents/p2", { fullName: "Nouveau" }]], created: [] });
   });
 
   it("préserve la modification simultanée d'un collègue sur un autre champ de la même fiche", async () => {
     // Le téléphone a été changé par un collègue côté serveur ; ici on ne modifie que le nom.
-    await persistFirestorePatch({ parents: [{ ...before[0], name: "Nom corrigé" }] }, { throwOnError: true, previous: { parents: before } });
-    expect(calls.updateDoc).toEqual([["parents/p1", { name: "Nom corrigé" }]]);
+    await persistFirestorePatch({ parents: [{ ...before[0], fullName: "Nom corrigé" }] }, { throwOnError: true, previous: { parents: before } });
+    expect(calls.updateDoc).toEqual([["parents/p1", { fullName: "Nom corrigé" }]]);
     expect(calls.setDoc).toEqual([]);
   });
 
   it("efface un champ retiré de la fiche", async () => {
     const { email: _email, ...withoutEmail } = before[0];
-    await persistFirestorePatch({ parents: [withoutEmail as Parent] }, { throwOnError: true, previous: { parents: before } });
+    await persistFirestorePatch({ parents: [withoutEmail as unknown as Parent] }, { throwOnError: true, previous: { parents: before } });
     expect(calls.updateDoc).toEqual([["parents/p1", { email: DELETE }]]);
   });
 
@@ -65,34 +67,34 @@ describe("écritures ciblées (updateData)", () => {
     calls.setDoc = [];
     await persistFirestorePatch({ parents: remaining }, { throwOnError: true, previous: { parents: before } });
     expect(writes()).toEqual({ full: [], fields: [], created: [] }); // maintenant : p2 n'est toujours pas supprimé, rien d'inutile n'est écrit
-    expect(planCollectionWrites(before, remaining).map((write) => write.id)).not.toContain("p2");
+    expect(planCollectionWrites(records(before), records(remaining)).map((write) => write.id)).not.toContain("p2");
   });
 
   it("écrit la fiche entière quand un nom de champ serait lu comme un chemin", async () => {
-    await persistFirestorePatch({ parents: [{ ...before[0], "a.b": 1 } as Parent] }, { throwOnError: true, previous: { parents: before } });
+    await persistFirestorePatch({ parents: [{ ...before[0], "a.b": 1 } as unknown as Parent] }, { throwOnError: true, previous: { parents: before } });
     expect(writes().full).toEqual(["parents/p1"]);
     expect(calls.updateDoc).toEqual([]);
   });
 
   it("réécrit la fiche entière si elle n'existe plus côté serveur, comme avant", async () => {
     calls.updateError = { code: "not-found" };
-    await persistFirestorePatch({ parents: [{ ...before[0], name: "X" }] }, { throwOnError: true, previous: { parents: before } });
+    await persistFirestorePatch({ parents: [{ ...before[0], fullName: "X" }] }, { throwOnError: true, previous: { parents: before } });
     expect(writes().full).toEqual(["parents/p1"]);
   });
 
   it("transmet tout autre refus (règles, réseau) sans écriture de secours", async () => {
     calls.updateError = { code: "permission-denied" };
-    await expect(persistFirestorePatch({ parents: [{ ...before[0], name: "X" }] }, { throwOnError: true, previous: { parents: before } })).rejects.toMatchObject({ code: "permission-denied" });
+    await expect(persistFirestorePatch({ parents: [{ ...before[0], fullName: "X" }] }, { throwOnError: true, previous: { parents: before } })).rejects.toMatchObject({ code: "permission-denied" });
     expect(calls.setDoc).toEqual([]);
   });
 
   it("compare les objets sans tenir compte de l'ordre des clés", () => {
-    const reordered = { studentIds: [], email: "p1@example.invalid", phone: "0810000000", name: "Parent p1", schoolId: "school-a", id: "p1" } as Parent;
-    expect(planCollectionWrites([before[0]], [reordered])).toEqual([]);
+    const reordered = { studentIds: [], email: "p1@example.invalid", phone: "0810000000", fullName: "Parent p1", schoolId: "school-a", id: "p1" };
+    expect(planCollectionWrites(records([before[0]]), records([reordered]))).toEqual([]);
   });
 
   it("après un échec, réécrit entières les fiches non confirmées à l'enregistrement suivant", () => {
     const previous = previousWithoutUnconfirmed({ parents: before, students: [] } as unknown as AppData, { parents: before }, new Set(["parents/p2"]));
-    expect(planCollectionWrites(previous.parents, before).map((write) => [write.id, write.mode])).toEqual([["p2", "full"]]);
+    expect(planCollectionWrites(records(previous.parents), records(before)).map((write) => [write.id, write.mode])).toEqual([["p2", "full"]]);
   });
 });
