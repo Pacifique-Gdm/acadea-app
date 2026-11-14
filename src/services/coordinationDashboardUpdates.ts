@@ -4,7 +4,7 @@ import { coordinationSchoolBatches } from "./coordinationSchoolBatches";
 /** Invalidate the existing read model only after server-confirmed changes.
  * Queries retain the same school scope and rules access-call budget. */
 export function subscribeCoordinationDashboardUpdates(database: Firestore, schoolIds: string[], isDelegate: boolean,
-  reload: () => Promise<void>, onError: () => void) {
+  reload: () => Promise<void>, onError: () => void, activeYears?: Readonly<Record<string, string>>) {
   let stopped = false, running = false, dirty = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const flush = async () => {
@@ -24,6 +24,20 @@ export function subscribeCoordinationDashboardUpdates(database: Firestore, schoo
     if (!running && timer === undefined) timer = setTimeout(() => void flush(), 300);
   };
   const stops: Array<() => void> = [];
+  const listen = (target: ReturnType<typeof query>) => stops.push(onSnapshot(target, { includeMetadataChanges: true }, (snapshot) => {
+    if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites && snapshot.docChanges().length) changed();
+  }, () => { if (!stopped) onError(); }));
+  if (activeYears) {
+    // Lot 11 : par école, seulement l'année active (et les arriérés encaissés cette année).
+    for (const schoolId of schoolIds) {
+      const yearId = activeYears[schoolId];
+      listen(query(collection(database, "schoolYears"), where("schoolId", "==", schoolId)));
+      if (!yearId) continue;
+      for (const name of ["students", "feeTypes", "payments", "expenses", "cashInflows"]) listen(query(collection(database, name), where("schoolId", "==", schoolId), where("schoolYearId", "==", yearId)));
+      listen(query(collection(database, "payments"), where("schoolId", "==", schoolId), where("collectionSchoolYearId", "==", yearId)));
+    }
+    return () => { stopped = true; dirty = false; if (timer !== undefined) clearTimeout(timer); stops.forEach(stop => stop()); };
+  }
   for (const ids of coordinationSchoolBatches(schoolIds, isDelegate)) {
     for (const name of ["students", "feeTypes", "payments", "expenses", "cashInflows", "schoolYears"]) {
       stops.push(onSnapshot(query(collection(database, name), where("schoolId", "in", ids)), { includeMetadataChanges: true }, (snapshot) => {
