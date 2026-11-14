@@ -17,11 +17,14 @@ export type AllocationWorkspace = {
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;
   targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[] };
+export type AllocationEvidence = { collection: string; id: string; amountMinor: number | null; createdAt: string | null; reason: string | null; nature: string; receiptNumber: string | null; currency: 'USD' | 'CDF' | null };
+export type AllocationProof = { type: 'financialIdempotency' | 'personnelPayments'; id: string; nature: string; amount: number; currency: 'USD' | 'CDF' | null; createdAt: string | null; receiptNumber: string | null };
 export type AllocationActivationView = {
   operational: false; schoolId: string; schoolYearId: string; currency: "USD" | "CDF"; testOnly: boolean;
   status: "EN_PREPARATION" | "ACTIVE" | "PAUSED"; cutoffAt: string;
   reconciliation?: null | { id: string; status: "RUNNING" | "BLOCKED" | "COMPLETE"; pageCount: number; scanned: number; evidenceCount: number; blockedCount: number; sequence: number; stale: boolean; reason: string | null };
-  evidencePage?: { page: number; hasNext: boolean; fingerprint: string | null; rows: Array<{ collection: string; id: string; amountMinor: number | null; createdAt: string | null; reason: string | null }> };
+  evidencePage?: { page: number; hasNext: boolean; fingerprint: string | null; rows: AllocationEvidence[] };
+  singleBlocker?: AllocationEvidence | null;
   rubrics: Array<{ id: string; name: string }>;
   versions: Array<{ id: string; configId: string; feeTypeId: string; version: number; status: "prepared" | "published" }>;
   opening: null | { id: string; status: "proposed" | "approved" | "activated"; stale: boolean; cutoffAt: string;
@@ -29,8 +32,8 @@ export type AllocationActivationView = {
   inventory: null | { schoolAvailableMinor: number; cashAvailableMinor: number; fingerprint: string; evidenceCount: number;
     page: number; hasNext: boolean; evidence: Array<{ collection: string; id: string; amountMinor: number; createdAt: string }> };
 };
-export async function loadAllocationActivation(schoolId: string, page = 0, fingerprint?: string) {
-  const result = await allocationRequest<AllocationActivationView>("get-activation", { page, ...(fingerprint ? { fingerprint } : {}) });
+export async function loadAllocationActivation(schoolId: string, page = 0, fingerprint?: string, blockedOnly = false) {
+  const result = await allocationRequest<AllocationActivationView>("get-activation", { page, ...(fingerprint ? { fingerprint } : {}), ...(blockedOnly ? { blockedOnly } : {}) });
   if (result.schoolId !== schoolId || !result.schoolYearId || !["USD", "CDF"].includes(result.currency)
     || !["EN_PREPARATION", "ACTIVE", "PAUSED"].includes(result.status) || !Array.isArray(result.rubrics) || !Array.isArray(result.versions)) {
     throw new AllocationApiError("Contexte d'activation non confirmé.");

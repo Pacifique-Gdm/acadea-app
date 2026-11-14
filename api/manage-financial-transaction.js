@@ -90,7 +90,7 @@ export default async function handler(req, res) {
         ...(mutation || allocationAction === 'get-workspace' ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
       const manage = reconciliationActions.has(allocationAction) ? manageAllocationReconciliation
         : allocationLifecycleActions.has(allocationAction) ? manageFeeAllocationLifecycle
-        : allocationAction === "get-activation" ? readAllocationActivation
+        : ["get-activation", "get-history-proofs"].includes(allocationAction) ? readAllocationActivation
         : allocationAction === "spend-options" ? getAllocationSpendOptions
         : ["get-workspace", "save-drafts"].includes(allocationAction) ? manageFeeAllocationPhase2 : manageFeeAllocationPhase1;
       return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction } }));

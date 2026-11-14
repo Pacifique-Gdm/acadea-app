@@ -13,6 +13,14 @@ export const unavailableAllocation = "Indisponible — répartition en préparat
 export const allocationFeeKey = (schoolId: string, feeId: string) => JSON.stringify([schoolId, feeId]);
 export const allocationClassKey = (schoolId: string, classKey: string) => JSON.stringify([schoolId, classKey]);
 export const allocationClassLabel = (value: string) => value.replace("::option::", " — ");
+export function allocationFilterChoices(workspaces: AllocationWorkspace[], kind: AllocationFilter['kind']) {
+  const multiple = workspaces.length > 1;
+  const pairs = workspaces.flatMap(w => w.fees.map(f => [
+    kind === 'class' ? allocationClassKey(w.school.id, f.classOptionKey || f.className) : allocationFeeKey(w.school.id, f.id),
+    `${multiple ? w.school.name + ' · ' : ''}${kind === 'class' ? '' : f.name + ' — '}${allocationClassLabel(f.classOptionKey || f.className)}`,
+  ] as const));
+  return [...new Map(pairs)];
+}
 const date = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 export function allocationPeriod(value: string, from: string, to: string, now = new Date()): { from: string; to: string } {
   const today = date(now);

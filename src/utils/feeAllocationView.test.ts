@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AllocationWorkspace } from "../services/feeAllocation";
 import { allocationClassKey, allocationFeeKey, allocationPeriod, allocationTotals, projectAllocations, type AllocationFilter } from "./feeAllocationView";
 import { feeAllocationPdfSections } from "./feeAllocationPdf";
+import { allocationFilterChoices } from './feeAllocationView';
 const filter: AllocationFilter = { kind: "fee", value: "", from: "", to: "" };
 const workspace = (schoolId = "s", currency: "USD" | "CDF" = "USD"): AllocationWorkspace => ({ school: { id: schoolId, name: `École ${schoolId}`, activeSchoolYearId: "y" }, year: { id: "y", schoolId, name: "2026", status: "active", startsAt: null, endsAt: null }, currency, canConfigure: true, operational: false,
   fees: [100, 200].map((amount, i) => ({ id: `f${i}`, name: "Minerval", className: `${i + 1}ère`, classOptionKey: `${i + 1}ère::option::A`, amount })),
@@ -9,6 +10,19 @@ const workspace = (schoolId = "s", currency: "USD" | "CDF" = "USD"): AllocationW
     draft: { feeAmountMinor, updatedAt: "2026-11-13T08:00:00Z", updatedBy: "a", rubrics: [{ id: "a".repeat(32), name: "Fonctionnement", mode: "percent", basisPoints: 2000 }, { id: "b".repeat(32), name: "Salaire", mode: "fixed", fixedMinor: 3000 }, { id: "c".repeat(32), name: "Prime", mode: "percent", basisPoints: 2500 }] } })),
 });
 describe("projection et PDF préparatoires identiques", () => {
+  it('simplifie une école sans fusionner deux identifiants au libellé identique', () => {
+    const w = workspace(); w.fees.push({ ...w.fees[0], id: 'other-id' });
+    const choices = allocationFilterChoices([w], 'fee');
+    expect(choices).toHaveLength(3);
+    expect(choices[0][1]).toBe('Minerval — 1ère — A');
+    expect(choices[0][1]).toBe(choices[2][1]);
+    expect(choices[0][0]).not.toBe(choices[2][0]);
+    expect(allocationFilterChoices([w], 'class')).toHaveLength(2);
+    const multiple = allocationFilterChoices([w, workspace('b')], 'fee');
+    expect(multiple[0][1]).toContain('École s · ');
+    expect(multiple.at(-1)?.[1]).toContain('École b · ');
+    expect(allocationFilterChoices([workspace('b')], 'fee')[0][1]).not.toContain('École');
+  });
   it("conserve les montants 100/200, les identités et Non affecté sans fusion par nom", () => {
     const rows = projectAllocations([workspace()], filter); expect(rows).toHaveLength(8); expect(new Set(rows.map((r) => r.key)).size).toBe(8);
     expect(rows.filter((r) => r.rubricName === "Non affecté").map((r) => r.amountMinor)).toEqual([2500, 8000]);

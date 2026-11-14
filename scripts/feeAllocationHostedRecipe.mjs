@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, expect } from '@playwright/test';
+import { chromium, expect as baseExpect } from '@playwright/test';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { createWorker } from 'tesseract.js';
@@ -12,10 +12,17 @@ import { services } from './socialFinanceStagingFixture.mjs';
 import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
 import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
 import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
+import { runHostedAllocationPanel } from './feeAllocationHostedPanel.mjs';
+import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
+// A mutation is followed by authenticated workspace + activation reads. Match
+// the hosted response budget, not Playwright's unrelated five-second default.
+const expect = baseExpect.configure({ timeout: 45000 });
 
 const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.ACADEA_EXPECTED_SHA;
-const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume';
-assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly, 'Parcours de recette inconnu');
+const panelOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'panel-only';
+const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume' || panelOnly;
+const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel' || panelOnly;
+assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe, 'Parcours de recette inconnu');
 const output = `diagnostics/fee-allocation-hosted/${expectedSha}${volumeOnly ? `-volume-${Date.now()}` : ''}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
 assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
@@ -77,12 +84,9 @@ save(); // Durable identity-only inventory before the first write. No password/t
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
 let browser, pdfOcr;
 const tokens = new Map();
-const safeError = error => {
-  let message = String(error?.message ?? error).replaceAll(password, '[identifiant masqué]');
-  for (const token of tokens.values()) message = message.replaceAll(token, '[session masquée]').replaceAll(token.replace(/^Bearer /, ''), '[session masquée]');
-  return message.slice(0, 600);
-};
-const record = name => { results.push({ name, result: 'PASS' }); console.log(`PASS: ${name}`); };
+const safeError = error => redactRecipeError(error, [password, ...tokens.values()]);
+const checkpoint = () => writeFileSync(`${output}/results.json`, JSON.stringify({ projectId: 'acadea-staging', expectedSha, results }, null, 2));
+const record = name => { results.push({ name, result: 'PASS' }); checkpoint(); console.log(`PASS: ${name}`); };
 async function put(collection, id, data) {
   assert.ok(id.startsWith(tag));
   const path = `${collection}/${id}`;
@@ -365,6 +369,14 @@ try {
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Activation par établissement' });
+    const transportFailures = [];
+    await page.route('**/api/manage-financial-transaction', guardedRoute(async route => {
+      const action = route.request().postDataJSON()?.action;
+      if (!['publish-configuration', 'start-reconciliation', 'prepare-opening', 'approve-opening', 'activate', 'pause', 'resume'].some(a => action === `fee-allocation.${a}`)) return route.continue();
+      const response = await route.fetch({ maxRetries: 1 });
+      await new Promise(resolve => setTimeout(resolve, 800));
+      await route.fulfill({ response });
+    }, transportFailures));
     // Wait for the actual authenticated mutation, not Playwright's five-second
     // assertion default. A slow confirmed reply is not a server rejection.
     async function activationClick(label, action) {
@@ -372,29 +384,55 @@ try {
         if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
         try { return response.request().postDataJSON()?.action === `fee-allocation.${action}`; } catch { return false; }
       }, { timeout: 45000 });
-      const [response] = await Promise.all([responsePromise, panel.getByRole('button', { name: label, exact: true }).click()]);
+      void responsePromise.catch(() => {}); // Awaited below; never leak a raw event error.
+      const control = panel.getByRole('button', { name: label, exact: true });
+      const before = await control.boundingBox();
+      await control.click();
+      const waiting = panel.getByRole('button', { name: 'Chargement...', exact: true });
+      await expect(waiting).toBeDisabled();
+      const during = await waiting.boundingBox();
+      assert.equal(before.width, during.width); assert.equal(before.height, during.height);
+      const response = await responsePromise;
+      assert.equal(transportFailures.length, 0, 'Transport hébergé interrompu');
       const reply = await response.json();
       assert.equal(response.status(), 200, `Activation ${action}: HTTP ${response.status()}, code ${reply.code ?? 'inconnu'}`);
       assert.equal(reply.operational, false, 'Contrat de confirmation invalide');
     }
-    await activationClick('Publier cette version', 'publish-configuration');
-    await expect(panel.getByRole('button', { name: 'Publier cette version', exact: true })).toHaveCount(0, { timeout: 45000 });
-    await activationClick('Lancer un nouveau rapprochement', 'start-reconciliation');
-    await panel.getByRole('button', { name: 'Continuer le rapprochement', exact: true }).click();
-    await expect(panel.getByText('Rapprochement complet.', { exact: false })).toBeVisible({ timeout: 60000 });
+    await activationClick('Publier la répartition', 'publish-configuration');
+    await expect(panel.getByRole('button', { name: 'Publier la répartition', exact: true })).toHaveCount(0, { timeout: 45000 });
+    await activationClick('Vérifier le solde de départ', 'start-reconciliation');
+    await panel.getByRole('button', { name: 'Continuer la vérification', exact: true }).click();
+    await expect(panel.getByText('Vérification terminée.', { exact: false })).toBeVisible({ timeout: 60000 });
+    await panel.getByRole('button', { name: 'Préparer le solde de départ', exact: true }).click();
     await panel.getByLabel('Caisse constatée (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Ouverture : Fonctionnement CDF (CDF)', { exact: true }).fill('90');
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('RAPPROCHER LA CAISSE');
-    await activationClick("Préparer l'ouverture", 'prepare-opening');
-    await expect(panel.getByRole('button', { name: 'Approuver le rapprochement', exact: true })).toBeVisible({ timeout: 45000 });
+    await activationClick('Confirmer le solde de départ', 'prepare-opening');
+    await expect(panel.getByRole('button', { name: 'Approuver le solde de départ', exact: true })).toBeVisible({ timeout: 45000 });
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('APPROUVER LE RAPPROCHEMENT');
-    await activationClick('Approuver le rapprochement', 'approve-opening');
-    await expect(panel.getByRole('button', { name: 'Activer cet établissement', exact: true })).toBeVisible({ timeout: 45000 });
+    await activationClick('Approuver le solde de départ', 'approve-opening');
+    await expect(panel.getByRole('button', { name: 'Activer la répartition', exact: true })).toBeVisible({ timeout: 45000 });
     await panel.getByLabel('Confirmation du rapprochement', { exact: true }).fill('ACTIVER LA REPARTITION FICTIVE');
-    await activationClick('Activer cet établissement', 'activate');
-    await expect(panel.getByText('Répartition active', { exact: false })).toBeVisible({ timeout: 45000 });
+    await activationClick('Activer la répartition', 'activate');
+    await expect(panel.getByRole('heading', { name: 'Active', exact: true })).toBeVisible({ timeout: 45000 });
     await page.screenshot({ path: `${output}/activation-administrateur-cdf.png`, fullPage: true });
+    await panel.getByRole('button', { name: 'Mettre en pause', exact: true }).click();
+    await panel.getByLabel('Motif audité', { exact: true }).fill('Pause fictive de contrôle du panneau');
+    await activationClick('Confirmer la pause', 'pause');
+    await expect(panel.getByRole('heading', { name: 'En pause', exact: true })).toBeVisible();
+    await panel.getByRole('button', { name: 'Reprendre la répartition', exact: true }).click();
+    await panel.getByLabel('Motif audité', { exact: true }).fill('Reprise fictive de contrôle du panneau');
+    await activationClick('Confirmer la reprise', 'resume');
+    await expect(panel.getByRole('heading', { name: 'Active', exact: true })).toBeVisible();
     record('Publication, rapprochement, approbation et activation explicites depuis le véritable formulaire Administrateur');
+  } catch (error) {
+    const tab = activationContext.pages()[0];
+    if (tab) {
+      await tab.screenshot({ path: `${output}/activation-failure.png`, fullPage: true }).catch(() => {});
+      writeFileSync(`${output}/activation-failure.json`, JSON.stringify({ error: safeError(error),
+        panel: await tab.getByRole('region', { name: 'Activation par établissement' }).innerText({ timeout: 1000 }).catch(() => 'Panneau indisponible') }, null, 2));
+    }
+    throw error;
   } finally { await activationContext.close(); }
   await api('cdf-cashier', { action: 'create-payment', schoolYearId: cdfYear, studentId: cdfStudent, feeTypeId: cdfFee, amount: 10000, clientRequestId: requestId() });
   await api('cdf-cashier', { ...cdfExpense, amount: 2000, allocationRubricId: cdfRubric, clientRequestId: requestId() });
@@ -438,7 +476,8 @@ try {
     await expect(page.getByText('En attente', { exact: true })).toBeVisible();
     assert.equal((await ledger()).length, beforeOffline);
     let lost = false, delivered = false, replay;
-    await offlineContext.route('**/api/manage-financial-transaction', async route => {
+    const offlineTransportFailures = [];
+    await offlineContext.route('**/api/manage-financial-transaction', guardedRoute(async route => {
       const input = route.request().postDataJSON();
       if (input?.action !== 'create-payment' || input.studentId !== offlineStudent) return route.continue();
       // Send to the real hosted API, then lose only the confirmed network response.
@@ -448,7 +487,7 @@ try {
         await route.fulfill({ response }); delivered = true; return;
       }
       lost = true; replay = input; await route.abort('connectionreset');
-    });
+    }, offlineTransportFailures));
     await offlineContext.setOffline(false);
     // Reconnection reloads the normal authenticated screen. Wait for the real
     // server write, then open its queue through the normal offline notice.
@@ -459,6 +498,7 @@ try {
     await page.getByRole('button', { name: 'Voir les opérations' }).click();
     await expect(page.getByText('Confirmée par le serveur', { exact: true })).toBeVisible({ timeout: 120000 });
     assert.equal(lost, true, 'Perte de réponse non exercée'); assert.ok(replay?.proposedAt && replay.clientRequestId);
+    assert.equal(offlineTransportFailures.length, 0, 'Transport hors connexion interrompu');
     assert.equal((await api('cashier', replay)).idempotent, true);
     const after = await ledger(); assert.equal(after.length, beforeOffline + 1);
     assert.ok(after.some(m => m.studentId === offlineStudent && m.amountMinor === 1100 && m.lines.length === 1 && m.lines[0].rubricId === 'UNALLOCATED'));
@@ -499,6 +539,10 @@ try {
       await expect(drawer.getByRole('button', { name: 'Exporter PDF', exact: true })).toBeEnabled({ timeout: 60000 });
       await expect(drawer.locator('tbody tr')).toHaveCount(21);
       await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(0);
+      const toolbar = drawer.getByRole('region', { name: 'Commandes de répartition' });
+      await expect(toolbar.locator('button, select')).toHaveCount(3);
+      assert.ok((await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents()).every(text => !text.includes('Répartition fictive USD')));
+      await page.screenshot({ path: `${output}/${u.role}-desktop.png`, fullPage: true });
       let expectedReceived = 581, expectedFilter;
       if (u.role === 'school_admin') {
         await drawer.getByLabel('Valeur correspondante', { exact: true }).selectOption(JSON.stringify([school, secondFee]));
@@ -518,11 +562,10 @@ try {
         expectedFilter = day;
         if (u.role === 'coordination_admin') expectedReceived = 0;
       }
-      const summary = drawer.locator('[aria-label="Synthèse selon le filtre"]');
-      const globalSummary = drawer.locator('[aria-label="Synthèse globale des rubriques"]');
+      const summary = drawer.getByRole('table', { name: 'Situation des répartitions' }).locator('tfoot tr');
       const money = amount => `$${amount.toFixed(2).replace('.', ',')}`;
-      await expect(summary.locator(':scope > div').nth(1)).toContainText(money(expectedReceived));
-      for (const [i, amount] of [5, 581, 42, 544].entries()) await expect(globalSummary.locator(':scope > div').nth(i)).toContainText(money(amount));
+      await expect(summary.locator('td').nth(2)).toContainText(money(expectedReceived));
+      for (const [i, amount] of [5, 581, 42, 544].entries()) await expect(summary.locator('td').nth(i + 3)).toContainText(money(amount));
       for (const [name, opening, cumulative, spent, available, selected] of [['Rubrique fictive 1', 0, 60, 42, 18, 4], ['Non affecté', 5, 255, 0, 260, 44]]) {
         const row = drawer.getByRole('table', { name: 'Situation des répartitions' }).locator('tbody tr').filter({ has: page.getByText(name, { exact: true }) });
         await expect(row).toHaveCount(1);
@@ -531,6 +574,8 @@ try {
         assert.equal(opening + cumulative - spent, available);
       }
       await page.setViewportSize({ width: 390, height: 844 }); assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+      const positions = await toolbar.locator('button, select').evaluateAll(nodes => nodes.map(n => ({ y: n.getBoundingClientRect().y, h: n.getBoundingClientRect().height })));
+      assert.ok(positions.every(p => Math.abs(p.y - positions[0].y) < 2 && Math.abs(p.h - positions[0].h) < 2));
       await page.screenshot({ path: `${output}/${u.role}-mobile.png`, fullPage: true });
       await drawer.getByRole('button', { name: 'Exporter PDF', exact: true }).click();
       await expect(page.locator('[data-pdf-download]')).toHaveAttribute('href', /^blob:/, { timeout: 90000 });
@@ -561,12 +606,37 @@ try {
       console.error(`FAIL: ${u.role} : export/drawer (rapport expurgé conservé)`);
     } finally { await context.close(); }
   }
+  if (panelRecipe && !results.some(r => r.result === 'FAIL')) {
+    await ownUpdate('schools', foreign, { activeCoordinationId: coord });
+    await put('coordinationSchools', `${coord}__${foreign}`, { schoolId: foreign, coordinationId: coord, active: true });
+    await put('subCoordinationSchools', `${sub}__${foreign}`, { schoolId: foreign, coordinationId: coord, subCoordinationId: sub, active: true });
+    for (const u of users.filter(u => ['coordination_admin', 'sub_coordination_admin'].includes(u.role))) {
+      const context = await browser.newContext({ serviceWorkers: 'block' });
+      try {
+        const page = await context.newPage(); page.setDefaultTimeout(60000);
+        await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+        await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
+        await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
+        await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
+        const drawer = page.getByRole('dialog', { name: 'Répartition des frais', exact: true });
+        await expect(drawer.locator('tfoot tr')).toHaveCount(2);
+        const labels = await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents();
+        assert.ok(labels.some(l => l.includes('Répartition fictive USD')) && labels.some(l => l.includes('Répartition fictive CDF')));
+        await page.screenshot({ path: `${output}/${u.role}-multi-ecoles.png`, fullPage: true });
+        await drawer.getByRole('combobox', { name: 'Établissement', exact: true }).selectOption(school);
+        await expect(drawer.locator('tfoot tr')).toHaveCount(1);
+        assert.ok((await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents()).every(l => !l.includes('Répartition fictive')));
+        record(`${u.role} : deux écoles/devises distinctes puis école unique sans répétitions`);
+      } finally { await context.close(); }
+    }
+  }
   }
   browser ??= await chromium.launch({ headless: true });
-  if (!results.some(result => result.result === 'FAIL')) await runHostedAllocationVolume({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
+  if (!results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;
+  checkpoint();
   console.error('FAIL: recette interrompue, consulter le rapport expurgé.');
 } finally {
   // Fixture neutralization must still run if a browser/OCR worker failed.
