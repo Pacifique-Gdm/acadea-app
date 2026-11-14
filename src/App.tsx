@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { auth } from "./firebase";
 import { randomId } from "./utils/randomId";
@@ -17,6 +17,7 @@ import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
 import { trackPersistence } from "./services/persistenceStatus";
 import { patchIdentities, previousWithoutUnconfirmed } from "./utils/persistencePlan";
 import { reuseShallow, reuseUnchanged } from "./utils/structuralSharing";
+import { loadScreen } from "./utils/lazyScreen";
 import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
 import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
@@ -26,26 +27,9 @@ import { YearScreen } from "./components/school/YearScreen";
 import { ParentFormEditor } from "./components/parents/ParentFormEditor";
 import { StudentDetailPage } from "./components/students/StudentDetailPage";
 import { StudentsModule } from "./modules/students/StudentsModule";
-import { BiometricStudentsPage } from "./modules/biometrics/BiometricStudentsPage";
-import { PlatformModule } from "./modules/platform/PlatformModule";
-import { DisciplinePortal } from "./modules/discipline/DisciplinePortal";
-import { ControlModule } from "./modules/control/ControlModule";
-import { MenuModule } from "./modules/menu/MenuModule";
-import { ParentsModule } from "./modules/parents/ParentsModule";
-import { ParentPortal } from "./modules/parent/ParentPortal";
-import { SecretaryPortal } from "./modules/secretary/SecretaryPortal";
-import { StudyDirectorPortal } from "./modules/studies/StudyDirectorPortal";
-import { TeacherPortal } from "./modules/teacher/TeacherPortal";
-import { CoordinationPortal } from "./modules/coordination/CoordinationPortal";
 import { PublishedTimetableDrawerEntry } from "./modules/studies/PublishedTimetableReadOnly";
 import { canReadPublishedTimetable } from "./modules/studies/publishedTimetableService";
-import { SecretaryCorrespondenceModule } from "./modules/secretary/SecretaryCorrespondenceModule";
-import { SecretaryReportsModule } from "./modules/secretary/SecretaryReportsModule";
-import { SecretaryMenuModule } from "./modules/secretary/SecretaryMenuModule";
 import { Dashboard } from "./modules/dashboard/Dashboard";
-import { ReportsModule } from "./modules/reports/ReportsModule";
-import { FinancialReportPage } from "./modules/reports/FinancialReportPage";
-import { MessagesModule } from "./modules/messages/MessagesModule";
 import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
 import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeValves";
@@ -85,6 +69,25 @@ import type {
   School,
   SchoolYear,
 } from "./types";
+
+// Lot 12 : écrans chargés à la demande (portails par rôle et écrans secondaires).
+const PlatformModule = lazy(loadScreen(() => import("./modules/platform/PlatformModule").then((module) => ({ default: module.PlatformModule }))));
+const DisciplinePortal = lazy(loadScreen(() => import("./modules/discipline/DisciplinePortal").then((module) => ({ default: module.DisciplinePortal }))));
+const ControlModule = lazy(loadScreen(() => import("./modules/control/ControlModule").then((module) => ({ default: module.ControlModule }))));
+const MenuModule = lazy(loadScreen(() => import("./modules/menu/MenuModule").then((module) => ({ default: module.MenuModule }))));
+const ParentsModule = lazy(loadScreen(() => import("./modules/parents/ParentsModule").then((module) => ({ default: module.ParentsModule }))));
+const ParentPortal = lazy(loadScreen(() => import("./modules/parent/ParentPortal").then((module) => ({ default: module.ParentPortal }))));
+const SecretaryPortal = lazy(loadScreen(() => import("./modules/secretary/SecretaryPortal").then((module) => ({ default: module.SecretaryPortal }))));
+const StudyDirectorPortal = lazy(loadScreen(() => import("./modules/studies/StudyDirectorPortal").then((module) => ({ default: module.StudyDirectorPortal }))));
+const TeacherPortal = lazy(loadScreen(() => import("./modules/teacher/TeacherPortal").then((module) => ({ default: module.TeacherPortal }))));
+const CoordinationPortal = lazy(loadScreen(() => import("./modules/coordination/CoordinationPortal").then((module) => ({ default: module.CoordinationPortal }))));
+const SecretaryCorrespondenceModule = lazy(loadScreen(() => import("./modules/secretary/SecretaryCorrespondenceModule").then((module) => ({ default: module.SecretaryCorrespondenceModule }))));
+const SecretaryReportsModule = lazy(loadScreen(() => import("./modules/secretary/SecretaryReportsModule").then((module) => ({ default: module.SecretaryReportsModule }))));
+const SecretaryMenuModule = lazy(loadScreen(() => import("./modules/secretary/SecretaryMenuModule").then((module) => ({ default: module.SecretaryMenuModule }))));
+const ReportsModule = lazy(loadScreen(() => import("./modules/reports/ReportsModule").then((module) => ({ default: module.ReportsModule }))));
+const FinancialReportPage = lazy(loadScreen(() => import("./modules/reports/FinancialReportPage").then((module) => ({ default: module.FinancialReportPage }))));
+const MessagesModule = lazy(loadScreen(() => import("./modules/messages/MessagesModule").then((module) => ({ default: module.MessagesModule }))));
+const BiometricStudentsPage = lazy(loadScreen(() => import("./modules/biometrics/BiometricStudentsPage").then((module) => ({ default: module.BiometricStudentsPage }))));
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
 type BeforeInstallPromptEvent = Event & {
