@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, expect } from '@playwright/test';
+import { chromium, expect as baseExpect } from '@playwright/test';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { createWorker } from 'tesseract.js';
@@ -14,6 +14,9 @@ import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
 import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
 import { runHostedAllocationPanel } from './feeAllocationHostedPanel.mjs';
 import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
+// A mutation is followed by authenticated workspace + activation reads. Match
+// the hosted response budget, not Playwright's unrelated five-second default.
+const expect = baseExpect.configure({ timeout: 45000 });
 
 const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.ACADEA_EXPECTED_SHA;
 const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume';
@@ -81,7 +84,8 @@ const password = `Fictif-${randomUUID()}${randomUUID()}`;
 let browser, pdfOcr;
 const tokens = new Map();
 const safeError = error => redactRecipeError(error, [password, ...tokens.values()]);
-const record = name => { results.push({ name, result: 'PASS' }); console.log(`PASS: ${name}`); };
+const checkpoint = () => writeFileSync(`${output}/results.json`, JSON.stringify({ projectId: 'acadea-staging', expectedSha, results }, null, 2));
+const record = name => { results.push({ name, result: 'PASS' }); checkpoint(); console.log(`PASS: ${name}`); };
 async function put(collection, id, data) {
   assert.ok(id.startsWith(tag));
   const path = `${collection}/${id}`;
@@ -420,6 +424,14 @@ try {
     await activationClick('Confirmer la reprise', 'resume');
     await expect(panel.getByRole('heading', { name: 'Active', exact: true })).toBeVisible();
     record('Publication, rapprochement, approbation et activation explicites depuis le véritable formulaire Administrateur');
+  } catch (error) {
+    const tab = activationContext.pages()[0];
+    if (tab) {
+      await tab.screenshot({ path: `${output}/activation-failure.png`, fullPage: true }).catch(() => {});
+      writeFileSync(`${output}/activation-failure.json`, JSON.stringify({ error: safeError(error),
+        panel: await tab.getByRole('region', { name: 'Activation par établissement' }).innerText({ timeout: 1000 }).catch(() => 'Panneau indisponible') }, null, 2));
+    }
+    throw error;
   } finally { await activationContext.close(); }
   await api('cdf-cashier', { action: 'create-payment', schoolYearId: cdfYear, studentId: cdfStudent, feeTypeId: cdfFee, amount: 10000, clientRequestId: requestId() });
   await api('cdf-cashier', { ...cdfExpense, amount: 2000, allocationRubricId: cdfRubric, clientRequestId: requestId() });
@@ -623,6 +635,7 @@ try {
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;
+  checkpoint();
   console.error('FAIL: recette interrompue, consulter le rapport expurgé.');
 } finally {
   // Fixture neutralization must still run if a browser/OCR worker failed.

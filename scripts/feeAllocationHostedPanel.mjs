@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { expect } from '@playwright/test';
+import { expect as baseExpect } from '@playwright/test';
 import { guardedRoute } from './hostedRecipeSafety.mjs';
+const expect = baseExpect.configure({ timeout: 45000 });
 
 /** Uses the shared hosted recipe's scoped, durable fixture lifecycle. No real
  * account, guessed authorization, or simulated server response is accepted. */

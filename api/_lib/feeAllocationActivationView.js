@@ -108,7 +108,9 @@ export async function readAllocationActivation({ db, caller, body, now = new Dat
       if (rows.length || !body.blockedOnly || page + 1 >= run.pageCount || searched === 19) break;
       page++;
     }
-    const safeRows = await Promise.all(rows.map(row => presentEvidence(db, tx, row, schoolId, yearId)));
+    // A known stale run must remain readable so the administrator can restart
+    // verification. Never hydrate/present its old rows as verified evidence.
+    const safeRows = runStale ? [] : await Promise.all(rows.map(row => presentEvidence(db, tx, row, schoolId, yearId)));
     // A bounded server lookup can identify the single blocker even when the
     // displayed page contains only verified payments. Counts always come from
     // the reconciliation run, never from this partial presentation lookup.

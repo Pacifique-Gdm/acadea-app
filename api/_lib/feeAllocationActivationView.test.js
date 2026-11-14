@@ -81,6 +81,10 @@ describe("consultation sécurisée du cycle d'activation", () => {
     db.records.get("payments/p0000").amount = 3;
     markFixtureFinancialChange(db);
     await expect(view(db, { page: 1, fingerprint: first.inventory.fingerprint })).rejects.toThrow("pièces ont changé");
+    const stale = await view(db);
+    expect(stale.reconciliation.stale).toBe(true);
+    expect(stale.inventory).toBeNull();
+    expect(stale.evidencePage.rows).toEqual([]);
   });
   it("retrouve une proposition après réouverture et invalide son approbation si les pièces changent", async () => {
     const db = completeAllocationFixture();
