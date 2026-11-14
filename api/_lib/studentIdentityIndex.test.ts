@@ -150,3 +150,21 @@ describe("inscription : index des identités par école (lot 8)", () => {
     await expect(migrateStudentIdentityIndex({ db: memoryDb(base()), schoolId: "../autre" })).rejects.toThrow("invalide");
   });
 });
+
+describe("inscription : chemin de la photo Storage (lot 9)", () => {
+  const uuid = "123e4567-e89b-42d3-a456-426614174000";
+  it("accepte une photo rangée sous l'école (y compris sous l'identifiant d'une année précédente)", async () => {
+    const db = memoryDb(base());
+    const own = await save(db, pupil("photo-1", { prenom: "ALICE", photoPath: `schools/school-a/student-photos/student-photo-1/${uuid}.jpg` }));
+    expect(own.student.photoPath).toBe(`schools/school-a/student-photos/student-photo-1/${uuid}.jpg`);
+    const imported = await save(db, pupil("photo-2", { prenom: "BRUNO", photoPath: `schools/school-a/student-photos/ancien-id/${uuid}.png` }));
+    expect(imported.student.photoPath).toContain("ancien-id");
+  });
+
+  it("refuse une photo d'une autre école ou un chemin libre", async () => {
+    const db = memoryDb(base());
+    for (const photoPath of [`schools/school-b/student-photos/student-x/${uuid}.jpg`, "personnel-photos/school-a/x.jpg", `schools/school-a/student-photos/student-x/photo.jpg`]) {
+      await expect(save(db, pupil("photo-3", { prenom: "CLAIRE", photoPath }))).rejects.toThrow("Photo de l'élève invalide");
+    }
+  });
+});

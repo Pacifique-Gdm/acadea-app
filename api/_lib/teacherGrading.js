@@ -1,6 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { canonicalClassNameFromRecordId, operationalBaseClassId, operationalClassOptionKey } from "../../src/utils/studentYearTransition.js";
+import { withTeacherPhotoUrls } from "./studentPhotoAccess.js";
 
 const EDITABLE_SLOTS = new Set([
   "period_1", "period_2", "semester_1_exam",
@@ -387,12 +388,15 @@ export async function loadConsolidatedSchoolClass(db, schoolId, schoolYearId, cl
   };
 }
 
-export async function executeTeacherGrading({ db, caller, body }) {
+export async function executeTeacherGrading({ db, caller, body, signPhoto }) {
   const action = requiredString(body.action, "Action");
   const schoolId = requiredString(body.schoolId, "École");
   const schoolYearId = requiredString(body.schoolYearId, "Année scolaire");
   const teacher = await identity(db, caller, schoolId, schoolYearId);
-  if (action === "load") return loadGrading(db, teacher, schoolId, schoolYearId);
+  if (action === "load") {
+    const grading = await loadGrading(db, teacher, schoolId, schoolYearId);
+    return { ...grading, students: await withTeacherPhotoUrls(grading.students, schoolId, signPhoto) };
+  }
   if (action === "load-consolidated") return loadConsolidatedClass(db, teacher, schoolId, schoolYearId, requiredString(body.classId, "Classe"));
 
   if (["save-observation", "save-config", "save-entries", "sync-offline-grade"].includes(action)) {
@@ -406,7 +410,10 @@ export async function executeTeacherGrading({ db, caller, body }) {
   const subjectId = requiredString(body.subjectId, "Matière");
   const assignmentId = requiredString(body.assignmentId, "Affectation");
   const assignment = await assertCourse(db, teacher, schoolId, schoolYearId, classId, subjectId, assignmentId);
-  if (action === "load-roster") return loadCourseRoster(db, assignment, schoolId, schoolYearId);
+  if (action === "load-roster") {
+    const roster = await loadCourseRoster(db, assignment, schoolId, schoolYearId);
+    return { ...roster, students: await withTeacherPhotoUrls(roster.students, schoolId, signPhoto) };
+  }
   if (action === "save-observation") return saveObservation(db, caller, teacher, assignment, schoolId, schoolYearId, body);
   const legacyConfigId = [schoolId, schoolYearId, classId, subjectId].join("__");
   const requestedSlot = body.gradingSlot === undefined ? null : requiredString(body.gradingSlot, "Période");

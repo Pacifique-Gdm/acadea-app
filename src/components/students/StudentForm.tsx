@@ -8,6 +8,7 @@ import { nextSubclassLetters } from "../../utils/subclassLetters.js";
 import { deleteStudentBirthDateInput, formatStudentBirthDateInput, guideStudentBirthDateInput, parseStudentBirthDateInput } from "../../utils/studentBirthDate";
 import type { ParentProfile, SchoolClass, SchoolClassRecord, Student } from "../../types";
 import { ParentSearchPicker } from "../parents/ParentSearchPicker";
+import { useStudentPhotoSource } from "./StudentPhoto";
 import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
 
 export function StudentForm({
@@ -55,6 +56,8 @@ export function StudentForm({
   onAddSubclasses?: (parent: SchoolClassRecord, labels: string[], classOptionKey: string | undefined, confirmation: string) => Promise<void>;
   onDeleteSubclass?: (subclass: SchoolClassRecord, confirmation: string) => Promise<void>;
 }) {
+  // Photo Storage d'abord ; une nouvelle photo choisie remplace le chemin Storage dans le formulaire.
+  const photoSource = useStudentPhotoSource({ photoPath: form.photoPath || undefined, photoUrl: form.photoUrl });
   const [showOptionForm, setShowOptionForm] = useState(false);
   const [newOption, setNewOption] = useState("");
   const [optionAddPending, setOptionAddPending] = useState(false);
@@ -338,7 +341,7 @@ export function StudentForm({
           {subclassDeleteTarget?.id === item.id && <div role="dialog" aria-label="Confirmer la suppression de sous-classe" className="grid min-w-0 gap-2 rounded border border-red-200 bg-red-50 p-3"><p>Supprimer la sous-classe <strong>{item.subClassLabel ?? item.name}</strong> de {selectedClass.name} ?</p><p>Saisissez exactement <strong>SUPPRIMER CETTE SOUS-CLASSE</strong>.</p><input className="input min-w-0" aria-label="Confirmation de la suppression" value={subclassDeleteConfirmation} onChange={(event) => setSubclassDeleteConfirmation(event.target.value)} /><div className="grid min-w-0 grid-cols-2 gap-2"><button type="button" className="secondary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassDeletePending} onClick={() => { setSubclassDeleteTarget(undefined); setSubclassDeleteConfirmation(""); setSubclassError(""); }}>Annuler</button><button type="button" className="primary-button w-full min-w-0 whitespace-normal px-2 text-center" disabled={subclassDeletePending || subclassDeleteConfirmation !== "SUPPRIMER CETTE SOUS-CLASSE"} onClick={() => { setSubclassDeletePending(true); void onDeleteSubclass(item, subclassDeleteConfirmation).then(() => { if (form.subClassId === item.id) setForm({ ...form, subClassId: undefined }); resetSubclassContext(); }).catch((cause) => setSubclassError(cause instanceof Error ? cause.message : "Suppression impossible.")).finally(() => setSubclassDeletePending(false)); }}>Supprimer définitivement</button></div>{subclassError && <p role="alert" className="text-sm text-red-700">{subclassError}</p>}</div>}
         </li>)}</ul>}
       </div>
-      <ImageUploadField label="Photo de l'élève" value={form.photoUrl ?? ""} onChange={(value) => setForm({ ...form, photoUrl: value })} maxWidth={800} maxBytes={300 * 1024} />
+      <ImageUploadField label="Photo de l'élève" value={photoSource} onChange={(value) => setForm({ ...form, photoUrl: value, photoPath: "" })} maxWidth={800} maxBytes={300 * 1024} />
       <ParentSearchPicker key={form.schoolId} schoolId={form.schoolId} parents={parents} selectedId={form.parentId} pendingParent={pendingParent}
         onChange={(parentId) => setForm({ ...form, parentId })} />
       {canCreateParent && <div className="rounded border border-slate-100 bg-slate-50 p-3">

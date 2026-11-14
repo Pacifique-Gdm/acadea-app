@@ -126,7 +126,7 @@ function resolveTargetClass(className, option, classes, school, sourceClasses) {
 
 function studentIdentityDocument(source, schoolId, yearId, transition, targetClass) {
   const permanent = {};
-  for (const key of ["matricule", "nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone", "photoUrl", "parentId", "biometric"]) {
+  for (const key of ["matricule", "nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone", "photoUrl", "photoPath", "parentId", "biometric"]) {
     if (source[key] !== undefined) permanent[key] = source[key];
   }
   return studentForPersistence({

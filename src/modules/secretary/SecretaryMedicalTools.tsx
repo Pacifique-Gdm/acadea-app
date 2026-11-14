@@ -13,6 +13,8 @@ import { emptyMedicalRecordInput, formatMedicalRecordValue, medicalRecordSection
 import type { MedicalRecordInput } from "./medicalRecordFields";
 import { medicalRecordPdfSections } from "./medicalRecordPdf";
 import { buildSecretaryStatistics, filterSecretaryStatisticsStudents, secretaryStatisticsScopeLabel, type SecretaryStatisticsFilter } from "./secretaryStatistics";
+import { StudentPhoto } from "../../components/students/StudentPhoto";
+import { withPhotoForPdf } from "../../services/studentPhotoStorage";
 
 const statusPresentation = {
   complete: { label: "Complète", className: "bg-emerald-100 text-emerald-800" },
@@ -109,7 +111,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
           {visibleStudents.map((student) => {
             const record = recordsByStudent.get(student.id);
             return <article key={student.id} className="grid gap-3 rounded border bg-white p-3 sm:grid-cols-[auto_minmax(0,1fr)_auto] sm:items-center">
-              {student.photoUrl ? <img className="h-12 w-12 rounded-full object-cover" src={student.photoUrl} alt="" /> : <div className="grid h-12 w-12 place-items-center rounded-full bg-slate-100 font-bold text-slate-600">{student.prenom?.[0] ?? student.nom?.[0] ?? "É"}</div>}
+              <StudentPhoto student={student} className="h-12 w-12 rounded-full object-cover" fallback={<div className="grid h-12 w-12 place-items-center rounded-full bg-slate-100 font-bold text-slate-600">{student.prenom?.[0] ?? student.nom?.[0] ?? "É"}</div>} />
               <div className="min-w-0"><button type="button" onClick={() => setViewingStudent(student)} className="rounded text-left font-bold text-ink underline decoration-slate-300 underline-offset-4 transition hover:text-blue-700 hover:decoration-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2" aria-label={`Consulter la fiche médicale de ${student.nom} ${student.postnom} ${student.prenom}`}>{student.nom} {student.postnom} {student.prenom}</button><p className="text-sm text-slate-500">{student.matricule} · {formatStudentClassName(student)}</p><div className="mt-2"><MedicalStatusBadge record={record} /></div></div>
               {canEditMedicalRecords && !record && !savedStudentIds.has(student.id) && <div className="flex flex-wrap gap-2"><button className="primary-button" type="button" onClick={() => openForm(student)}><Pencil className="h-4 w-4" /> Créer</button></div>}
             </article>;
@@ -127,7 +129,7 @@ export function SecretaryMedicalRecordsDrawer({ open, onClose, user, students, r
     </AdminDrawer>}
     {viewingStudent && <AdminDrawer title={`Fiche médicale · ${viewingStudent.nom} ${viewingStudent.prenom}`} onClose={() => setViewingStudent(null)} closeLabel="Fermer">
       <div className="grid gap-4 text-sm">
-        <div className="flex flex-wrap justify-end gap-2">{canEditMedicalRecords && viewingRecord && <button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button>}{viewingRecord && <button className="secondary-button" type="button" onClick={() => void renderAcadPdfPreview({ filename: `fiche-medicale-${viewingStudent.matricule}.pdf`, title: "FICHE MÉDICALE", school, year, sections: medicalRecordPdfSections(viewingStudent, viewingRecord), singlePageFit: true })}><Printer className="h-4 w-4" /> Imprimer</button>}</div>
+        <div className="flex flex-wrap justify-end gap-2">{canEditMedicalRecords && viewingRecord && <button className="primary-button" type="button" onClick={() => openForm(viewingStudent)}><Pencil className="h-4 w-4" /> Modifier</button>}{viewingRecord && <button className="secondary-button" type="button" onClick={() => void (async () => renderAcadPdfPreview({ filename: `fiche-medicale-${viewingStudent.matricule}.pdf`, title: "FICHE MÉDICALE", school, year, sections: medicalRecordPdfSections(await withPhotoForPdf(viewingStudent), viewingRecord), singlePageFit: true }))()}><Printer className="h-4 w-4" /> Imprimer</button>}</div>
         <MedicalRecordFields mode="view" record={viewingRecord} />
       </div>
     </AdminDrawer>}

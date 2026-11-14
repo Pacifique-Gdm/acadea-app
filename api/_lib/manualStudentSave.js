@@ -4,8 +4,8 @@ import { studentIdentityKey } from "../../src/utils/studentSearch.js";
 import { identityCandidatesQuery, identityIndexReady, identityIndexStateRef, identityLockId } from "./studentIdentityIndex.js";
 
 const DUPLICATE_MESSAGE = "Un élève avec le même nom, post-nom et prénom existe déjà.";
-const EDITABLE_FIELDS = ["nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone", "className", "classId", "subClassId", "classOptionKey", "section", "option", "photoUrl"];
-const OPTIONAL_FIELDS = ["classId", "subClassId", "classOptionKey", "section", "option", "photoUrl"];
+const EDITABLE_FIELDS = ["nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone", "className", "classId", "subClassId", "classOptionKey", "section", "option", "photoUrl", "photoPath"];
+const OPTIONAL_FIELDS = ["classId", "subClassId", "classOptionKey", "section", "option", "photoUrl", "photoPath"];
 
 function reject(message, statusCode = 400, code = "invalid-argument") {
   throw Object.assign(new Error(message), { statusCode, code });
@@ -28,6 +28,7 @@ function validatedFields(input) {
   }
   if (!result.nom?.trim() || !result.className) reject("Le nom et la classe de l’élève sont obligatoires.");
   if (result.sexe && !["M", "F"].includes(result.sexe)) reject("Sexe invalide.");
+  if (result.photoPath === "") delete result.photoPath;
   return result;
 }
 
@@ -63,6 +64,8 @@ export async function saveManualStudent({ db, caller, body }) {
   if (!id || !schoolId || !schoolYearId) reject("Identifiants de la fiche élève invalides.");
   if (!["school_admin", "secretary"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Enregistrement de l’élève non autorisé.", 403, "permission-denied");
   const fields = validatedFields(input);
+  // Même école obligatoire ; un élève importé garde la photo rangée sous l'identifiant de l'année précédente.
+  if (fields.photoPath !== undefined && !(fields.photoPath.startsWith(`schools/${schoolId}/student-photos/`) && /^[A-Za-z0-9_-]{1,160}\/[0-9a-fA-F-]{36}\.(jpg|png|webp)$/.test(fields.photoPath.slice(`schools/${schoolId}/student-photos/`.length)))) reject("Photo de l'élève invalide.");
   const offlineOperationId = body?.offlineOperationId;
   // Missing intent is creation-only: an older client must never turn a collision into an edit.
   const intent = body?.intent ?? "create";

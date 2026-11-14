@@ -23,6 +23,7 @@ import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilte
 import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
 import { failureKind, plainFailureMessage, publicServerMessage } from "../../services/requestFailure";
 import { findSavedStudent } from "../../services/studentSaveVerification";
+import { deleteStudentPhoto, needsStorageUpload, uploadStudentPhoto } from "../../services/studentPhotoStorage";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -226,6 +227,7 @@ export function StudentsModule({
     setSaveError("");
     setSaveMessage("");
     let attemptedCreation: { id: string; schoolYearId: string; withParent: boolean } | undefined;
+    let uploadedPhotoPath = "";
     try {
       const exists = !form.id.startsWith("new-");
       if ((exists && !studentCapabilities.canEdit) || (!exists && !studentCapabilities.canCreate)) {
@@ -282,6 +284,15 @@ export function StudentsModule({
       if (student.section !== "Secondaire" || !student.option) delete student.option;
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
+      // Lot 9 : une nouvelle photo part dans Storage ; l'ancienne photo intégrée
+      // n'est jamais effacée ici (effacement prévu plus tard, avec accord).
+      const previousPhoto = previousStudent?.photoUrl ?? "";
+      if (needsStorageUpload(student, previousPhoto) && student.photoUrl) {
+        uploadedPhotoPath = await uploadStudentPhoto({ schoolId: school.id, studentId: student.id, dataUrl: student.photoUrl });
+        student.photoPath = uploadedPhotoPath;
+        if (previousPhoto) student.photoUrl = previousPhoto; else delete student.photoUrl;
+      }
+      if (!student.photoPath) delete student.photoPath;
       const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
       if (!exists) attemptedCreation = { id: student.id, schoolYearId: targetYearId, withParent: Boolean(selectedParentId) };
       const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
@@ -376,6 +387,8 @@ export function StudentsModule({
       if (import.meta.env.DEV) console.error("Enregistrement de l'élève impossible.", error);
       const serverMessage = publicServerMessage(error);
       const kind = failureKind(error);
+      // Refus définitif : la photo envoyée pour cette tentative ne sert à rien, on la retire.
+      if (uploadedPhotoPath && kind !== "network") void deleteStudentPhoto(uploadedPhotoPath);
       if (serverMessage.includes("Un élève avec le même nom, post-nom et prénom existe déjà.")) {
         setSaveError(serverMessage);
       } else if (kind === "network" && attemptedCreation) {
