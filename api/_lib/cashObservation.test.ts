@@ -60,11 +60,6 @@ function ordinaryExpense(db: FakeDb, amount: number, id: string) {
   return executeFinancialOperation({ db, caller, body: { action: "create-expense", schoolYearId: "year-a", amount,
     category: "Fournitures", description: "Dépense fictive", beneficiary: "Test", paymentMethod: "Espèces", clientRequestId: id }, now: "2026-10-13T10:00:00.000Z" });
 }
-function correctExpense(db: FakeDb, expenseId: string, amount: number, id: string) {
-  return executeFinancialOperation({ db, caller: { uid: "admin-a", role: "school_admin", schoolId: "school-a" }, body: {
-    action: "update-expense", transactionId: expenseId, amount, category: "Fournitures", description: "Correction fictive", reason: "Justification test", clientRequestId: id,
-  }, now: "2026-10-13T11:00:00.000Z" });
-}
 const balance = (db: FakeDb) => readCashBalance({ db, schoolId: "school-a", schoolYearId: "year-a", currency: "CDF", yearCurrency: "CDF" });
 
 const totals = (db: FakeDb) => [...db.values].find(([path]) => path.startsWith("financialCashTotals/"))?.[1];
