@@ -165,7 +165,9 @@ service firebase.storage {
           && firestore.get(/databases/(default)/documents/students/$(studentId)).data.get("section", "") in firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get("sectionIds", []))
         || (role() == "parent" && tenantSchoolId() == schoolId
           && firestore.get(/databases/(default)/documents/students/$(studentId)).data.schoolId == schoolId
-          && firestore.get(/databases/(default)/documents/students/$(studentId)).data.get("parentId", "") == request.auth.token.get("parentId", "__absent__")));
+          // Identité parent du profil, déjà vérifiée par signedIn() (et égale au jeton
+          // quand celui-ci en porte une) : les parents anciens sans ce jeton voient leurs enfants.
+          && firestore.get(/databases/(default)/documents/students/$(studentId)).data.get("parentId", "") == firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get("parentId", "__absent__")));
     }
 
     function studentPhotoWriter(schoolId) {

@@ -10,7 +10,7 @@ const claims: Record<string, Record<string, unknown>> = {
   "admin-a": { role: "school_admin", schoolId: "school-a" }, "secretary-a": { role: "secretary", schoolId: "school-a" },
   "cashier-a": { role: "cashier", schoolId: "school-a" }, "director-a": { role: "study_director", schoolId: "school-a" },
   "discipline-a": { role: "discipline_director", schoolId: "school-a" }, "teacher-a": { role: "teacher", schoolId: "school-a" },
-  "parent-a": { role: "parent", schoolId: "school-a", parentId: "family-a" }, "parent-b": { role: "parent", schoolId: "school-a", parentId: "family-b" },
+  "parent-a": { role: "parent", schoolId: "school-a", parentId: "family-a" }, "parent-legacy": { role: "parent", schoolId: "school-a" }, "parent-b": { role: "parent", schoolId: "school-a", parentId: "family-b" },
   "admin-b": { role: "school_admin", schoolId: "school-b" }, "coord-a": { role: "coordination_admin", coordinationId: "coord-a" },
 };
 const storage = (uid: string) => environment.authenticatedContext(uid, claims[uid]).storage();
@@ -31,7 +31,7 @@ describe("photos des élèves dans Storage", () => {
       for (const [uid, value] of Object.entries(claims)) {
         await setDoc(doc(firestore, "users", uid), { role: value.role, schoolId: value.schoolId ?? null, status: "active", active: true,
           ...(value.parentId ? { parentId: value.parentId } : {}), ...(value.coordinationId ? { coordinationId: value.coordinationId } : {}),
-          ...(uid === "discipline-a" ? { sectionIds: ["Primaire"] } : {}) });
+          ...(uid === "discipline-a" ? { sectionIds: ["Primaire"] } : {}), ...(uid === "parent-legacy" ? { parentId: "family-a" } : {}) });
       }
       await setDoc(doc(firestore, "students", "child-a"), { schoolId: "school-a", schoolYearId: "year-a", parentId: "family-a", section: "Primaire" });
       await setDoc(doc(firestore, "students", "child-sec"), { schoolId: "school-a", schoolYearId: "year-a", parentId: "family-b", section: "Secondaire" });
@@ -78,5 +78,9 @@ describe("photos des élèves dans Storage", () => {
     await assertFails(put("admin-a", fresh("923e4567-e89b-42d3-a456-426614174000.jpg"), { schoolId: "school-b" }));
     await assertFails(put("admin-a", fresh("photo.jpg")));
     await assertFails(put("admin-a", path()));
+  });
+  it("un parent ancien sans identifiant parent dans son jeton voit les photos de SES enfants, via son profil vérifié", async () => {
+    await assertSucceeds(read("parent-legacy"));
+    await assertFails(read("parent-legacy", path("child-sec")));
   });
 });
