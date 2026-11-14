@@ -1,46 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Payment, Student } from "../types";
-import { loadStudentArrearsBatch } from "../services/financialTransactions";
-import { loadCoordinationStudentArrearsBatch } from "../services/coordinationService";
-import { sumMoney } from "../utils/money";
+import { auth } from "../firebase";
 import { reportClientFailure } from "../services/clientFailureTelemetry";
+import { readCachedArrears, refreshStaleArrears } from "../services/dashboardArrearsCache";
+import { failureKind, plainFailureMessage } from "../services/requestFailure";
+import { useAutoRetry } from "./useAutoRetry";
 
 /** Reuse the canonical historical-debt API, never equate current-year balance
- * with overdue debt. Refresh on confirmed ledger changes, without polling. */
+ * with overdue debt. Refresh on confirmed ledger changes, without polling.
+ * Les totaux déjà vérifiés pour des données identiques sont réaffichés
+ * immédiatement (retour sur le tableau de bord) ; seuls les élèves dont les
+ * données ont changé sont redemandés au serveur. */
 export function useDashboardArrears(students: Student[], payments: Payment[], coordination = false) {
+  const scope = auth?.currentUser?.uid ?? "";
   const studentKey = JSON.stringify(students.map(({ id, schoolId, schoolYearId, financialSupport }) => ({ id, schoolId, schoolYearId, financialSupport })).sort((a, b) => a.id.localeCompare(b.id)));
   const paymentKey = JSON.stringify(payments.map(({ id, amount, studentId, currentStudentId, schoolYearId }) => ({ id, amount, studentId, currentStudentId, schoolYearId })).sort((a, b) => a.id.localeCompare(b.id)));
-  const key = `${coordination}:${studentKey}:${paymentKey}`;
-  const [result, setResult] = useState<{ key: string; totals?: { USD: number; CDF: number }; error?: string }>({ key: "" });
+  const key = `${scope}:${coordination}:${studentKey}:${paymentKey}`;
+  const [version, setVersion] = useState(0);
+  const [failure, setFailure] = useState<{ key: string; error: string }>();
+  const { token: retryToken, schedule, succeeded } = useAutoRetry();
+  const latest = useRef({ students, payments });
+  latest.current = { students, payments };
+  // `version` relit la mémoire après un recalcul ; `key` suit les données.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const cached = useMemo(() => readCachedArrears(latest.current.students, latest.current.payments, scope, coordination), [key, version, scope, coordination]);
+
   useEffect(() => {
+    if (!cached.stale.length) return undefined;
     let cancelled = false;
     const startedAt = Date.now();
-    const rows = JSON.parse(studentKey) as Pick<Student, "id" | "schoolYearId">[];
-    const groups = new Map<string, string[]>();
-    for (const row of rows) groups.set(row.schoolYearId, [...(groups.get(row.schoolYearId) ?? []), row.id]);
-    void (async () => {
-      const totals = { USD: 0, CDF: 0 };
-      try {
-        for (const [yearId, ids] of groups) {
-          for (let offset = 0; offset < ids.length; offset += 50) {
-            if (cancelled) return;
-            const batch = [...new Set(ids.slice(offset, offset + 50))];
-            const values = coordination ? await loadCoordinationStudentArrearsBatch(batch) : await loadStudentArrearsBatch(yearId, batch);
-            for (const value of Object.values(values)) {
-              totals.USD = sumMoney([totals.USD, value.USD]);
-              totals.CDF = sumMoney([totals.CDF, value.CDF]);
-            }
-          }
-        }
-        if (!cancelled) setResult({ key, totals });
-      } catch (error) {
-        if (!cancelled) {
-          setResult({ key, error: error instanceof Error ? error.message : "Arriérés indisponibles." });
-          void reportClientFailure("dashboard.arrears", error, startedAt);
-        }
-      }
-    })();
+    void refreshStaleArrears(cached.stale, cached.prints, scope, coordination, { isCancelled: () => cancelled })
+      .then(() => { if (!cancelled) { succeeded(); setFailure(undefined); setVersion((value) => value + 1); } })
+      .catch((error) => {
+        if (cancelled) return;
+        const kind = failureKind(error);
+        const retrying = schedule(kind);
+        setFailure({ key, error: plainFailureMessage(kind, retrying) });
+        void reportClientFailure("dashboard.arrears", error, startedAt);
+      });
     return () => { cancelled = true; };
-  }, [coordination, key, studentKey]);
-  return result.key === key ? result : { key, totals: undefined, error: undefined };
+  }, [cached, coordination, key, retryToken, schedule, scope, succeeded]);
+
+  if (cached.totals) return { key, totals: cached.totals, error: undefined };
+  return { key, totals: undefined, error: failure?.key === key ? failure.error : undefined };
 }
