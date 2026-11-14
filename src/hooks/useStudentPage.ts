@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../firebase";
 import type { Student } from "../types";
 import { reportClientFailure } from "../services/clientFailureTelemetry";
+import { failureKind, plainFailureMessage } from "../services/requestFailure";
+import { useAutoRetry } from "./useAutoRetry";
 import {
   STUDENT_SOURCE_PAGE_SIZE,
   countStudentResults,
@@ -22,6 +24,12 @@ export function useStudentPage(filters: StudentQueryFilters, fallbackStudents: S
   const [loading, setLoading] = useState(Boolean(db));
   const [error, setError] = useState("");
   const fallback = useMemo(() => filterStudentFallback(fallbackStudents, filters), [fallbackStudents, filters]);
+  // Une écoute ou un comptage refusé (quota, réseau) est relancé après un délai
+  // et au retour du réseau, au lieu de rester bloqué jusqu'au changement d'onglet.
+  const countRetry = useAutoRetry();
+  const pageRetry = useAutoRetry();
+  const { token: countRetryToken, schedule: scheduleCountRetry, succeeded: countSucceeded } = countRetry;
+  const { token: pageRetryToken, schedule: schedulePageRetry, succeeded: pageSucceeded } = pageRetry;
 
   useEffect(() => {
     cursors.current = new Map([[1, undefined]]);
@@ -35,14 +43,15 @@ export function useStudentPage(filters: StudentQueryFilters, fallbackStudents: S
     setLoading(true);
     setError("");
     const startedAt = Date.now();
-    void countStudentResults(filters).then((count) => { if (active) setTotal(count); }).catch((cause) => {
+    void countStudentResults(filters).then((count) => { if (active) { countSucceeded(); setTotal(count); } }).catch((cause) => {
       if (active) {
-        setError(cause instanceof Error ? cause.message : "Impossible de compter les élèves.");
+        const kind = failureKind(cause);
+        setError(plainFailureMessage(kind, scheduleCountRetry(kind)));
         void reportClientFailure("students.count", cause, startedAt);
       }
     });
     return () => { active = false; };
-  }, [filters, key]);
+  }, [countRetryToken, countSucceeded, filters, key, scheduleCountRetry]);
 
   useEffect(() => {
     if (!db) return;
@@ -54,13 +63,15 @@ export function useStudentPage(filters: StudentQueryFilters, fallbackStudents: S
       setRemoteStudents(items);
       setHasRemoteSnapshot(true);
       if (nextCursor) cursors.current.set(page + 1, nextCursor);
+      pageSucceeded();
       setLoading(false);
     }, (cause) => {
-      setError(cause.message);
+      const kind = failureKind(cause);
+      setError(plainFailureMessage(kind, schedulePageRetry(kind)));
       setLoading(false);
       void reportClientFailure("students.page", cause, startedAt);
     });
-  }, [filters, key, page]);
+  }, [filters, key, page, pageRetryToken, pageSucceeded, schedulePageRetry]);
 
   const students = db && hasRemoteSnapshot ? remoteStudents : fallback.slice((page - 1) * STUDENT_SOURCE_PAGE_SIZE, page * STUDENT_SOURCE_PAGE_SIZE);
   const resultTotal = db && hasRemoteSnapshot ? total : fallback.length;
