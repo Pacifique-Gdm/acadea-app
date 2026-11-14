@@ -230,8 +230,8 @@ export function CoordinationDashboard({
     {loadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
     {financialVerificationReady && hasUnknownFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et export indisponibles : des opérations historiques sans devise exigent une réconciliation.</p>}
     {!loading && !loadError && expenseResolution.status === "loading" && <p role="status" className="rounded border bg-white p-3 text-sm text-slate-500">Vérification des devises historiques en cours…</p>}
-    {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible. Réessayez après avoir rétabli la connexion.</p>}
-    {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés.</p>}
+    {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible : {expenseResolution.message}</p>}
+    {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés ({dashboardArrears.error})</p>}
     {hasCrossCurrencyHistory && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Les graphiques par école sont masqués car des opérations portent une autre devise que la devise actuelle de leur école.</p>}
     {loading && <p className="rounded border bg-white p-4 text-sm text-slate-500">Chargement du Dashboard…</p>}
     {!loading && !loadError && stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{formatCount(stats.excludedSchoolIds.length)} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}
