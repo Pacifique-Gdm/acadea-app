@@ -153,6 +153,41 @@ service firebase.storage {
         && schoolAcceptsWrites(schoolId);
     }
 
+    // Photos d'élèves (lot 9). Lecture avec l'identité de l'utilisateur, jamais par
+    // adresse à jeton : l'école et le rôle sont vérifiés à chaque lecture. Le
+    // parent ne lit que les photos de ses enfants ; le Directeur de discipline
+    // seulement celles de ses sections. Deux documents au plus sont consultés.
+    function studentPhotoReader(schoolId, studentId) {
+      return signedIn() && (
+        (role() in ["school_admin", "secretary", "cashier", "study_director"] && tenantSchoolId() == schoolId)
+        || (role() == "discipline_director" && tenantSchoolId() == schoolId
+          && firestore.get(/databases/(default)/documents/students/$(studentId)).data.schoolId == schoolId
+          && firestore.get(/databases/(default)/documents/students/$(studentId)).data.get("section", "") in firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.get("sectionIds", []))
+        || (role() == "parent" && tenantSchoolId() == schoolId
+          && firestore.get(/databases/(default)/documents/students/$(studentId)).data.schoolId == schoolId
+          && firestore.get(/databases/(default)/documents/students/$(studentId)).data.get("parentId", "") == request.auth.token.get("parentId", "__absent__")));
+    }
+
+    function studentPhotoWriter(schoolId) {
+      return signedIn() && role() in ["school_admin", "secretary"] && tenantSchoolId() == schoolId;
+    }
+
+    function validStudentPhoto(fileName, schoolId, studentId) {
+      return request.resource.size > 0
+        && request.resource.size <= 400 * 1024
+        && request.resource.metadata.schoolId == schoolId
+        && request.resource.metadata.studentId == studentId
+        && request.resource.contentType in ["image/jpeg", "image/png", "image/webp"]
+        && fileName.matches('^[0-9a-fA-F-]{36}\\.(jpg|png|webp)$');
+    }
+
+    match /schools/{schoolId}/student-photos/{studentId}/{fileName} {
+      allow read: if studentPhotoReader(schoolId, studentId);
+      allow create: if studentPhotoWriter(schoolId) && schoolAcceptsWrites(schoolId) && validStudentPhoto(fileName, schoolId, studentId);
+      allow update: if false;
+      allow delete: if studentPhotoWriter(schoolId);
+    }
+
     match /schools/{schoolId}/correspondences/{correspondenceId}/{fileName} {
       // Le profil, l'école et le courrier sont trois sources indépendantes.
       // Storage Rules ne peut en consulter que deux par requête : les accès
