@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { expect as baseExpect } from '@playwright/test';
-import { guardedRoute } from './hostedRecipeSafety.mjs';
+import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
+import { panelPersonnelFixture } from './feeAllocationPanelFixtures.mjs';
 const expect = baseExpect.configure({ timeout: 45000 });
 
 /** Uses the shared hosted recipe's scoped, durable fixture lifecycle. No real
@@ -13,6 +14,8 @@ export async function runHostedAllocationPanel({ db, tag, schoolId, yearId, put,
   assert.ok(manifest.schools.includes(schoolId));
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   const page = await context.newPage(); page.setDefaultTimeout(60000);
+  const pageErrors = [];
+  page.on('pageerror', error => pageErrors.push(redactRecipeError(error, [password])));
   try {
     await page.goto(origin + '/login');
     await page.getByPlaceholder('email@ecole.com').fill(adminUser.email);
@@ -42,16 +45,18 @@ export async function runHostedAllocationPanel({ db, tag, schoolId, yearId, put,
     record('Panneau vide, activation repérable, ordre des quatre commandes, clavier et barre mobile sans débordement');
     await page.getByRole('button', { name: 'Fermer Répartition des frais', exact: true }).click();
 
-    const fee = `${tag}-panel-fee`, teacher = `${tag}-panel-teacher`;
+    const fee = `${tag}-panel-fee`, teacher = `${tag}-panel-teacher`, student = `${tag}-panel-student`;
     await put('feeTypes', fee, { schoolId, schoolYearId: yearId, name: 'Frais fictif au libellé volontairement très long pour contrôler la barre mobile', className: '1ère Primaire', amount: 100, createdAt: new Date().toISOString() });
     await allocation('save-draft', { feeTypeId: fee, expectedRevision: 0, rubrics: [{ id: 'd'.repeat(32), name: 'Rubrique pilote fictive', mode: 'percent', basisPoints: 10000 }] }, 'volume-admin');
     const prepared = await allocation('prepare-version', { feeTypeId: fee, expectedRevision: 1 }, 'volume-admin');
     await allocation('publish-configuration', { versionId: prepared.version.id }, 'volume-admin');
+    await put('students', student, { schoolId, schoolYearId: yearId, nom: 'FICTIF PANNEAU', className: '1ère Primaire', section: 'Primaire', status: 'ACTIVE', createdAt: new Date().toISOString() });
     for (let i = 0; i < 34; i++) await put('payments', `${tag}-panel-pay-${String(i).padStart(2, '0')}`, {
       schoolId, schoolYearId: yearId, amount: 2, currency: 'USD', createdAt: new Date().toISOString(),
+      paidAt: new Date().toISOString(), studentId: student, feeTypeId: fee, cashierName: 'Caissier fictif',
       provenance: 'financial-api', clientRequestIdHash: `${tag}-synthetic-${i}`, receiptNumber: `FICTIF-${i}`,
     });
-    await put('users', teacher, { schoolId, role: 'teacher', name: 'Personnel fictif recette panneau', active: true, status: 'active' });
+    await put('users', teacher, panelPersonnelFixture(tag, schoolId, yearId));
     await api('volume-cashier', { action: 'create-personnel-payment', schoolYearId: yearId, beneficiaryId: teacher,
       kind: 'salary', periodMonth: 11, periodYear: 2026, paidAt: new Date().toISOString().slice(0, 10), amount: 12,
       deduction: 0, cnss: 0, tax: 0, recoveries: [], description: 'Paie fictive recette panneau', clientRequestId: randomUUID() });
@@ -109,15 +114,24 @@ export async function runHostedAllocationPanel({ db, tag, schoolId, yearId, put,
     assert.equal(calls, 1);
     await panel.getByRole('button', { name: 'Vérifier la même demande', exact: true }).click();
     await expect(panel.getByText('Justification vérifiée et conservée.', { exact: false })).toBeVisible();
+    // Confirmation precedes the fresh activation read. Await that read too,
+    // so a transient old blocker cannot be mistaken for the final UI state.
+    await expect(panel.getByRole('button', { name: 'Vérifier le solde de départ', exact: true })).toBeEnabled();
+    await expect(panel.getByText('Les écritures ont changé : vérification à actualiser.', { exact: false })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Justifier', exact: true })).toHaveCount(0);
     assert.equal(calls, 2); assert.deepEqual((await expenseRef.get()).data(), original);
     assert.equal(transportFailures.length, 0, 'Transport de justification interrompu');
     await expect(panel.getByRole('group', { name: /Justifier/ })).toHaveCount(0);
+    assert.deepEqual(pageErrors, [], 'Erreur JavaScript dans le parcours hébergé');
     await page.screenshot({ path: `${output}/preuve-confirmee-source-preservee.png`, fullPage: true });
     writeFileSync(`${output}/panel-proof.json`, JSON.stringify({ scanned: run.scanned, blocked: run.blockedCount, calls,
       sameRequest: true, sourceUnchanged: true, buttonBefore: before, buttonDuring: during }, null, 2));
     record('Justification reconnue via formulaire, chargement stable, double clic unique, réponse réellement perdue puis rejeu idempotent, source préservée');
   } catch (error) {
     await page.screenshot({ path: `${output}/panel-failure.png`, fullPage: true }).catch(() => {});
+    writeFileSync(`${output}/panel-failure.json`, JSON.stringify({ error: redactRecipeError(error, [password]),
+      url: new URL(page.url()).pathname, pageErrors,
+      renderedText: (await page.locator('body').innerText({ timeout: 1000 }).catch(() => '')).slice(0, 1200) }, null, 2));
     throw error;
   } finally { await context.close(); }
 }

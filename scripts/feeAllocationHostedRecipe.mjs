@@ -19,8 +19,9 @@ import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
 const expect = baseExpect.configure({ timeout: 45000 });
 
 const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.ACADEA_EXPECTED_SHA;
-const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume';
-const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel';
+const panelOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'panel-only';
+const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume' || panelOnly;
+const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel' || panelOnly;
 assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe, 'Parcours de recette inconnu');
 const output = `diagnostics/fee-allocation-hosted/${expectedSha}${volumeOnly ? `-volume-${Date.now()}` : ''}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
