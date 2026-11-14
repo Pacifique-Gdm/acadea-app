@@ -5,7 +5,7 @@ import { studentAlphabeticalKey, studentIdentityKey } from "../../src/utils/stud
  * Tant que le marqueur d'une école n'indique pas « complete », l'inscription
  * garde l'ancienne vérification complète des doublons : le code est sûr même
  * s'il est mis en production avant la migration. La migration ne lit que les
- * noms (jamais les photos) et n'efface rien. */ 
+ * noms (jamais les photos) et n'efface rien. */
 export const IDENTITY_INDEX_VERSION = 1;
 
 export function identityLockId(schoolId, key) {
@@ -86,4 +86,3 @@ export async function migrateStudentIdentityIndex({ db, schoolId, apply = false,
     students: check.size, identities: checkKeys.length, locksCreated: plan.locksToCreate - conflicts, sortNameBackfilled: plan.sortNameToBackfill });
   return { ...plan, applied: true, consistent: true, conflicts };
 }
-
