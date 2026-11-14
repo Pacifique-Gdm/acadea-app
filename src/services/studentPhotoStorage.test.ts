@@ -9,8 +9,11 @@ vi.mock("firebase/storage", () => ({
 }));
 
 import { dataUrlToBlob, isEmbeddedPhoto, loadStudentPhotoUrl, needsStorageUpload, studentPhotoPathMatches, withPhotoForPdf } from "./studentPhotoStorage";
+// @ts-expect-error Module API Vercel implémenté en JavaScript côté serveur.
 import { schoolDeletionInventory, deleteSchoolStorage } from "../../api/_lib/schoolDeletion.js";
+// @ts-expect-error Module API Vercel implémenté en JavaScript côté serveur.
 import { bucketPhotoSigner, withTeacherPhotoUrls } from "../../api/_lib/studentPhotoAccess.js";
+// @ts-expect-error Module API Vercel implémenté en JavaScript côté serveur.
 import { migrateStudentPhotos } from "../../api/_lib/studentPhotoMigration.js";
 
 const uuid = "123e4567-e89b-42d3-a456-426614174000";
