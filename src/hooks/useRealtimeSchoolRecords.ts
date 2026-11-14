@@ -36,9 +36,9 @@ export function useRealtimeSchoolRecords({
     let latestParents: ParentProfile[] = [];
     const annualConstraints = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
     const assignedSections = userSectionIds(user);
-    const studentConstraints = user.role === "secretary"
-      ? [where("schoolId", "==", schoolId)]
-      : user.role === "discipline_director" && assignedSections.length
+    // La secrétaire écoute, comme le directeur, les élèves de l'année choisie
+    // seulement (auparavant : toutes les années, photos comprises).
+    const studentConstraints = user.role === "discipline_director" && assignedSections.length
         ? [...annualConstraints, where("section", "in", assignedSections)]
         : annualConstraints;
     const canReadStudents = ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role);
