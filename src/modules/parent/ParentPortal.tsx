@@ -30,6 +30,7 @@ import { filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, typ
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import { ParentPublishedGradesDrawer } from "./ParentPublishedGradesDrawer";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
+import { StudentPhoto } from "../../components/students/StudentPhoto";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -484,7 +485,7 @@ export function ParentPortal({
                 <article key={student.id} className="min-w-0 rounded border border-slate-200 bg-white p-4">
                   <div className="flex min-w-0 flex-col gap-4 md:flex-row">
                     <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100 text-xl font-bold text-ink">
-                      {student.photoUrl ? <img src={student.photoUrl} alt="" className="h-full w-full object-cover" /> : (student.prenom?.slice(0, 1) || student.nom?.slice(0, 1) || "?")}
+                      <StudentPhoto student={student} className="h-full w-full object-cover" fallback={student.prenom?.slice(0, 1) || student.nom?.slice(0, 1) || "?"} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">

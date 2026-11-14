@@ -1,4 +1,4 @@
-import{initAdmin}from"./_lib/firebaseAdmin.js";import{verifyActorIdToken,requireActiveApiUser}from"./_lib/activeUser.js";import{executeTeacherGrading,GradingApiError}from"./_lib/teacherGrading.js";import{executeGradePublication}from"./_lib/gradePublication.js";import{executeSchoolYearArchive}from"./_lib/schoolYearArchive.js";
+import{initAdmin}from"./_lib/firebaseAdmin.js";import{verifyActorIdToken,requireActiveApiUser}from"./_lib/activeUser.js";import{executeTeacherGrading,GradingApiError}from"./_lib/teacherGrading.js";import{bucketPhotoSigner}from"./_lib/studentPhotoAccess.js";import{executeGradePublication}from"./_lib/gradePublication.js";import{executeSchoolYearArchive}from"./_lib/schoolYearArchive.js";
 const send=(res,status,body)=>{res.status(status).json(body)};
 import { executeTimetableWorkflow } from "./_lib/timetableWorkflow.js";
 import { executeStudyPeriodMutation } from "./_lib/studyPeriodMutations.js";
@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   try {
     const header = req.headers.authorization ?? "", token = header.startsWith("Bearer ") ? header.slice(7) : "";
     if (!token) throw new GradingApiError(401, "unauthenticated", "Authentification requise.");
-    const { auth, db } = initAdmin(), caller = await verifyActorIdToken(auth, token), body = req.body ?? {};
+    const admin = initAdmin(), { auth, db } = admin, caller = await verifyActorIdToken(auth, token), body = req.body ?? {};
     const action = String(body.action ?? "");
     if (action === "sync-offline-attendance") {
       if (Buffer.byteLength(JSON.stringify(body), "utf8") > 16 * 1024) throw new OfflineAttendanceError(400, "invalid-argument", "Requête trop volumineuse.");
@@ -22,7 +22,9 @@ export default async function handler(req, res) {
     const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("study-period-") || action === "study-class-vacations" ? executeStudyPeriodMutation : action.startsWith("timetable-") ? executeTimetableWorkflow
       : action.startsWith("archive-") ? executeSchoolYearArchive
         : action.startsWith("grades-") ? executeGradePublication : executeTeacherGrading;
-    return send(res, 200, await execute({ db, caller, body }));
+    // Liste enseignant : adresses de photo temporaires, signées seulement à la demande.
+    const signPhoto = execute === executeTeacherGrading ? (path) => bucketPhotoSigner(admin.bucket)(path) : undefined;
+    return send(res, 200, await execute({ db, caller, body, signPhoto }));
   } catch (error) {
     if (sendRateLimitError(res, error)) return;
     if (error instanceof OfflineAttendanceError) return send(res, error.status, { code: error.code, error: error.message });
