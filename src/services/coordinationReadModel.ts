@@ -39,14 +39,40 @@ export async function loadCoordinationReadModel(coordinationId: string, schoolId
   return { students, feeTypes, payments, expenses, cashInflows, personnel: personnel.filter(isInternalPersonnel), schoolYears, auditLogs: [...audit.values()] };
 }
 
-export async function loadCoordinationDashboardReadModel(schoolIds: string[], isDelegate: boolean): Promise<CoordinationDashboardReadModel> {
+/** Lignes de l'année active de chaque école (lot 11) : une requête par école,
+ * filtrée par école ET par année, au lieu de toutes les années de toutes les écoles. */
+async function loadActiveYearRows<T extends { id: string }>(name: string, activeYears: Readonly<Record<string, string>>, field = "schoolYearId") {
+  if (!db) return [];
+  const database = db as unknown as Firestore;
+  const perSchool = await Promise.all(Object.entries(activeYears).filter(([, yearId]) => Boolean(yearId)).map(async ([schoolId, yearId]) => {
+    const rows: T[] = [];
+    let cursor: QueryDocumentSnapshot | undefined;
+    do {
+      const snapshot = await getDocs(query(collection(database, name), where("schoolId", "==", schoolId), where(field, "==", yearId), ...(cursor ? [startAfter(cursor)] : []), limit(500)));
+      snapshot.docs.forEach((item) => rows.push({ id: item.id, ...item.data() } as T));
+      cursor = snapshot.docs.at(-1);
+      if (snapshot.docs.length < 500) break;
+    } while (cursor);
+    return rows;
+  }));
+  return perSchool.flat();
+}
+
+/** Paiements de l'année active, plus les arriérés d'années antérieures encaissés cette année. */
+async function loadActiveYearPayments(activeYears: Readonly<Record<string, string>>) {
+  const [own, collected] = await Promise.all([loadActiveYearRows<Payment>("payments", activeYears), loadActiveYearRows<Payment>("payments", activeYears, "collectionSchoolYearId")]);
+  return [...new Map([...own, ...collected].map((payment) => [`${payment.schoolId}:${payment.id}`, payment])).values()];
+}
+
+export async function loadCoordinationDashboardReadModel(schoolIds: string[], isDelegate: boolean, activeYears?: Readonly<Record<string, string>>): Promise<CoordinationDashboardReadModel> {
   if (!db || schoolIds.length === 0) return emptyDashboardModel();
+  const scoped = activeYears ? Object.fromEntries(schoolIds.map((schoolId) => [schoolId, activeYears[schoolId] ?? ""])) : undefined;
   const [students, feeTypes, payments, expenses, cashInflows, personnel, schoolYears] = await Promise.all([
-    loadBySchools<Student>("students", schoolIds, isDelegate),
-    loadBySchools<FeeType>("feeTypes", schoolIds, isDelegate),
-    loadBySchools<Payment>("payments", schoolIds, isDelegate),
-    loadBySchools<Expense>("expenses", schoolIds, isDelegate),
-    loadBySchools<CashInflow>("cashInflows", schoolIds, isDelegate),
+    scoped ? loadActiveYearRows<Student>("students", scoped) : loadBySchools<Student>("students", schoolIds, isDelegate),
+    scoped ? loadActiveYearRows<FeeType>("feeTypes", scoped) : loadBySchools<FeeType>("feeTypes", schoolIds, isDelegate),
+    scoped ? loadActiveYearPayments(scoped) : loadBySchools<Payment>("payments", schoolIds, isDelegate),
+    scoped ? loadActiveYearRows<Expense>("expenses", scoped) : loadBySchools<Expense>("expenses", schoolIds, isDelegate),
+    scoped ? loadActiveYearRows<CashInflow>("cashInflows", scoped) : loadBySchools<CashInflow>("cashInflows", schoolIds, isDelegate),
     loadBySchools<AppUser>("users", schoolIds, isDelegate),
     loadBySchools<SchoolYear>("schoolYears", schoolIds, isDelegate),
   ]);
