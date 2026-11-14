@@ -49,7 +49,8 @@ describe("écritures ciblées (updateData)", () => {
   });
 
   it("efface un champ retiré de la fiche", async () => {
-    const { email: _email, ...withoutEmail } = before[0];
+    const withoutEmail: Record<string, unknown> = { ...before[0] };
+    delete withoutEmail.email;
     await persistFirestorePatch({ parents: [withoutEmail as unknown as Parent] }, { throwOnError: true, previous: { parents: before } });
     expect(calls.updateDoc).toEqual([["parents/p1", { email: DELETE }]]);
   });
