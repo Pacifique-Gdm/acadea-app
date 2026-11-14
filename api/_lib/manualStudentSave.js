@@ -7,6 +7,28 @@ const DUPLICATE_MESSAGE = "Un élève avec le même nom, post-nom et prénom exi
 const EDITABLE_FIELDS = ["nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone", "className", "classId", "subClassId", "classOptionKey", "section", "option", "photoUrl", "photoPath"];
 const OPTIONAL_FIELDS = ["classId", "subClassId", "classOptionKey", "section", "option", "photoUrl", "photoPath"];
 
+/** Identifiant d'élève sous lequel la photo est rangée, ou "" si le chemin n'est pas une photo de cette école. */
+function photoPathOwner(path, schoolId) {
+  const prefix = `schools/${schoolId}/student-photos/`;
+  const match = path.startsWith(prefix) ? /^([A-Za-z0-9_-]{1,160})\/[0-9a-fA-F-]{36}\.(jpg|png|webp)$/.exec(path.slice(prefix.length)) : null;
+  return match ? match[1] : "";
+}
+
+/** Une fiche ne peut pointer que vers SA photo : rangée sous son identifiant, ou
+ * sous celui d'une de ses fiches des années précédentes (lien d'import remonté,
+ * même école, 10 années au plus). Jamais la photo d'un autre élève. */
+async function photoBelongsToStudent(transaction, db, { photoOwnerId, id, schoolId, existing }) {
+  if (photoOwnerId === id) return true;
+  let ancestorId = typeof existing?.importedFromStudentId === "string" ? existing.importedFromStudentId : "";
+  for (let depth = 0; ancestorId && depth < 10; depth += 1) {
+    if (ancestorId === photoOwnerId) return true;
+    const ancestor = await transaction.get(db.doc(`students/${ancestorId}`));
+    if (!ancestor.exists || ancestor.data()?.schoolId !== schoolId) return false;
+    ancestorId = typeof ancestor.data()?.importedFromStudentId === "string" ? ancestor.data().importedFromStudentId : "";
+  }
+  return false;
+}
+
 function reject(message, statusCode = 400, code = "invalid-argument") {
   throw Object.assign(new Error(message), { statusCode, code });
 }
@@ -64,8 +86,10 @@ export async function saveManualStudent({ db, caller, body }) {
   if (!id || !schoolId || !schoolYearId) reject("Identifiants de la fiche élève invalides.");
   if (!["school_admin", "secretary"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Enregistrement de l’élève non autorisé.", 403, "permission-denied");
   const fields = validatedFields(input);
-  // Même école obligatoire ; un élève importé garde la photo rangée sous l'identifiant de l'année précédente.
-  if (fields.photoPath !== undefined && !(fields.photoPath.startsWith(`schools/${schoolId}/student-photos/`) && /^[A-Za-z0-9_-]{1,160}\/[0-9a-fA-F-]{36}\.(jpg|png|webp)$/.test(fields.photoPath.slice(`schools/${schoolId}/student-photos/`.length)))) reject("Photo de l'élève invalide.");
+  // Forme du chemin : même école obligatoire. L'appartenance à CET élève est
+  // vérifiée dans la transaction (lui-même ou ses fiches des années précédentes).
+  const photoOwnerId = fields.photoPath === undefined ? undefined : photoPathOwner(fields.photoPath, schoolId);
+  if (fields.photoPath !== undefined && !photoOwnerId) reject("Photo de l'élève invalide.");
   const offlineOperationId = body?.offlineOperationId;
   // Missing intent is creation-only: an older client must never turn a collision into an edit.
   const intent = body?.intent ?? "create";
@@ -114,6 +138,7 @@ export async function saveManualStudent({ db, caller, body }) {
     if (intent === "create" && existing) reject("Cet identifiant d'élève est déjà utilisé. Actualisez la liste avant de réessayer.", 409, "already-exists");
     if (intent === "update" && !existing) reject("L'élève à modifier n'existe plus.", 404, "not-found");
     if (!existing && (!id.startsWith("student-") || input.status !== "ACTIVE")) reject("Création d’élève invalide.");
+    if (photoOwnerId && !(await photoBelongsToStudent(transaction, db, { photoOwnerId, id, schoolId, existing }))) reject("Photo de l'élève invalide.");
     const next = existing ? { ...existing, ...fields } : {
       id, schoolId, schoolYearId, annee_scolaire_id: schoolYearId,
       matricule: "", status: "ACTIVE",
