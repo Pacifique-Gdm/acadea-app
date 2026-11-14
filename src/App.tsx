@@ -15,7 +15,7 @@ import { BottomNavigation } from "./components/layout/BottomNavigation";
 import { DisciplineBottomNavigation } from "./components/layout/DisciplineBottomNavigation";
 import { EnvironmentBanner } from "./components/layout/EnvironmentBanner";
 import { trackPersistence } from "./services/persistenceStatus";
-import { patchIdentities, previousWithoutUnconfirmed } from "./utils/persistencePlan";
+import { patchIdentities, previousWithConfirmedBase, rememberUnconfirmedBases, type PersistableRecord } from "./utils/persistencePlan";
 import { InstallPwaNavButton } from "./components/layout/InstallPwaNavButton";
 import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigation";
 import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
@@ -181,7 +181,7 @@ function isStandaloneDisplayMode() {
 export default function App() {
   const [data, setData] = useState<AppData>(() => loadInitialData());
   const unconfirmedCreations = useRef(new Set<string>());
-  const unconfirmedWrites = useRef(new Set<string>());
+  const unconfirmedBases = useRef(new Map<string, PersistableRecord>());
   const [user, setUser] = useState<AppUser | null>(null);
   const [selectedYearId, setSelectedYearId] = useState("");
   const yearRequestVersion = useRef(0);
@@ -780,10 +780,13 @@ export default function App() {
           }
         }
         // Seules les fiches modifiées sont écrites (champ par champ quand c'est sans risque).
-        const previousData = previousWithoutUnconfirmed(data, next, unconfirmedWrites.current);
+        const previousData = previousWithConfirmedBase(data, next, unconfirmedBases.current);
         const identities = patchIdentities(next);
+        const confirmedBefore = data;
         void trackPersistence(() => persistFirestorePatch(next, { createIds, throwOnError: true, previous: previousData })).then((confirmed) => {
-          for (const identity of identities) unconfirmedWrites.current[confirmed ? "delete" : "add"](identity);
+          // Échec : garder la dernière version confirmée ; succès : l'oublier.
+          if (confirmed) for (const identity of identities) unconfirmedBases.current.delete(identity);
+          else rememberUnconfirmedBases(unconfirmedBases.current, confirmedBefore, next);
           if (confirmed) for (const [key, ids] of Object.entries(createIds)) {
             for (const id of ids) unconfirmedCreations.current.delete(`${key}/${id}`);
           }

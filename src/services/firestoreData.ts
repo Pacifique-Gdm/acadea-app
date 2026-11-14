@@ -1,5 +1,5 @@
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
-import { deleteField, doc as fieldDoc, setDoc as setFieldDoc, updateDoc, type Firestore } from "@firebase/firestore";
+import { deleteField, doc as fieldDoc, updateDoc, type Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import { conditionalFirestoreWrite } from "./conditionalFirestoreWrite";
 import { planCollectionWrites, type PersistableRecord, type PlannedWrite } from "../utils/persistencePlan";
@@ -518,8 +518,7 @@ export async function savePlatformSettings(settings: PlatformSettings) {
 }
 
 /** Écrit une fiche modifiée champ par champ, pour ne pas écraser la modification
- * simultanée d'un collègue sur d'autres champs de la même fiche. Si la fiche
- * n'existe plus côté serveur, elle est réécrite entière, comme avant. */
+ * simultanée d'un collègue sur d'autres champs de la même fiche. */
 async function writePlanned(collectionName: string, write: PlannedWrite) {
   if (!db) return;
   if (write.mode !== "fields") {
@@ -529,12 +528,8 @@ async function writePlanned(collectionName: string, write: PlannedWrite) {
   const reference = fieldDoc(db as unknown as Firestore, collectionName, write.id);
   const fields: Record<string, unknown> = { ...write.changed };
   for (const key of write.removed) fields[key] = deleteField();
-  try {
-    await updateDoc(reference, fields);
-  } catch (error) {
-    if ((error as { code?: string })?.code !== "not-found") throw error;
-    await setFieldDoc(reference, write.item);
-  }
+  // Une fiche supprimée entre-temps n'est jamais recréée : updateDoc échoue (not-found) et l'erreur remonte.
+  await updateDoc(reference, fields);
 }
 
 export async function persistFirestorePatch(patch: Partial<AppData>, options: PersistFirestorePatchOptions = {}) {

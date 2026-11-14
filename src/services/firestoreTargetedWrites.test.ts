@@ -19,7 +19,7 @@ vi.mock("./conditionalFirestoreWrite", () => ({ conditionalFirestoreWrite: async
 vi.mock("./superAdminData", () => ({ loadSuperAdminInitialData: vi.fn() }));
 
 import { persistFirestorePatch } from "./firestoreData";
-import { planCollectionWrites, previousWithoutUnconfirmed, type PersistableRecord } from "../utils/persistencePlan";
+import { planCollectionWrites, previousWithConfirmedBase, rememberUnconfirmedBases, type PersistableRecord } from "../utils/persistencePlan";
 
 const records = (rows: unknown) => rows as PersistableRecord[];
 
@@ -77,10 +77,10 @@ describe("écritures ciblées (updateData)", () => {
     expect(calls.updateDoc).toEqual([]);
   });
 
-  it("réécrit la fiche entière si elle n'existe plus côté serveur, comme avant", async () => {
+  it("ne recrée jamais une fiche supprimée entre-temps par un collègue", async () => {
     calls.updateError = { code: "not-found" };
-    await persistFirestorePatch({ parents: [{ ...before[0], fullName: "X" }] }, { throwOnError: true, previous: { parents: before } });
-    expect(writes().full).toEqual(["parents/p1"]);
+    await expect(persistFirestorePatch({ parents: [{ ...before[0], fullName: "X" }] }, { throwOnError: true, previous: { parents: before } })).rejects.toMatchObject({ code: "not-found" });
+    expect(calls.setDoc).toEqual([]);
   });
 
   it("transmet tout autre refus (règles, réseau) sans écriture de secours", async () => {
@@ -94,8 +94,14 @@ describe("écritures ciblées (updateData)", () => {
     expect(planCollectionWrites(records([before[0]]), records([reordered]))).toEqual([]);
   });
 
-  it("après un échec, réécrit entières les fiches non confirmées à l'enregistrement suivant", () => {
-    const previous = previousWithoutUnconfirmed({ parents: before, students: [] } as unknown as AppData, { parents: before }, new Set(["parents/p2"]));
-    expect(planCollectionWrites(records(previous.parents), records(before)).map((write) => [write.id, write.mode])).toEqual([["p2", "full"]]);
+  it("après un échec, le réessai n'écrit que les champs modifiés depuis la dernière version confirmée, jamais la fiche entière", async () => {
+    const bases = new Map<string, PersistableRecord>();
+    const firstAttempt = [{ ...before[0], fullName: "Nom corrigé" }, before[1], before[2]];
+    rememberUnconfirmedBases(bases, { parents: before }, { parents: firstAttempt }); // le premier envoi a échoué
+    const secondAttempt = [{ ...firstAttempt[0], phone: "0899999999" }, before[1], before[2]];
+    const previous = previousWithConfirmedBase({ parents: firstAttempt } as unknown as AppData, { parents: secondAttempt } as unknown as Partial<AppData>, bases);
+    await persistFirestorePatch({ parents: secondAttempt }, { throwOnError: true, previous });
+    expect(calls.setDoc).toEqual([]);
+    expect(calls.updateDoc).toEqual([["parents/p1", { fullName: "Nom corrigé", phone: "0899999999" }]]);
   });
 });
