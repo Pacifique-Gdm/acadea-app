@@ -42,7 +42,7 @@ describe("photos des élèves dans Storage", () => {
   afterAll(async () => environment.cleanup(), 30_000);
 
   it.each(["admin-a", "secretary-a"])("%s ajoute, lit et supprime une photo de son école", async (uid) => {
-    await assertSucceeds(put(uid, path("child-a", "school-a", "223e4567-e89b-42d3-a456-426614174000.jpg")));
+    await assertSucceeds(put(uid, path("child-a", "school-a", `${uid === "admin-a" ? "2" : "3"}23e4567-e89b-42d3-a456-426614174000.jpg`)));
     await assertSucceeds(read(uid));
     await assertSucceeds(storage(uid).ref(path()).delete());
   });

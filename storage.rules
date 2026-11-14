@@ -183,7 +183,8 @@ service firebase.storage {
 
     match /schools/{schoolId}/student-photos/{studentId}/{fileName} {
       allow read: if studentPhotoReader(schoolId, studentId);
-      allow create: if studentPhotoWriter(schoolId) && schoolAcceptsWrites(schoolId) && validStudentPhoto(fileName, schoolId, studentId);
+      // Jamais de remplacement d'une photo existante (chaque envoi a son propre nom).
+      allow create: if resource == null && studentPhotoWriter(schoolId) && schoolAcceptsWrites(schoolId) && validStudentPhoto(fileName, schoolId, studentId);
       allow update: if false;
       allow delete: if studentPhotoWriter(schoolId);
     }
