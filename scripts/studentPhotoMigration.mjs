@@ -39,6 +39,11 @@ const bucket = {
       });
       if (!response.ok) throw new Error(`Envoi Storage refusé (HTTP ${response.status}).`);
     },
+    // Retrait d'une copie devenue inutile (fiche modifiée pendant la migration).
+    delete: async () => {
+      const response = await fetch(`https://storage.googleapis.com/storage/v1/b/${bucketName}/o/${encodeURIComponent(name)}`, { method: "DELETE", headers: { Authorization: `Bearer ${process.env.ACADEA_STAGING_ACCESS_TOKEN}`, "x-goog-user-project": projectId } });
+      if (!response.ok && response.status !== 404) throw new Error(`Retrait Storage refusé (HTTP ${response.status}).`);
+    },
   }),
 };
 // Sauvegarde locale (dossier tmp/ ignoré par Git), lisible par l'utilisateur seulement.

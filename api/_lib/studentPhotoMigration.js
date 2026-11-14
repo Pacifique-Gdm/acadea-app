@@ -26,11 +26,22 @@ export async function migrateStudentPhotos({ db, bucket, schoolId, apply = false
 
   await backup({ schoolId, createdAt: now, photos: candidates.map(({ id, photoUrl }) => ({ id, photoUrl })) });
   let copied = 0;
+  let skipped = 0;
   for (const item of candidates) {
     const path = `schools/${schoolId}/student-photos/${item.id}/${newId()}.${EXTENSION[item.contentType]}`;
     await bucket.file(path).save(item.bytes, { contentType: item.contentType, resumable: false, metadata: { metadata: { schoolId, studentId: item.id, migratedFrom: "photoUrl" } } });
-    await db.doc(`students/${item.id}`).update({ photoPath: path, photoMigratedAt: now });
-    copied += 1;
+    // La fiche doit être restée telle qu'elle a été lue (pas de nouvelle photo
+    // entre-temps) ; sinon la copie est retirée et la photo récente conservée.
+    const updated = await db.runTransaction(async (transaction) => {
+      const reference = db.doc(`students/${item.id}`);
+      const snapshot = await transaction.get(reference);
+      const current = snapshot.exists ? snapshot.data() : undefined;
+      if (!current || current.photoPath || current.photoUrl !== item.photoUrl) return false;
+      transaction.update(reference, { photoPath: path, photoMigratedAt: now });
+      return true;
+    });
+    if (updated) copied += 1;
+    else { skipped += 1; await bucket.file(path).delete().catch(() => undefined); }
   }
-  return { ...plan, copied, applied: true };
+  return { ...plan, copied, skipped, applied: true };
 }

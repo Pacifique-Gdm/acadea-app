@@ -105,7 +105,12 @@ describe("migration des photos vers Storage", () => {
     const db = {
       collection: () => ({ where: (_f: string, _o: string, value: string) => ({ select: () => ({ get: async () => ({ size: [...docs.values()].filter((row) => row.schoolId === value).length,
         docs: [...docs.entries()].filter(([, row]) => row.schoolId === value).map(([path, row]) => ({ id: path.split("/")[1], data: () => row })) }) }) }) }),
-      doc: (path: string) => ({ update: async (value: Record<string, unknown>) => { docs.set(path, { ...docs.get(path), ...value }); } }),
+      doc: (path: string) => ({ path, update: async (value: Record<string, unknown>) => { docs.set(path, { ...docs.get(path), ...value }); } }),
+      runTransaction: async <T>(work: (transaction: { get: (ref: { path: string }) => Promise<unknown>; update: (ref: { path: string }, value: Record<string, unknown>) => void }) => Promise<T>) => {
+        const writes: Array<() => void> = [];
+        const result = await work({ get: async (ref) => ({ exists: docs.has(ref.path), data: () => docs.get(ref.path) }), update: (ref, value) => writes.push(() => docs.set(ref.path, { ...docs.get(ref.path), ...value })) });
+        writes.forEach((write) => write()); return result;
+      },
     };
     const bucket = { file: (path: string) => ({ save: async (bytes: Buffer) => { saved.push({ path, bytes: bytes.length }); } }) };
     return { docs, saved, db, bucket };
@@ -134,5 +139,19 @@ describe("migration des photos vers Storage", () => {
     expect(docs.get("students/child-a")).toMatchObject({ photoUrl: embedded, photoPath, photoMigratedAt: "2026-11-14T12:00:00.000Z" });
     expect(docs.get("students/child-other")).not.toHaveProperty("photoPath");
     expect(await migrateStudentPhotos({ db, bucket, schoolId: "school-a" })).toMatchObject({ photosToCopy: 0 });
+  });
+  it("ne remplace jamais une photo enregistrée pendant la migration par l'ancienne, et retire sa copie inutile", async () => {
+    const { db, docs } = fixture();
+    const deleted: string[] = [];
+    const recent = "schools/school-a/student-photos/child-a/923e4567-e89b-42d3-a456-426614174000.jpg";
+    const bucket = { file: (path: string) => ({ save: async () => { docs.set("students/child-a", { ...docs.get("students/child-a"), photoPath: recent }); }, delete: async () => { deleted.push(path); } }) };
+    const transactional = { ...db, runTransaction: async <T>(work: (transaction: { get: (ref: { path: string }) => Promise<unknown>; update: (ref: { path: string }, value: Record<string, unknown>) => void }) => Promise<T>) => {
+      const writes: Array<() => void> = [];
+      const result = await work({ get: async (ref) => ({ exists: docs.has(ref.path), data: () => docs.get(ref.path) }), update: (ref, value) => writes.push(() => docs.set(ref.path, { ...docs.get(ref.path), ...value })) });
+      writes.forEach((write) => write()); return result; } };
+    const result = await migrateStudentPhotos({ db: transactional, bucket, schoolId: "school-a", apply: true, backup: async () => undefined, newId: () => uuid });
+    expect(docs.get("students/child-a")).toMatchObject({ photoPath: recent });
+    expect(deleted).toEqual([photoPath]);
+    expect(result).toMatchObject({ copied: 0, skipped: 1 });
   });
 });
