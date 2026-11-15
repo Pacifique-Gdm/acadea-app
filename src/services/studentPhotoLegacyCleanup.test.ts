@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error Module API Vercel implémenté en JavaScript côté serveur.
-import { removeLegacyStudentPhotos } from "../../api/_lib/studentPhotoLegacyCleanup.js";
+import { removeLegacyStudentPhotos, restoreLegacyStudentPhotos } from "../../api/_lib/studentPhotoLegacyCleanup.js";
 
 const uuid = "123e4567-e89b-42d3-a456-426614174000";
 const pathFor = (id: string) => `schools/school-a/student-photos/${id}/${uuid}.jpg`;
@@ -30,7 +30,7 @@ function fixture(sizes: Record<string, number> = {}) {
       const rows = [...docs].filter(([, data]) => data.schoolId === schoolId).map(([path, data]) => ({ id: path.split("/")[1], data: () => data }));
       return { size: rows.length, docs: rows };
     } }) }) }),
-    doc: (path: string) => ({ path }),
+    doc: (path: string) => ({ path, get: async () => ({ exists: docs.has(path), data: () => docs.get(path) }) }),
     runTransaction: async <T>(work: (transaction: { get: (ref: { path: string }) => Promise<unknown>; update: (ref: { path: string }, value: Doc) => void }) => Promise<T>) => {
       const writes: Array<() => void> = [];
       const result = await work({ get: async (ref) => ({ exists: docs.has(ref.path), data: () => docs.get(ref.path) }), update: (ref, value) => writes.push(() => applyWrite(ref.path, value)) });
@@ -83,5 +83,36 @@ describe("retrait des anciennes photos intégrées (lot 9, étape 2)", () => {
     const result = await removeLegacyStudentPhotos({ db, statObject, deleteField, schoolId: "school-a", apply: true, backup });
     expect(result).toMatchObject({ removed: 0, changed: 1 });
     expect(docs.get("students/ok")).toHaveProperty("photoUrl", "data:image/jpeg;base64,BBBB");
+  });
+});
+
+describe("restauration des anciennes photos depuis la sauvegarde", () => {
+  it("retrait puis restauration : la fiche redevient exactement comme avant", async () => {
+    const { db, statObject, deleteField, docs } = fixture();
+    const original = structuredClone(docs.get("students/ok"));
+    let saved: unknown;
+    await removeLegacyStudentPhotos({ db, statObject, deleteField, schoolId: "school-a", apply: true, backup: async (content: unknown) => { saved = structuredClone(content); } });
+    expect(docs.get("students/ok")).not.toHaveProperty("photoUrl");
+    const before = JSON.stringify([...docs]);
+    expect(await restoreLegacyStudentPhotos({ db, backupContent: saved, schoolId: "school-a" })).toMatchObject({ photos: 1, toRestore: 1, restored: 0, applied: false });
+    expect(JSON.stringify([...docs])).toBe(before);
+    expect(await restoreLegacyStudentPhotos({ db, backupContent: saved, schoolId: "school-a", apply: true })).toMatchObject({ restored: 1 });
+    expect(docs.get("students/ok")).toEqual(original);
+    // Relancée : rien à refaire.
+    expect(await restoreLegacyStudentPhotos({ db, backupContent: saved, schoolId: "school-a", apply: true })).toMatchObject({ restored: 0, alreadyPresent: 1 });
+  });
+
+  it("n'écrase jamais une photo plus récente et refuse une sauvegarde d'une autre école", async () => {
+    const { db, docs } = fixture();
+    const backupContent = { kind: "legacy-photo-removal", schoolId: "school-a", photos: [
+      { id: "already", photoPath: pathFor("autre-photo"), photoUrl: embedded },
+      { id: "inconnu", photoPath: pathFor("inconnu"), photoUrl: embedded },
+      { id: "ok", photoPath: pathFor("ok"), photoUrl: "pas une photo" },
+    ] };
+    const result = await restoreLegacyStudentPhotos({ db, backupContent, schoolId: "school-a", apply: true });
+    expect(result).toMatchObject({ photoChanged: 1, missingStudent: 1, invalid: 1, restored: 0 });
+    expect(docs.get("students/already")).not.toHaveProperty("photoUrl");
+    await expect(restoreLegacyStudentPhotos({ db, backupContent, schoolId: "school-b" })).rejects.toThrow("autre école");
+    await expect(restoreLegacyStudentPhotos({ db, backupContent: { ...backupContent, kind: "autre" }, schoolId: "school-a" })).rejects.toThrow("Sauvegarde invalide");
   });
 });
