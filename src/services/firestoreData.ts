@@ -344,7 +344,7 @@ export async function loadFirestoreData(
 
     if (user.role === "secretary") {
       [scopedData.students, scopedData.parents, scopedData.feeTypes, scopedData.payments, scopedData.auditLogs] = await Promise.all([
-        maybeLoad("students", () => loadCollection<AppData["students"][number]>("students", schoolFilter)),
+        maybeLoad("students", () => loadCollection<AppData["students"][number]>("students", annualFilter)),
         maybeLoad("parents", () => loadCollection<AppData["parents"][number]>("parents", schoolFilter)),
         loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter),
         loadCollection<AppData["payments"][number]>("payments", annualFilter),
