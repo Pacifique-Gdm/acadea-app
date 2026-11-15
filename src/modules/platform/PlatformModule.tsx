@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { KeptTab } from "../../components/layout/KeptTab";
+import { useVisitedTabs } from "../../components/layout/keptTabState";
 import type { ReactNode } from "react";
 import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
@@ -102,6 +104,8 @@ export function PlatformModule({
   const [customOptionPending, setCustomOptionPending] = useState(false);
   const [customOptionSaving, setCustomOptionSaving] = useState(false);
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
+  // Lot 19 : les onglets Coordinations et Menu restent en place (masqués) après leur première ouverture.
+  const visitedViews = useVisitedTabs(platformView);
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
   const [drawerYearId, setDrawerYearId] = useState("");
@@ -1286,11 +1290,11 @@ export function PlatformModule({
             </section>
           )}
 
-          {platformView === "coordinations" && (
+          <KeptTab id="coordinations" active={platformView} visited={visitedViews}>
             <CoordinationManagement schools={visibleSchools} coordinations={coordinations} coordinationError={coordinationLoadError} onSchoolUpdated={(school) => updateData({ schools: data.schools.map((item) => item.id === school.id ? school : item) }, { persist: false })} />
-          )}
+          </KeptTab>
 
-          {platformView === "menu" && (
+          <KeptTab id="menu" active={platformView} visited={visitedViews}>
             <section className="grid min-w-0 gap-4">
               <div className="grid min-w-0 gap-3">
                 <button
@@ -1342,7 +1346,7 @@ export function PlatformModule({
                 </button>
               </FormPanel>
             </section>
-          )}
+          </KeptTab>
         </main>
       </div>
 
