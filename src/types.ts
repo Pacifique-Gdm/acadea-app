@@ -156,6 +156,18 @@ export interface Student {
     targetSchoolYearId?: string;
     targetStudentId?: string;
   };
+  /** Repère posé par le passage d'année (lot 20) quand l'élève quitte l'école :
+   * permet la reprise sans doublon et garde les valeurs d'avant l'archivage. */
+  annualExit?: {
+    jobId: string;
+    kind: "finalist" | "missing-class" | "missing-option" | "missing-cycle";
+    groupKey?: string;
+    sourceSchoolYearId: string;
+    targetSchoolYearId: string;
+    decidedBy: string;
+    decidedAt: string;
+    previous: Record<string, unknown>;
+  };
   /** Préfixes normalisés utilisés exclusivement par la recherche paginée Firestore. */
   searchPrefixes?: string[];
   /** État d'archivage dénormalisé pour les filtres serveur. */

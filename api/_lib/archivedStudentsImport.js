@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { buildServerAudit, AUDIT_EVENT_TYPES } from "./serverAudit.js";
 import {
+  ANNUAL_EXIT_KINDS,
   ANNUAL_TRANSITION_RESULTS,
+  annualExitReason,
   annualStudentTransition,
   canonicalAnnualClassName,
   getClassSection,
@@ -193,20 +195,135 @@ function genericPayload(_collection, source, id, schoolId, yearId, changes = {})
   });
 }
 
-function planAnnualImport({ school, schoolId, schoolYearId, source, target, parents, parentUsers }) {
+const EXIT_RESTORE_FIELDS = ["status", "deletedAt", "exitReason", "exitReasonDetails", "searchArchived"];
+const DECISIONS = new Set(["open", "leave"]);
+
+/** Vue « avant archivage » d'une fiche archivée par CE passage d'année (lot 20) :
+ * l'empreinte source et le plan restent identiques après les archivages déjà
+ * écrits, ce qui permet la reprise sans doublon. */
+function beforeAnnualExit(student, jobId) {
+  const exit = student.annualExit;
+  if (!exit || exit.jobId !== jobId) return student;
+  const { annualExit: _exit, ...restored } = student;
+  void _exit;
+  for (const key of EXIT_RESTORE_FIELDS) {
+    const previous = exit.previous?.[key];
+    if (previous === null || previous === undefined) delete restored[key]; else restored[key] = previous;
+  }
+  return restored;
+}
+
+function parseDecisions(value) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value)) fail(400, "invalid-argument", "Décisions de passage d'année invalides.");
+  const entries = Object.entries(value);
+  if (entries.length > 300 || entries.some(([key, decision]) => key.length > 300 || !DECISIONS.has(decision))) fail(400, "invalid-argument", "Décisions de passage d'année invalides.");
+  return Object.fromEntries(entries.sort(([a], [b]) => a.localeCompare(b)));
+}
+
+function parseRetained(value) {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length > 5000 || !value.every(identifier)) fail(400, "invalid-argument", "Liste des élèves gardés invalide.");
+  return [...new Set(value)].sort();
+}
+
+const studentSummary = (student) => ({
+  id: student.id, matricule: student.matricule ?? "", className: student.className ?? "",
+  name: [student.nom, student.postnom, student.prenom].filter(Boolean).join(" "),
+});
+const configuredOptionLabels = (school) => Array.isArray(school.schoolOptions) ? school.schoolOptions.filter((item) => typeof item === "string" && item.trim()) : [];
+const classOptionOf = (item) => item.option ?? classOption(item.classOptionKey);
+
+/** L'option était organisée dans l'ancienne année : l'élève y est rattaché par
+ * une clé d'option, ou sa classe possède une sous-classe de cette option. */
+function optionOrganised(student, option, sourceClassesById) {
+  if (typeof student.classOptionKey === "string" && student.classOptionKey.includes("::")) return true;
+  const own = sourceClassesById.get(student.classId);
+  const baseId = own?.parentClassId ?? student.classId;
+  if (!baseId) return false;
+  for (const item of sourceClassesById.values()) {
+    if (item.active !== false && item.parentClassId === baseId && normalized(classOptionOf(item)) === normalized(option)) return true;
+  }
+  return false;
+}
+
+/** Comme resolveTargetClass, mais une classe, une option ou un cycle absent
+ * devient un groupe de décision au lieu d'un échec ou d'une montée silencieuse. */
+function locateTargetClass(transition, student, classes, school, sections, sourceClassesById) {
+  const { className, option } = transition;
+  const targetName = normalizeAnnualClassName(className);
+  const parents = classes.filter((item) => item.active !== false && !item.parentClassId && normalizeAnnualClassName(item.name) === targetName);
+  if (parents.length > 1) fail(409, "failed-precondition", `Plusieurs classes cibles correspondent à ${className}.`);
+  if (!parents.length) {
+    return {
+      missing: sections.has(getClassSection(className)) ? ANNUAL_EXIT_KINDS.MISSING_CLASS : ANNUAL_EXIT_KINDS.MISSING_CYCLE,
+      organisedOption: Boolean(option) && optionOrganised(student, option, sourceClassesById),
+    };
+  }
+  const parent = parents[0];
+  if (!option) return { resolved: { classId: parent.id } };
+  const optionMatches = classes.filter((item) => item.active !== false && item.parentClassId === parent.id && normalized(classOptionOf(item)) === normalized(option));
+  const optionKeys = [...new Set(optionMatches.map((item) => item.classOptionKey).filter(Boolean))];
+  if (optionKeys.length > 1) fail(409, "failed-precondition", `Plusieurs options cibles correspondent à ${className} ${option}.`);
+  if (optionMatches.length) return { resolved: { classId: parent.id, ...(optionKeys[0] ? { classOptionKey: optionKeys[0] } : {}) } };
+  if (optionOrganised(student, option, sourceClassesById)) return { missing: ANNUAL_EXIT_KINDS.MISSING_OPTION, organisedOption: true };
+  const configuredOptions = configuredOptionLabels(school).map(normalized);
+  if (configuredOptions.length && !configuredOptions.includes(normalized(option))) {
+    fail(409, "failed-precondition", `L’option ${option} n’existe plus dans la configuration de l’école.`);
+  }
+  return { resolved: { classId: parent.id } };
+}
+
+function nextSubclassLabel(siblings) {
+  const used = new Set(siblings.filter((item) => item.active !== false).map((item) => normalized(item.subClassLabel)));
+  for (let code = 65; code <= 90; code++) if (!used.has(normalized(String.fromCharCode(code)))) return String.fromCharCode(code);
+  fail(409, "failed-precondition", "Trop de sous-classes dans la classe cible.");
+}
+
+/** « Ouvrir la classe suivante » : crée la classe (et l'option si elle était
+ * organisée) dans la nouvelle année, avec la même forme que les classes reprises. */
+function openGroupClasses(group, targetClasses, context) {
+  const { schoolId, schoolYearId, actor, now, school } = context;
+  const created = [];
+  const targetName = normalizeAnnualClassName(group.targetClassName);
+  let parent = targetClasses.find((item) => item.active !== false && !item.parentClassId && normalizeAnnualClassName(item.name) === targetName);
+  if (!parent) {
+    const id = annualId("classes", schoolId, schoolYearId, `annual-open:${targetName}`);
+    parent = { id, schoolId, schoolYearId, name: group.targetClassName, section: group.section, active: true, annualImportOpened: true, createdBy: actor, createdAt: now, updatedAt: now };
+    created.push(parent);
+    targetClasses.push(parent);
+  }
+  if (group.option && group.organisedOption) {
+    const exists = targetClasses.some((item) => item.active !== false && item.parentClassId === parent.id && normalized(classOptionOf(item)) === normalized(group.option));
+    if (!exists) {
+      const label = configuredOptionLabels(school).find((item) => normalized(item) === normalized(group.option)) ?? group.option;
+      const classOptionKey = `${parent.id}::${label}`;
+      const subClassLabel = nextSubclassLabel(targetClasses.filter((item) => item.parentClassId === parent.id));
+      const child = {
+        id: annualId("classes", schoolId, schoolYearId, `annual-open:${parent.id}::${normalized(label)}`), schoolId, schoolYearId,
+        name: `${parent.name} - ${label} - ${subClassLabel}`, parentClassId: parent.id, classOptionKey, subClassLabel, section: group.section,
+        active: true, annualImportOpened: true, createdBy: actor, createdAt: now, updatedAt: now,
+      };
+      created.push(child);
+      targetClasses.push(child);
+    }
+  }
+  return created.map((payload) => ({ collection: "classes", id: payload.id, payload, source: payload, kind: "opened-class" }));
+}
+
+function planAnnualImport({ school, schoolId, schoolYearId, source, target, parents, parentUsers, jobId, decisions = {}, retained = new Set(), exitedIds = new Set(), actor, now }) {
   const classPlan = classMaps(source.classes, target.classes, schoolId, schoolYearId);
   const targetClasses = classPlan.planned;
   const students = uniqueStudents(source.students);
-  const transitions = [], studentIds = new Map(), studentWrites = [], studentLinkWrites = [];
-  for (const student of students) {
-    if (!student.nom || !student.prenom || !student.className || studentImportKey(student) === "|||") fail(409, "failed-precondition", "Une fiche source ne possède pas l’identité ou la classe nécessaire à l’import.");
-    const preliminary = annualStudentTransition(student, true);
-    if (preliminary.result === "INVALID_CLASS") fail(409, "failed-precondition", `Classe source non reconnue pour ${student.matricule || student.id}.`);
-    if (preliminary.result !== ANNUAL_TRANSITION_RESULTS.PROMOTED) { transitions.push({ student, transition: preliminary }); continue; }
-    const resolved = resolveTargetClass(preliminary.className, preliminary.option, targetClasses, school, source.classes);
-    const transition = resolved ? preliminary : annualStudentTransition(student, false);
-    transitions.push({ student, transition });
-    if (transition.result !== ANNUAL_TRANSITION_RESULTS.PROMOTED) continue;
+  const sourceClassesById = new Map(source.classes.map((item) => [item.id, item]));
+  const sections = configuredSections(school, source.classes);
+  const studentIds = new Map(), studentWrites = [], studentLinkWrites = [], exitWrites = [], openedWrites = [];
+  const groups = new Map(), finalists = [], departures = [], withoutOption = [];
+  const counts = { promotedCount: 0, terminalExitCount: 0, schoolCycleExitCount: 0, skippedCount: 0, archivedCount: 0, retainedCount: 0, openedClassCount: 0 };
+
+  const promote = (student, transition, resolved) => {
+    counts.promotedCount += 1;
+    if (transition.transition === "cteb-humanites") withoutOption.push(studentSummary(student));
     const matchingTargets = target.students.filter((item) => studentImportKey(item) === studentImportKey(student));
     if (matchingTargets.length > 1) fail(409, "failed-precondition", "Des doublons existent déjà dans l’année cible. Aucun élève n’a été écrasé.");
     const existing = matchingTargets[0];
@@ -225,7 +342,80 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
         studentLinkWrites.push({ collection: "studentLinks", id: `${student.id}:${targetStudent.id}`, source: student, targetStudentId: targetStudent.id, kind: "student-link" });
       }
     }
+  };
+
+  const depart = (student, kind, section, groupKey) => {
+    if (retained.has(student.id)) { counts.retainedCount += 1; return; }
+    const reason = annualExitReason(kind, section);
+    departures.push({ ...studentSummary(student), kind, ...reason });
+    counts.archivedCount += 1;
+    if (kind !== ANNUAL_EXIT_KINDS.FINALIST) counts.schoolCycleExitCount += 1;
+    if (exitedIds.has(student.id)) return;
+    const previous = Object.fromEntries(EXIT_RESTORE_FIELDS.map((key) => [key, student[key] ?? null]));
+    exitWrites.push({
+      collection: "studentExits", id: student.id, source: student, kind: "student-exit",
+      payload: {
+        status: "TRANSFERRED", deletedAt: now, ...reason, searchArchived: true,
+        annualExit: { jobId, kind, ...(groupKey ? { groupKey } : {}), sourceSchoolYearId: student.schoolYearId, targetSchoolYearId: schoolYearId, decidedBy: actor, decidedAt: now, previous },
+      },
+    });
+  };
+
+  for (const student of students) {
+    if (!student.nom || !student.prenom || !student.className || studentImportKey(student) === "|||") fail(409, "failed-precondition", "Une fiche source ne possède pas l’identité ou la classe nécessaire à l’import.");
+    const transition = annualStudentTransition(student, true);
+    if (transition.result === "INVALID_CLASS") fail(409, "failed-precondition", `Classe source non reconnue pour ${student.matricule || student.id}.`);
+    if (transition.result === ANNUAL_TRANSITION_RESULTS.SKIPPED_INACTIVE) { counts.skippedCount += 1; continue; }
+    if (transition.result === ANNUAL_TRANSITION_RESULTS.TERMINAL_EXIT) {
+      counts.terminalExitCount += 1;
+      // Un finaliste déjà réinscrit par le workflow terminal continue : rien à archiver.
+      if (student.terminalDecision?.type === "reenrolled") continue;
+      finalists.push(studentSummary(student));
+      depart(student, ANNUAL_EXIT_KINDS.FINALIST);
+      continue;
+    }
+    const located = locateTargetClass(transition, student, targetClasses, school, sections, sourceClassesById);
+    if (located.resolved) { promote(student, transition, located.resolved); continue; }
+    const key = `${transition.sourceClassName}::${normalized(transition.option ?? "")}`;
+    const option = transition.option;
+    const optionAllowed = !option || !configuredOptionLabels(school).length || configuredOptionLabels(school).map(normalized).includes(normalized(option));
+    const group = groups.get(key) ?? {
+      key, kind: located.missing, sourceClassName: transition.sourceClassName, ...(option ? { option } : {}),
+      targetClassName: transition.className, section: getClassSection(transition.className),
+      ...(located.missing === ANNUAL_EXIT_KINDS.MISSING_CYCLE ? { defaultDecision: "leave" } : {}),
+      canOpen: optionAllowed, ...(optionAllowed ? {} : { openBlockedReason: `L’option ${option} n’existe plus dans la configuration de l’école.` }),
+      organisedOption: false, members: [],
+    };
+    group.organisedOption ||= located.organisedOption;
+    group.members.push({ student, transition });
+    groups.set(key, group);
   }
+
+  let decisionRequired = false;
+  const context = { schoolId, schoolYearId, actor, now, school };
+  for (const group of [...groups.values()].sort((a, b) => a.key.localeCompare(b.key))) {
+    const decision = decisions[group.key];
+    if (decision === "open") {
+      if (!group.canOpen) fail(409, "failed-precondition", group.openBlockedReason);
+      openedWrites.push(...openGroupClasses(group, targetClasses, context));
+      for (const { student, transition } of group.members) {
+        const located = locateTargetClass(transition, student, targetClasses, school, sections, sourceClassesById);
+        if (!located.resolved) fail(409, "failed-precondition", `Impossible d’ouvrir ${group.targetClassName}.`);
+        promote(student, transition, located.resolved);
+      }
+    } else if (decision === "leave" || group.kind === ANNUAL_EXIT_KINDS.MISSING_CYCLE) {
+      for (const { student } of group.members) depart(student, group.kind, group.section, group.key);
+    } else if (group.members.some(({ student }) => !retained.has(student.id))) {
+      group.decisionRequired = true;
+      decisionRequired = true;
+    } else counts.retainedCount += group.members.length;
+  }
+  counts.openedClassCount = openedWrites.length;
+  const decisionGroups = [...groups.values()].sort((a, b) => a.key.localeCompare(b.key)).map(({ members, organisedOption: _organised, ...group }) => {
+    void _organised;
+    return { ...group, ...(decisions[group.key] ? { decision: decisions[group.key] } : {}), decisionRequired: Boolean(group.decisionRequired), students: members.map(({ student }) => studentSummary(student)) };
+  });
+  const review = { groups: decisionGroups, finalists, departures, withoutOption, decisionRequired, openedClasses: openedWrites.map((item) => item.payload.name) };
 
   const teacherIds = semanticTargetMap(source.teachers, target.teachers, (item) => normalized(item.userId || item.email || item.fullName), "teachers", schoolId, schoolYearId);
   const subjectIds = semanticTargetMap(source.subjects, target.subjects, (item) => `${normalized(item.name)}|${normalized(item.section)}`, "subjects", schoolId, schoolYearId);
@@ -261,7 +451,7 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
     fail(409, "failed-precondition", "Un horaire source possède une référence annuelle incohérente.");
   }
 
-  const plans = [{ name: "classes", writes: classPlan.payloads }, { name: "students", writes: studentWrites }, { name: "studentLinks", writes: studentLinkWrites }];
+  const plans = [{ name: "classes", writes: [...classPlan.payloads, ...openedWrites] }, { name: "students", writes: studentWrites }, { name: "studentLinks", writes: studentLinkWrites }, { name: "studentExits", writes: exitWrites }];
   const addPlan = (name, sourceRows, targetRows, ids, transform) => {
     const targetIds = new Set(targetRows.map((item) => item.id));
     plans.push({ name, writes: sourceRows.flatMap((item) => {
@@ -311,13 +501,7 @@ function planAnnualImport({ school, schoolId, schoolYearId, source, target, pare
     ...mappedAssignmentScope(item, classPlan.ids),
   }));
 
-  const counts = {
-    promotedCount: transitions.filter((item) => item.transition.result === ANNUAL_TRANSITION_RESULTS.PROMOTED).length,
-    terminalExitCount: transitions.filter((item) => item.transition.result === ANNUAL_TRANSITION_RESULTS.TERMINAL_EXIT).length,
-    schoolCycleExitCount: transitions.filter((item) => item.transition.result === ANNUAL_TRANSITION_RESULTS.SCHOOL_CYCLE_EXIT).length,
-    skippedCount: transitions.filter((item) => item.transition.result === ANNUAL_TRANSITION_RESULTS.SKIPPED_INACTIVE).length,
-  };
-  return { plans, transitions, studentIds, counts, targetClasses };
+  return { plans, studentIds, counts, targetClasses, review };
 }
 
 function importResult({ job, sourceCount, uniqueCount, plan, selected, sourceYearId, schoolYearId, complete }) {
@@ -368,6 +552,20 @@ export async function importArchivedStudents({ db, caller, body }) {
     ]));
     const source = {}, target = {};
     ANNUAL_COLLECTIONS.forEach((name, index) => { source[name] = docs(snapshots[index * 2]).sort((a, b) => a.id.localeCompare(b.id)); target[name] = docs(snapshots[index * 2 + 1]); });
+    // Lot 20 : les fiches déjà archivées par CE passage d'année sont relues « avant
+    // archivage » (empreinte et plan identiques) et ne sont jamais réécrites.
+    const exitedIds = new Set(source.students.filter((item) => item.annualExit?.jobId === jobId).map((item) => item.id));
+    source.students = source.students.map((item) => beforeAnnualExit(item, jobId));
+    const bodyDecisions = parseDecisions(body.decisions), bodyRetained = parseRetained(body.retainedStudentIds);
+    const lockedDecisions = job?.decisions && typeof job.decisions === "object" ? job.decisions : undefined;
+    const decisions = { ...(lockedDecisions ?? {}) };
+    for (const [key, value] of Object.entries(bodyDecisions ?? {})) {
+      if (lockedDecisions?.[key] !== undefined && lockedDecisions[key] !== value) fail(409, "failed-precondition", "L’import a déjà commencé avec d’autres décisions. Elles ne peuvent plus être modifiées.");
+      decisions[key] = value;
+    }
+    const lockedRetained = Array.isArray(job?.retainedStudentIds) ? [...job.retainedStudentIds].sort() : undefined;
+    if (lockedRetained && bodyRetained && JSON.stringify(lockedRetained) !== JSON.stringify(bodyRetained)) fail(409, "failed-precondition", "L’import a déjà commencé avec d’autres décisions. Elles ne peuvent plus être modifiées.");
+    const retainedStudentIds = lockedRetained ?? bodyRetained ?? [];
     if (!source.students.length) {
       if (perform) fail(409, "failed-precondition", "Aucun élève dans l’année source archivée.");
       return { status: "empty", sourceCount: 0, uniqueCount: 0, remaining: 0, importedCount: 0, existingCount: 0, complete: false, sourceYearId, schoolYearId, promotedCount: 0, terminalExitCount: 0, schoolCycleExitCount: 0, skippedCount: 0 };
@@ -378,7 +576,13 @@ export async function importArchivedStudents({ db, caller, body }) {
       transaction.get(scoped(db, "parents", schoolId)), transaction.get(scoped(db, "users", schoolId).where("role", "==", "parent")),
     ]);
     const parents = new Map(docs(parentRows).map((item) => [item.id, item])), parentUsers = docs(parentUserRows);
-    const plan = planAnnualImport({ school, schoolId, schoolYearId, source, target, parents, parentUsers });
+    const now = new Date().toISOString();
+    const plan = planAnnualImport({ school, schoolId, schoolYearId, source, target, parents, parentUsers, jobId, decisions, retained: new Set(retainedStudentIds), exitedIds, actor: caller.uid, now });
+    const review = { ...plan.review, decisions, retainedStudentIds, decisionsLocked: Boolean(job) };
+    if (perform && plan.review.decisionRequired) {
+      const pending = plan.review.groups.filter((group) => group.decisionRequired).map((group) => `${group.sourceClassName}${group.option ? ` (${group.option})` : ""} → ${group.targetClassName}`);
+      fail(409, "failed-precondition", `Décision requise pour : ${pending.join(", ")}. Choisissez « Ouvrir la classe suivante » ou « Les élèves quittent l’école ».`);
+    }
     const selected = [];
     for (const phase of plan.plans) {
       const capacity = ARCHIVED_IMPORT_CHUNK_SIZE - selected.length;
@@ -389,7 +593,7 @@ export async function importArchivedStudents({ db, caller, body }) {
     }
     const complete = perform && plan.plans.reduce((total, phase) => total + phase.writes.length, 0) === selected.length;
     const result = importResult({ job, sourceCount: source.students.length, uniqueCount: uniqueStudents(source.students).length, plan, selected: perform ? selected : [], sourceYearId, schoolYearId, complete });
-    if (!perform) return { ...result, complete: false, status: job ? "partial" : year.studentsImportedFromArchivedYear ? "legacy-incomplete" : "ready" };
+    if (!perform) return { ...result, ...review, complete: false, status: job ? "partial" : year.studentsImportedFromArchivedYear ? "legacy-incomplete" : "ready" };
 
     const parentLinks = new Map(), userLinks = new Map();
     const grantsByTeacher = new Map();
@@ -419,6 +623,7 @@ export async function importArchivedStudents({ db, caller, body }) {
       }
     }
     for (const item of selected) {
+      if (item.kind === "student-exit") { transaction.update(db.doc(`students/${item.id}`), item.payload); continue; }
       if (item.kind !== "student-link") transaction.create(db.doc(`${item.collection}/${item.id}`), item.collection === "teachers"
         ? { ...item.payload, storageAssignmentIds: grantsByTeacher.get(item.id) ?? [] }
         : item.payload);
@@ -439,14 +644,14 @@ export async function importArchivedStudents({ db, caller, body }) {
     for (const [id, ids] of parentLinks) transaction.update(db.doc(`parents/${id}`), { studentIds: FieldValue.arrayUnion(...ids) });
     for (const [id, ids] of userLinks) transaction.update(db.doc(`users/${id}`), { studentIds: FieldValue.arrayUnion(...ids) });
     const processedItems = (job?.processedItems ?? 0) + selected.length;
-    const jobDocument = { version: 2, schoolId, sourceYearId, schoolYearId, signature, status: complete ? "complete" : "in_progress", phase: result.phase, processedItems, result: { ...result, complete, status: complete ? "complete" : "partial" }, createdBy: job?.createdBy ?? caller.uid, updatedAt: FieldValue.serverTimestamp() };
+    const jobDocument = { version: 2, schoolId, sourceYearId, schoolYearId, signature, decisions, retainedStudentIds, status: complete ? "complete" : "in_progress", phase: result.phase, processedItems, result: { ...result, complete, status: complete ? "complete" : "partial" }, createdBy: job?.createdBy ?? caller.uid, updatedAt: FieldValue.serverTimestamp() };
     transaction.set(jobRef, jobDocument);
     if (complete) {
       transaction.update(yearRef, { studentsImportedFromArchivedYear: true, studentsImportedFromYearId: sourceYearId, studentsImportedAt: new Date().toISOString(), annualImportStatus: "COMPLETED", annualImportJobId: jobId });
       const auditRef = db.doc(`auditLogs/archived-import-${jobId}`);
-      transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.STUDENTS_IMPORTED, actor: caller, schoolId, schoolYearId, resourceType: "schoolYear", resourceId: schoolYearId, metadata: { sourceYearId, ...plan.counts, importedItems: processedItems, importedCollections: result.importedCollections } }));
+      transaction.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.STUDENTS_IMPORTED, actor: caller, schoolId, schoolYearId, resourceType: "schoolYear", resourceId: schoolYearId, metadata: { sourceYearId, ...plan.counts, importedItems: processedItems, importedCollections: result.importedCollections, decisions, retainedStudentIds } }));
     } else if (year.studentsImportedFromArchivedYear) transaction.update(yearRef, { studentsImportedFromArchivedYear: false, annualImportStatus: "IN_PROGRESS" });
-    return { ...result, complete, status: complete ? "complete" : "partial" };
+    return { ...result, ...review, decisionsLocked: true, complete, status: complete ? "complete" : "partial" };
   });
 }
 

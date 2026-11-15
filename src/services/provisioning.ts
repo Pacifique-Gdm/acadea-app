@@ -288,12 +288,44 @@ export type ArchivedStudentsImportStatus = {
   terminalExitCount?: number;
   schoolCycleExitCount?: number;
   skippedCount?: number;
+  archivedCount?: number;
+  retainedCount?: number;
+  openedClassCount?: number;
   importedCollections?: Record<string, number>;
+  /** Lot 20 : groupes à décider, partants, finalistes et résumé. */
+  groups?: AnnualDecisionGroup[];
+  finalists?: AnnualStudentSummary[];
+  departures?: Array<AnnualStudentSummary & { kind: AnnualDecisionGroup["kind"] | "finalist"; exitReason: string; exitReasonDetails: string }>;
+  withoutOption?: AnnualStudentSummary[];
+  openedClasses?: string[];
+  decisionRequired?: boolean;
+  decisions?: Record<string, AnnualDecision>;
+  retainedStudentIds?: string[];
+  decisionsLocked?: boolean;
+};
+
+export type AnnualDecision = "open" | "leave";
+export type AnnualStudentSummary = { id: string; matricule: string; name: string; className: string };
+export type AnnualDecisionGroup = {
+  key: string;
+  kind: "missing-class" | "missing-option" | "missing-cycle";
+  sourceClassName: string;
+  option?: string;
+  targetClassName: string;
+  section: string;
+  defaultDecision?: AnnualDecision;
+  decision?: AnnualDecision;
+  decisionRequired: boolean;
+  canOpen: boolean;
+  openBlockedReason?: string;
+  students: AnnualStudentSummary[];
 };
 
 export async function requestArchivedStudentsImport(input: {
   schoolId: string; schoolYearId: string; sourceYearId: string;
   mode: "inspect" | "import"; confirmation?: string;
+  decisions?: Record<string, AnnualDecision>;
+  retainedStudentIds?: string[];
 }) {
   return provisionSchoolAccount<ArchivedStudentsImportStatus>({ action: "import-archived-students", ...input });
 }
