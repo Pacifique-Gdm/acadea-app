@@ -58,6 +58,17 @@ describe("écrans chargés à la demande", () => {
     for (const file of lazyImports) expect(config).toContain(`"${file}"`);
   });
 
+  it("un écran à la demande affiché dans un autre écran attend sur place (le panneau du Menu ne se referme plus)", () => {
+    // Défaut constaté en recette : « Rapport financier » du Menu chargeait ReportsModule à la
+    // demande ; sans attente locale, toute l'application était masquée et le panneau se refermait.
+    const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
+    const lazyNames = [...app.matchAll(/^const (\w+) = lazy\(/gm)].map((match) => match[1]);
+    const nested = [...app.matchAll(/render\w+=\{\(\) => \(?\s*(?:<div[^>]*>)?(<NestedScreen>)?<(\w+)/g)]
+      .filter((match) => lazyNames.includes(match[2]));
+    expect(nested.map((match) => match[2]).sort()).toEqual(["MessagesModule", "ReportsModule", "SecretaryCorrespondenceModule", "SecretaryMenuModule", "SecretaryReportsModule"]);
+    for (const match of nested) expect(match[1], `${match[2]} doit être dans <NestedScreen>`).toBe("<NestedScreen>");
+  });
+
   it("le mode hors connexion garde en cache tous les morceaux de code produits", () => {
     const config = readFileSync(new URL("../../vite.config.ts", import.meta.url), "utf8");
     expect(config).toContain('.filter((path) => path.startsWith("assets/") && (path.endsWith(".js") || path.endsWith(".css")))');

@@ -1,4 +1,4 @@
-﻿import { lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { auth } from "./firebase";
 import { randomId } from "./utils/randomId";
@@ -88,6 +88,12 @@ const ReportsModule = lazy(loadScreen(() => import("./modules/reports/ReportsMod
 const FinancialReportPage = lazy(loadScreen(() => import("./modules/reports/FinancialReportPage").then((module) => ({ default: module.FinancialReportPage }))));
 const MessagesModule = lazy(loadScreen(() => import("./modules/messages/MessagesModule").then((module) => ({ default: module.MessagesModule }))));
 const BiometricStudentsPage = lazy(loadScreen(() => import("./modules/biometrics/BiometricStudentsPage").then((module) => ({ default: module.BiometricStudentsPage }))));
+// Un écran à la demande affiché À L'INTÉRIEUR d'un autre écran (panneau du Menu,
+// onglets du secrétariat) attend sur place : sans cela, toute l'application était
+// masquée le temps du chargement et le panneau ouvert se refermait.
+const NestedScreen = ({ children }: { children: ReactNode }) => (
+  <Suspense fallback={<p role="status" className="p-6 text-center text-sm text-slate-500">Chargement…</p>}>{children}</Suspense>
+);
 
 type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
 type BeforeInstallPromptEvent = Event & {
@@ -1222,10 +1228,10 @@ export default function App() {
         renderBottomNavigation={(tab, onTab) => (
           <SecretaryBottomNavigation activeTab={tab} showInstallButton={showInstallPwaButton} onInstallPwa={installPwa} onTab={onTab} />
         )}
-        renderCorrespondence={() => <SecretaryCorrespondenceModule user={user} users={data.users} school={school} year={selectedYear} />}
-        renderReports={() => <SecretaryReportsModule user={user} school={school} year={selectedYear} />}
+        renderCorrespondence={() => <NestedScreen><SecretaryCorrespondenceModule user={user} users={data.users} school={school} year={selectedYear} /></NestedScreen>}
+        renderReports={() => <NestedScreen><SecretaryReportsModule user={user} school={school} year={selectedYear} /></NestedScreen>}
         renderMessages={() => (
-          <MessagesModule
+          <NestedScreen><MessagesModule
             user={user}
             data={data}
             yearData={yearData}
@@ -1234,9 +1240,9 @@ export default function App() {
             updateData={updateData}
             createId={uid}
             canAttachFiles
-          />
+          /></NestedScreen>
         )}
-        renderMenu={() => <div className="grid gap-6"><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></div>}
+        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></NestedScreen></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1395,7 +1401,7 @@ export default function App() {
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
-            renderFinancialReport={() => <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} />}
+            renderFinancialReport={() => <NestedScreen><ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} /></NestedScreen>}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} schoolYearId={selectedYear.id} loading={isRefreshing} error={refreshError} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
             onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}
