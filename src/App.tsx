@@ -30,6 +30,11 @@ import { StudentsModule } from "./modules/students/StudentsModule";
 import { PublishedTimetableDrawerEntry } from "./modules/studies/PublishedTimetableReadOnly";
 import { canReadPublishedTimetable } from "./modules/studies/publishedTimetableService";
 import { Dashboard } from "./modules/dashboard/Dashboard";
+// Menu et rapport financier gardés au démarrage : un rapport financier toujours complet
+// (chargés à la demande, ils recevaient leurs données au mauvais moment).
+import { MenuModule } from "./modules/menu/MenuModule";
+import { ReportsModule } from "./modules/reports/ReportsModule";
+import { FinancialReportPage } from "./modules/reports/FinancialReportPage";
 import { AdminDrawer } from "./components/ui";
 import { useBillingControls } from "./hooks/useBillingControls";
 import { reconcileRealtimeValves, useRealtimeValves } from "./hooks/useRealtimeValves";
@@ -74,7 +79,7 @@ import type {
 const PlatformModule = lazy(loadScreen(() => import("./modules/platform/PlatformModule").then((module) => ({ default: module.PlatformModule }))));
 const DisciplinePortal = lazy(loadScreen(() => import("./modules/discipline/DisciplinePortal").then((module) => ({ default: module.DisciplinePortal }))));
 const ControlModule = lazy(loadScreen(() => import("./modules/control/ControlModule").then((module) => ({ default: module.ControlModule }))));
-const MenuModule = lazy(loadScreen(() => import("./modules/menu/MenuModule").then((module) => ({ default: module.MenuModule }))));
+
 const ParentsModule = lazy(loadScreen(() => import("./modules/parents/ParentsModule").then((module) => ({ default: module.ParentsModule }))));
 const ParentPortal = lazy(loadScreen(() => import("./modules/parent/ParentPortal").then((module) => ({ default: module.ParentPortal }))));
 const SecretaryPortal = lazy(loadScreen(() => import("./modules/secretary/SecretaryPortal").then((module) => ({ default: module.SecretaryPortal }))));
@@ -84,8 +89,8 @@ const CoordinationPortal = lazy(loadScreen(() => import("./modules/coordination/
 const SecretaryCorrespondenceModule = lazy(loadScreen(() => import("./modules/secretary/SecretaryCorrespondenceModule").then((module) => ({ default: module.SecretaryCorrespondenceModule }))));
 const SecretaryReportsModule = lazy(loadScreen(() => import("./modules/secretary/SecretaryReportsModule").then((module) => ({ default: module.SecretaryReportsModule }))));
 const SecretaryMenuModule = lazy(loadScreen(() => import("./modules/secretary/SecretaryMenuModule").then((module) => ({ default: module.SecretaryMenuModule }))));
-const ReportsModule = lazy(loadScreen(() => import("./modules/reports/ReportsModule").then((module) => ({ default: module.ReportsModule }))));
-const FinancialReportPage = lazy(loadScreen(() => import("./modules/reports/FinancialReportPage").then((module) => ({ default: module.FinancialReportPage }))));
+
+
 const MessagesModule = lazy(loadScreen(() => import("./modules/messages/MessagesModule").then((module) => ({ default: module.MessagesModule }))));
 const BiometricStudentsPage = lazy(loadScreen(() => import("./modules/biometrics/BiometricStudentsPage").then((module) => ({ default: module.BiometricStudentsPage }))));
 // Un écran à la demande affiché À L'INTÉRIEUR d'un autre écran (panneau du Menu,
@@ -1401,7 +1406,7 @@ export default function App() {
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
-            renderFinancialReport={() => <NestedScreen><ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} /></NestedScreen>}
+            renderFinancialReport={() => <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} schoolYearId={selectedYear.id} loading={isRefreshing} error={refreshError} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
             onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}

@@ -36,9 +36,15 @@ describe("écrans chargés à la demande", () => {
 
   it("les portails par rôle et écrans secondaires ne sont plus dans le code chargé au démarrage", () => {
     const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
-    for (const name of ["PlatformModule", "ParentPortal", "SecretaryPortal", "TeacherPortal", "CoordinationPortal", "StudyDirectorPortal", "DisciplinePortal", "ControlModule", "MenuModule", "ReportsModule", "MessagesModule"]) {
+    for (const name of ["PlatformModule", "ParentPortal", "SecretaryPortal", "TeacherPortal", "CoordinationPortal", "StudyDirectorPortal", "DisciplinePortal", "ControlModule", "MessagesModule"]) {
       expect(app).not.toMatch(new RegExp(`^import \\{ ${name} \\} from`, "m"));
       expect(app).toContain(`const ${name} = lazy(loadScreen(() => import(`);
+    }
+    // Menu et rapport financier gardés au démarrage : chargés à la demande, le rapport financier
+    // ouvert depuis le Menu n'affichait pas les autres entrées de caisse (recette sur émulateurs).
+    for (const [name, path] of [["MenuModule", "menu/MenuModule"], ["ReportsModule", "reports/ReportsModule"], ["FinancialReportPage", "reports/FinancialReportPage"]]) {
+      expect(app).toMatch(new RegExp(`^import \\{ ${name} \\} from "\\./modules/${path}";`, "m"));
+      expect(app).not.toContain(`const ${name} = lazy(`);
     }
     // Écrans principaux du directeur gardés au démarrage.
     expect(app).toMatch(/^import \{ Dashboard \} from "\.\/modules\/dashboard\/Dashboard";/m);
@@ -54,7 +60,7 @@ describe("écrans chargés à la demande", () => {
     const lazyNames = [...app.matchAll(/^const (\w+) = lazy\(/gm)].map((match) => match[1]);
     const nested = [...app.matchAll(/render\w+=\{\(\) => \(?\s*(?:<div[^>]*>)?(<NestedScreen>)?<(\w+)/g)]
       .filter((match) => lazyNames.includes(match[2]));
-    expect(nested.map((match) => match[2]).sort()).toEqual(["MessagesModule", "ReportsModule", "SecretaryCorrespondenceModule", "SecretaryMenuModule", "SecretaryReportsModule"]);
+    expect(nested.map((match) => match[2]).sort()).toEqual(["MessagesModule", "SecretaryCorrespondenceModule", "SecretaryMenuModule", "SecretaryReportsModule"]);
     for (const match of nested) expect(match[1], `${match[2]} doit être dans <NestedScreen>`).toBe("<NestedScreen>");
   });
 
