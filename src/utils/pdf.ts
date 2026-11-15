@@ -509,7 +509,7 @@ export async function generateReceiptPdf(payment: Payment, student: Student, fee
         { label: "Classe", value: formatStudentClassName(student) },
         { label: "Type de frais", value: payment.feeName ?? feeType.name },
         ...(payment.collectionSchoolYearId ? [
-          { label: "Nature", value: "Règlement d'un arriéré" },
+          { label: "Nature", value: payment.formerStudent ? "Paiement d'un ancien élève (dette d'une année passée)" : "Règlement d'un arriéré" },
           { label: "Année de la créance", value: payment.debtSchoolYearName ?? payment.schoolYearId },
         ] : []),
         { label: "Montant payé", value: formatRecordedOperation(payment) },

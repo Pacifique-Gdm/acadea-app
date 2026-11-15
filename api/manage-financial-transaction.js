@@ -1,7 +1,7 @@
 import { manageSocialSupport } from "./_lib/socialSupport.js";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
-import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listStudentArrears, listStudentArrearsBatch } from "./_lib/financialTransactions.js";
+import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listFormerStudentDebts, listStudentArrears, listStudentArrearsBatch, searchFormerStudents } from "./_lib/financialTransactions.js";
 import { createPersonnelPayment, listPayroll, updatePersonnelPayment } from "./_lib/personnelPayroll.js";
 import { listPersonnelPayrollHistory } from "./_lib/personnelPayrollHistory.js";
 import { requireActiveCoordinationActor } from "./_lib/coordination.js";
@@ -137,12 +137,14 @@ export default async function handler(req, res) {
       return sendJson(res, 200, requestedAction === "create-personnel-payment" ? await createPersonnelPayment({ db, caller, body })
         : requestedAction === "update-personnel-payment" ? await updatePersonnelPayment({ db, caller, body }) : await listPayroll({ db, caller, body }));
     }
-    const action = ["create-payment", "create-expense", "create-cash-inflow", "update-payment", "update-expense", "delete-payment", "delete-expense", "list-arrears", "list-arrears-batch"].includes(requestedAction) ? requestedAction : "invalid";
+    const action = ["create-payment", "create-expense", "create-cash-inflow", "update-payment", "update-expense", "delete-payment", "delete-expense", "list-arrears", "list-arrears-batch", "search-former-students", "list-former-debts"].includes(requestedAction) ? requestedAction : "invalid";
     const authorizedCaller = authorizeFinancialCaller(caller, action);
     await requireActiveApiUser(db, authorizedCaller);
     const rate = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow" ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE;
     await enforceApiRateLimit({ db, actorId: authorizedCaller.uid, schoolId: authorizedCaller.schoolId, action: `finance.${action}`, idempotencyKey: typeof body.clientRequestId === "string" ? body.clientRequestId : undefined, ...rate });
-    const result = action === "list-arrears-batch" ? await listStudentArrearsBatch({ db, caller: authorizedCaller, body }) : action === "list-arrears"
+    const result = action === "search-former-students" ? await searchFormerStudents({ db, caller: authorizedCaller, body })
+      : action === "list-former-debts" ? await listFormerStudentDebts({ db, caller: authorizedCaller, body })
+      : action === "list-arrears-batch" ? await listStudentArrearsBatch({ db, caller: authorizedCaller, body }) : action === "list-arrears"
       ? await listStudentArrears({ db, caller: authorizedCaller, body })
       : await executeFinancialOperation({ db, caller: authorizedCaller, body });
     return sendJson(res, 200, result);

@@ -221,6 +221,9 @@ export interface Payment {
   /** For an arrears payment, schoolYearId/studentId remain the origin debt. */
   collectionSchoolYearId?: string;
   currentStudentId?: string;
+  /** Lot 21 : paiement d'une dette par un ancien élève (élève archivé). */
+  formerStudent?: boolean;
+  formerStudentId?: string;
   debtSchoolYearName?: string;
   feeName?: string;
   currency?: "USD" | "CDF";
