@@ -6,9 +6,11 @@ describe('fixture complète du paiement de personnel historique', () => {
   const tag = `e2e-allocation-${'a'.repeat(32)}`;
   const schoolId = `${tag}-volume`, yearId = `${tag}-volume-year`;
   const school = { id: schoolId, name: 'École fictive' };
-  it('reproduit le rejet de la fixture incomplète par le lecteur du Menu', () => {
+  // Autrefois, une fiche sans e-mail faisait planter le lecteur du Menu (`.trim()` sur une
+  // valeur absente) ; ce défaut est corrigé : la fiche incomplète est simplement ignorée.
+  it('une fiche sans e-mail ne fait plus planter le lecteur du Menu', () => {
     const incomplete = { role: 'teacher', name: 'Fictif', schoolId };
-    expect(() => nextSchoolStaffEmail(school, 'cashier', [incomplete], [])).toThrow(/trim/);
+    expect(nextSchoolStaffEmail(school, 'cashier', [incomplete], [])).toBe('caissier001@ecolefictive.com');
   });
   it('fournit les champs requis au vrai lecteur du Menu sans modifier ses protections', () => {
     const profile = panelPersonnelFixture(tag, schoolId, yearId);
