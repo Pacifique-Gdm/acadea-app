@@ -30,3 +30,13 @@ export function promoteStudentForNewYear(student: Student): {
 };
 export function studentForPersistence<T>(value: T): T;
 export function studentImportKey(student: Pick<Student, "matricule" | "nom" | "postnom" | "prenom" | "birthDate">): string;
+export const ANNUAL_EXIT_KINDS: Readonly<{
+  FINALIST: "finalist";
+  MISSING_CLASS: "missing-class";
+  MISSING_OPTION: "missing-option";
+  MISSING_CYCLE: "missing-cycle";
+}>;
+export function annualExitReason(kind: "finalist" | "missing-class" | "missing-option" | "missing-cycle", section?: string): {
+  exitReason: "Fin de scolarité" | "Autre";
+  exitReasonDetails: string;
+};

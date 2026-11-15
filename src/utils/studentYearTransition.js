@@ -15,6 +15,21 @@ export const ANNUAL_TRANSITION_RESULTS = Object.freeze({
   SKIPPED_INACTIVE: "SKIPPED_INACTIVE",
 });
 
+/** Motifs d'archivage posés par le passage d'année (lot 20). Partagés par le
+ * serveur (écriture) et l'écran de la Secrétaire (résumé avant confirmation). */
+export const ANNUAL_EXIT_KINDS = Object.freeze({
+  FINALIST: "finalist",
+  MISSING_CLASS: "missing-class",
+  MISSING_OPTION: "missing-option",
+  MISSING_CYCLE: "missing-cycle",
+});
+
+export function annualExitReason(kind, section) {
+  if (kind === ANNUAL_EXIT_KINDS.FINALIST) return { exitReason: "Fin de scolarité", exitReasonDetails: "Finaliste : fin du cycle secondaire" };
+  if (kind === ANNUAL_EXIT_KINDS.MISSING_CYCLE) return { exitReason: "Autre", exitReasonDetails: `Fin de parcours dans l'école : cycle ${section} non organisé` };
+  return { exitReason: "Autre", exitReasonDetails: "Fin de parcours dans l'école : classe suivante non organisée" };
+}
+
 export function normalizeAnnualClassName(value) {
   if (typeof value !== "string") return "";
   const normalized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
