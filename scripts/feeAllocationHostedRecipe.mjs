@@ -24,6 +24,7 @@ const panelOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'panel-only';
 const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume' || panelOnly;
 const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel' || panelOnly;
 const annualOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'annual-only';
+const browserOptions = { headless: true, ...(process.env.ACADEA_HOSTED_BROWSER_CHANNEL === 'chrome' ? { channel: 'chrome' } : {}) };
 assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe || annualOnly, 'Parcours de recette inconnu');
 const output = `diagnostics/fee-allocation-hosted/${expectedSha}${annualOnly ? `-annual-${Date.now()}` : volumeOnly ? `-volume-${Date.now()}` : ''}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
@@ -134,6 +135,15 @@ async function reconcile(role = 'school_admin') {
 }
 async function retire() {
   assert.equal(manifest.projectId, 'acadea-staging'); assert.match(tag, /^e2e-allocation-[a-f0-9]{32}$/);
+  // put() inventories before any write; Auth provisioning follows that first
+  // write. An empty inventory therefore proves the browser preflight failed
+  // before provisioning, and does not require remote cleanup permissions.
+  if (manifest.paths.length === 0) {
+    manifest.retired = true; manifest.fixtureCreationStarted = false;
+    manifest.closedAt = new Date().toISOString(); save();
+    record('Clôture locale : précontrôle interrompu avant tout provisionnement, aucune ressource créée');
+    return;
+  }
   for (const u of users) {
     let account; try { account = await s.auth.getUser(u.uid); } catch (e) { if (e.code === 'auth/user-not-found') continue; throw e; }
     assert.equal(account.email, u.email);
@@ -182,7 +192,7 @@ async function retire() {
 try {
   // Verify the actual browser transport before provisioning any remote fixture.
   // A successful Node HTTP preflight alone is not a browser availability proof.
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch(browserOptions);
   const navigationProbe = await browser.newContext({ serviceWorkers: 'block' });
   try {
     const login = await navigationProbe.newPage();
@@ -375,7 +385,7 @@ try {
   const cdfExpense = { action: 'create-expense', schoolYearId: cdfYear, amount: 10, category: 'Fournitures', description: 'Dépense fictive historique', beneficiary: 'Fictif', paymentMethod: 'Espèces', clientRequestId: requestId() };
   await api('cdf-cashier', cdfExpense);
   assert.equal((await s.db.collection('feeAllocationMovements').where('schoolId', '==', foreign).get()).size, 0);
-  browser ??= await chromium.launch({ headless: true });
+  browser ??= await chromium.launch(browserOptions);
   const activationContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   try {
     const page = await activationContext.newPage(); page.setDefaultTimeout(60000);
