@@ -11,7 +11,13 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
     for (const name of ['ALPHA', 'BETA']) await f.put(`students/${f.tag}-${name}`, { id: `${f.tag}-${name}`, schoolId: f.school, schoolYearId: f.year,
       nom: name, postnom: 'FICTIF', prenom: 'TEST', matricule: name, className: '1ère Secondaire', status: 'ACTIVE' });
     await f.put(`feeTypes/${f.tag}-fee`, { id: `${f.tag}-fee`, schoolId: f.school, schoolYearId: f.year, name: 'Frais fictif', className: '1ère Secondaire', amount: 100 });
-    const { page, context } = await f.session(browser, 'cashier', { '/api/manage-financial-transaction': financial });
+    const diagnostics: string[] = [];
+    const { page, context } = await f.session(browser, 'cashier', { '/api/manage-financial-transaction': financial }, undefined, async context => {
+      context.on('page', page => {
+        page.on('pageerror', error => diagnostics.push(error.message));
+        page.on('console', message => { if (['warning', 'error'].includes(message.type())) diagnostics.push(message.text()); });
+      });
+    });
     try {
       await page.getByRole('button', { name: 'Contrôle', exact: true }).last().click();
       await page.getByRole('button', { name: 'Enregistrer', exact: true }).click();
@@ -51,7 +57,7 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
     } catch (error) {
       // Isolated emulator fixtures only; never record authentication headers.
       await page.screenshot({ path: test.info().outputPath('cashier-failure.png'), fullPage: true });
-      await writeFile(test.info().outputPath('cashier-visible-state.json'), JSON.stringify({ url: page.url(), text: await page.locator('body').innerText() }));
+      await writeFile(test.info().outputPath('cashier-visible-state.json'), JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), diagnostics }));
       throw error;
     } finally { await context.close(); }
   } finally { await f.cleanup(); }
