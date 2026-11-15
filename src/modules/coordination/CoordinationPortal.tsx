@@ -140,10 +140,11 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     // Écoute gardée sur tous les onglets : un changement réel augmente la version (les onglets
     // Élèves et Contrôle se rechargent alors) ; le Dashboard se recharge tout de suite s'il est
     // affiché, sinon à son prochain affichage.
-    const onChange = async () => {
-      setDataVersion((value) => value + 1);
+    const onChange = async (hadRealChange: boolean) => {
+      // La première réponse de l’écoute (données déjà présentes) n’est pas un changement.
+      if (hadRealChange) setDataVersion((value) => value + 1);
       if (tabRef.current === "dashboard") await loadSupervision();
-      else setLoadedSupervisionScope("");
+      else if (hadRealChange) setLoadedSupervisionScope("");
     };
     return subscribeCoordinationDashboardUpdates(db as unknown as Firestore, supervisionScope.split("|"),
       user.role === "sub_coordination_admin", onChange,

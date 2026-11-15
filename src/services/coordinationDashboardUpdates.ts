@@ -4,8 +4,10 @@ import { coordinationSchoolBatches } from "./coordinationSchoolBatches";
 /** Invalidate the existing read model only after server-confirmed changes.
  * Queries retain the same school scope and rules access-call budget. */
 export function subscribeCoordinationDashboardUpdates(database: Firestore, schoolIds: string[], isDelegate: boolean,
-  reload: () => Promise<void>, onError: () => void, activeYears?: Readonly<Record<string, string>>) {
-  let stopped = false, running = false, dirty = false;
+  reload: (hadRealChange: boolean) => Promise<void>, onError: () => void, activeYears?: Readonly<Record<string, string>>) {
+  // Lot 19 : la première réponse confirmée de chaque écoute ne contient que les données déjà
+  // présentes ; seules les réponses suivantes sont de vrais changements (hadRealChange).
+  let stopped = false, running = false, dirty = false, realChange = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const flush = async () => {
     timer = undefined;
@@ -14,19 +16,29 @@ export function subscribeCoordinationDashboardUpdates(database: Firestore, schoo
     try {
       while (dirty && !stopped) {
         dirty = false;
-        try { await reload(); } catch { if (!stopped) onError(); }
+        const hadRealChange = realChange;
+        realChange = false;
+        try { await reload(hadRealChange); } catch { if (!stopped) onError(); }
       }
     } finally { running = false; }
   };
-  const changed = () => {
+  const changed = (real: boolean) => {
     if (stopped) return;
     dirty = true;
+    if (real) realChange = true;
     if (!running && timer === undefined) timer = setTimeout(() => void flush(), 300);
   };
   const stops: Array<() => void> = [];
-  const listen = (target: ReturnType<typeof query>) => stops.push(onSnapshot(target, { includeMetadataChanges: true }, (snapshot) => {
-    if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites && snapshot.docChanges().length) changed();
-  }, () => { if (!stopped) onError(); }));
+  const watch = () => {
+    let initialSeen = false;
+    return (snapshot: { metadata: { fromCache: boolean; hasPendingWrites: boolean }; docChanges: () => unknown[] }) => {
+      if (snapshot.metadata.fromCache) return;
+      const initial = !initialSeen;
+      initialSeen = true;
+      if (!snapshot.metadata.hasPendingWrites && snapshot.docChanges().length) changed(!initial);
+    };
+  };
+  const listen = (target: ReturnType<typeof query>) => stops.push(onSnapshot(target, { includeMetadataChanges: true }, watch(), () => { if (!stopped) onError(); }));
   if (activeYears) {
     // Lot 11 : par école, seulement l'année active (et les arriérés encaissés cette année).
     for (const schoolId of schoolIds) {
@@ -40,9 +52,7 @@ export function subscribeCoordinationDashboardUpdates(database: Firestore, schoo
   }
   for (const ids of coordinationSchoolBatches(schoolIds, isDelegate)) {
     for (const name of ["students", "feeTypes", "payments", "expenses", "cashInflows", "schoolYears"]) {
-      stops.push(onSnapshot(query(collection(database, name), where("schoolId", "in", ids)), { includeMetadataChanges: true }, (snapshot) => {
-        if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites && snapshot.docChanges().length) changed();
-      }, () => { if (!stopped) onError(); }));
+      stops.push(onSnapshot(query(collection(database, name), where("schoolId", "in", ids)), { includeMetadataChanges: true }, watch(), () => { if (!stopped) onError(); }));
     }
   }
   return () => { stopped = true; dirty = false; if (timer !== undefined) clearTimeout(timer); stops.forEach(stop => stop()); };
