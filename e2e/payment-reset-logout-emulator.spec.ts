@@ -57,7 +57,13 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
     } catch (error) {
       // Isolated emulator fixtures only; never record authentication headers.
       await page.screenshot({ path: test.info().outputPath('cashier-failure.png'), fullPage: true });
-      await writeFile(test.info().outputPath('cashier-visible-state.json'), JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), diagnostics }));
+      const directRead = await page.evaluate(async ({ user, year }) => {
+        const modulePath = '/src/services/firestoreData.ts';
+        const service = await import(modulePath);
+        const result = await service.loadFirestoreYearData(user, year);
+        return { students: result.students.map((s: { id: string }) => s.id), fees: result.feeTypes.length };
+      }, { user: { id: f.accounts.cashier.uid, role: 'cashier', schoolId: f.school }, year: f.year }).catch(error => ({ error: String(error.message) }));
+      await writeFile(test.info().outputPath('cashier-visible-state.json'), JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), diagnostics, directRead }));
       throw error;
     } finally { await context.close(); }
   } finally { await f.cleanup(); }

@@ -35,7 +35,7 @@ export async function runAnnualAllocationHosted({ db, tag, schoolId, yearId, put
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'allow' });
   try {
     const page = await context.newPage(); page.setDefaultTimeout(60000);
-    await page.goto(origin + '/login');
+    await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' });
     await page.getByPlaceholder('email@ecole.com').fill(adminUser.email);
     await page.getByPlaceholder('Votre mot de passe').fill(password);
     await page.getByRole('button', { name: 'Se connecter', exact: true }).click();

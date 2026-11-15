@@ -368,7 +368,7 @@ try {
   try {
     const page = await activationContext.newPage(); page.setDefaultTimeout(60000);
     const u = users.find(u => u.key === 'cdf-admin');
-    await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+    await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
     await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
@@ -459,7 +459,7 @@ try {
     offlineContext = await chromium.launchPersistentContext(profile, { headless: true, serviceWorkers: 'allow', viewport: { width: 1440, height: 1000 } });
     let page = await offlineContext.newPage(); page.setDefaultTimeout(30000);
     await page.addInitScript(() => window.addEventListener('acadea:offline-context-ready', () => { window.acadeaOfflineContextReady = true; }));
-    await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(users[1].email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+    await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(users[1].email); await page.getByPlaceholder('Votre mot de passe').fill(password);
     await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Menu', exact: true }).last()).toBeVisible({ timeout: 60000 });
     await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller && window.acadeaOfflineContextReady)), { timeout: 90000 }).toBe(true);
@@ -537,7 +537,7 @@ try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
     try {
       const page = await context.newPage(); page.setDefaultTimeout(30000);
-      await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+      await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
       await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Menu', exact: true }).last()).toBeVisible({ timeout: 60000 });
       await page.getByRole('button', { name: 'Menu', exact: true }).last().click(); await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
@@ -620,7 +620,7 @@ try {
       const context = await browser.newContext({ serviceWorkers: 'block' });
       try {
         const page = await context.newPage(); page.setDefaultTimeout(60000);
-        await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+        await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
         await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
         await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
         await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
