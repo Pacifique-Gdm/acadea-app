@@ -30,9 +30,14 @@ export function identityCandidatesQuery(db, schoolId, student) {
  * - un verrou d'identité pour chaque identité qui n'en a pas ;
  * - le champ de tri `sortName` sur les fiches anciennes qui ne l'ont pas ;
  * - le marqueur « complete » en dernier. */
-export async function migrateStudentIdentityIndex({ db, schoolId, apply = false, now = new Date().toISOString() }) {
+export async function migrateStudentIdentityIndex({ db, schoolId, apply = false, countStudents, now = new Date().toISOString() }) {
   if (typeof schoolId !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(schoolId)) throw new Error("Identifiant d'école invalide.");
   const snapshot = await db.collection("students").where("schoolId", "==", schoolId).select("nom", "postnom", "prenom", "sortName").get();
+  // Une lecture coupée en route (constatée une fois sur le staging) est refusée avant toute écriture.
+  if (typeof countStudents === "function") {
+    const expected = await countStudents();
+    if (snapshot.size !== expected) throw new Error(`Lecture incomplète des fiches (${snapshot.size} sur ${expected}) : relancez.`);
+  }
   const byKey = new Map();
   const missingSortName = [];
   for (const document of snapshot.docs) {
