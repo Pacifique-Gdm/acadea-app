@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useReturnCount, useSilentClassRefresh } from "./coordinationTabReturn";
 import { Download, Search } from "lucide-react";
 import type { AppUser, Coordination, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
@@ -14,7 +15,8 @@ import { CoordinationStudentRecord } from "./CoordinationStudentRecord";
 
 const emptyPage: CoordinationStudentPage = { students: [], fetchedDocuments: 0, queryCount: 0 };
 
-export function CoordinationStudents({ user, coordination, schools, selectedSchoolId, onSchoolChange, refreshToken }: { user: AppUser; coordination: Coordination; schools: School[]; selectedSchoolId: string; onSchoolChange: (schoolId: string) => void; refreshToken: number }) {
+export function CoordinationStudents({ user, coordination, schools, selectedSchoolId, onSchoolChange, refreshToken, active = true }: { user: AppUser; coordination: Coordination; schools: School[]; selectedSchoolId: string; onSchoolChange: (schoolId: string) => void; refreshToken: number; active?: boolean }) {
+  const returnCount = useReturnCount(active);
   const [years, setYears] = useState<SchoolYear[]>([]);
   const [classRecords, setClassRecords] = useState<SchoolClassRecord[]>([]);
   const [classMetadataKey, setClassMetadataKey] = useState("");
@@ -59,6 +61,8 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
     return () => { cancelled = true; };
   }, [classContextKey, schoolIdsKey]);
 
+  useSilentClassRefresh(returnCount, schoolIdsKey, setClassRecords);
+
   const visibleSchools = useMemo(() => schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId), [schools, selectedSchoolId]);
   const allowedSections = useMemo<SchoolSection[]>(() => user.sectionIds?.length ? user.sectionIds : user.section ? [user.section] : [], [user.section, user.sectionIds]);
   const choices = useMemo(() => coordinationFilterChoices(schools, years, classRecords, selectedSchoolId, selectedYearId, allowedSections, classKey), [schools, years, classRecords, selectedSchoolId, selectedYearId, allowedSections, classKey]);
@@ -69,7 +73,10 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   const classChoicesReady = classMetadataKey === classContextKey;
   const classFilterReady = classFilterReadyForPage(classKey, optionKey, classChoicesReady, Boolean(classChoice), Boolean(optionChoice));
   const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: classChoice?.schoolId || "", search, status, className: classChoice?.name ?? "", classBranchesBySource: classChoice?.branchesBySource, option: optionChoice?.name ?? "", allowedSections }), [allowedSections, classChoice?.name, classChoice?.schoolId, classChoice?.branchesBySource, optionChoice?.name, schools, years, selectedSchoolId, selectedYearId, search, status]);
-  const filterKey = JSON.stringify({ schools: schoolIdsKey, activeYearKey, years: years.map((year) => year.id).sort(), selectedSchoolId, selectedYearId, search, status, classKey, optionKey, allowedSections, refreshToken });
+  // Lot 19 : au retour sur l’onglet, la page n’est rechargée que pour une année passée
+  // (non couverte par l’écoute en temps réel) ; l’année active suit la version des données.
+  const pastYearReturn = selectedYearId === COORDINATION_ACTIVE_YEAR ? 0 : returnCount;
+  const filterKey = JSON.stringify({ schools: schoolIdsKey, activeYearKey, years: years.map((year) => year.id).sort(), selectedSchoolId, selectedYearId, search, status, classKey, optionKey, allowedSections, refreshToken, pastYearReturn });
   const currentPageKey = `${filterKey}|${pageIndex}`;
   const students = pageKey === currentPageKey ? page.students : [];
 

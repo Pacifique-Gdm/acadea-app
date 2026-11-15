@@ -33,4 +33,16 @@ describe("Coordination financial invalidation", () => {
     mocks.listeners[2].next(snapshot()); finish(); await vi.advanceTimersByTimeAsync(1000);
     expect(reload).toHaveBeenCalledTimes(2); expect(error).toHaveBeenCalledOnce(); stop();
   });
+  it("lot 19 : la première réponse de chaque écoute n'est pas un vrai changement, les suivantes oui", async () => {
+    const reload = vi.fn().mockResolvedValue(undefined);
+    const stop = subscribeCoordinationDashboardUpdates({} as Firestore, ["a"], false, reload, vi.fn());
+    mocks.listeners[0].next(snapshot(true)); // cache local : ignoré
+    mocks.listeners[0].next(snapshot()); mocks.listeners[1].next(snapshot()); // premières réponses du serveur
+    await vi.advanceTimersByTimeAsync(400);
+    expect(reload).toHaveBeenLastCalledWith(false);
+    mocks.listeners[0].next(snapshot()); // vraie modification (par exemple un autre utilisateur)
+    await vi.advanceTimersByTimeAsync(400);
+    expect(reload).toHaveBeenLastCalledWith(true);
+    expect(reload).toHaveBeenCalledTimes(2); stop();
+  });
 });

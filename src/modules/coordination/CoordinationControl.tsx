@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useReturnCount } from "./coordinationTabReturn";
 import { Download, RotateCcw } from "lucide-react";
 import { AdminDrawer, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
@@ -28,7 +29,8 @@ import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
 
 type HistoryKind = "payments" | "expenses" | "cashInflows" | "payroll";
 
-export function CoordinationControl({ user, coordination, schools, selectedSchoolId, onSchoolChange, refreshToken }: { user: AppUser; coordination: Coordination; schools: School[]; selectedSchoolId: string; onSchoolChange: (schoolId: string) => void; refreshToken: number }) {
+export function CoordinationControl({ user, coordination, schools, selectedSchoolId, onSchoolChange, refreshToken, active = true }: { user: AppUser; coordination: Coordination; schools: School[]; selectedSchoolId: string; onSchoolChange: (schoolId: string) => void; refreshToken: number; active?: boolean }) {
+  const returnCount = useReturnCount(active);
   const [classKey, setClassKey] = useState("");
   const [amountComparator, setAmountComparator] = useState("");
   const [amountThreshold, setAmountThreshold] = useState("");
@@ -42,7 +44,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   const [documentError, setDocumentError] = useState("");
   const [pdfExporting, setPdfExporting] = useState(false);
   const pdfExportingRef = useRef(false);
-  const page = useCoordinationControlPage(user, schools, selectedSchoolId, refreshToken, classKey, amountComparator, amountThreshold, arrearsFilter);
+  const page = useCoordinationControlPage(user, schools, selectedSchoolId, refreshToken, classKey, amountComparator, amountThreshold, arrearsFilter, returnCount);
   const { rows, loading, error: loadError, classChoices } = page;
   const resultsRef = useRef<HTMLDivElement>(null);
   const [resultsHeight, setResultsHeight] = useState(0);

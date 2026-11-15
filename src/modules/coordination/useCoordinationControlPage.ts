@@ -5,11 +5,12 @@ import { loadCoordinationControlFees, loadCoordinationControlPage, type Coordina
 import { loadCoordinationClassFilterChoices } from "../../services/coordinationService";
 import { coordinationFilterChoices } from "./coordinationFilterChoices";
 import { classFilterReadyForPage } from "./classFilterReadiness";
+import { useSilentClassRefresh } from "./coordinationTabReturn";
 import type { CoordinationStudentStatus } from "../../utils/coordinationSupervision";
 import type { ArrearsFilter } from "../../utils/arrearsFilter";
 
 const emptyPage: CoordinationControlPage = { rows: [], fetchedStudents: 0 };
-export function useCoordinationControlPage(user: AppUser, schools: School[], selectedSchoolId: string, refreshToken: number, classKey: string, amountComparator: string, amountThreshold: string, arrearsFilter: ArrearsFilter) {
+export function useCoordinationControlPage(user: AppUser, schools: School[], selectedSchoolId: string, refreshToken: number, classKey: string, amountComparator: string, amountThreshold: string, arrearsFilter: ArrearsFilter, returnCount = 0) {
   const [years, setYears] = useState<SchoolYear[]>([]);
   const [fees, setFees] = useState<FeeType[]>([]);
   const [classes, setClasses] = useState<SchoolClassRecord[]>([]);
@@ -59,7 +60,11 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const classFilterReady = classFilterReadyForPage(classKey, option, classChoicesReady, Boolean(choice), Boolean(validOption));
   const filters = useMemo<CoordinationStudentFilters>(() => ({ schools, years, selectedSchoolId, selectedYearId, filterSchoolId: choice?.schoolId ?? "", search: "", status, className: choice?.name ?? "", classBranchesBySource: choice?.branchesBySource, option: validOption, allowedSections: sections }), [schools, years, selectedSchoolId, selectedYearId, choice?.schoolId, choice?.name, choice?.branchesBySource, status, validOption, sections]);
   const amountFilter = useMemo(() => ({ comparator: amountComparator, threshold: amountThreshold }), [amountComparator, amountThreshold]);
-  const filterKey = JSON.stringify({ contextKey, selectedSchoolId, selectedYearId, classKey, status, option, sections, amountFilter, arrearsFilter });
+  // Lot 19 : au retour sur l’onglet, rechargement seulement pour une année passée (non
+  // couverte par l’écoute en temps réel) ; l’année active suit la version des données.
+  const pastYearReturn = selectedYearId === COORDINATION_ACTIVE_YEAR ? 0 : returnCount;
+  useSilentClassRefresh(returnCount, schoolKey, setClasses);
+  const filterKey = JSON.stringify({ contextKey, selectedSchoolId, selectedYearId, classKey, status, option, sections, amountFilter, arrearsFilter, pastYearReturn });
   const currentPageKey = `${filterKey}:${pageIndex}`;
   useEffect(() => { setPageIndex(0); setCursors([undefined]); setPage(emptyPage); setPageKey(""); }, [filterKey]);
   useEffect(() => {
