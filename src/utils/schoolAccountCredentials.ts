@@ -29,7 +29,8 @@ export function schoolAccountEmailDomain(school: School, legacyName = school.nam
 
 export function schoolAccountEmailExists(email: string, users: AppUser[], parents: ParentProfile[]) {
   const normalizedEmail = email.trim().toLowerCase();
-  return [...users, ...parents].some((item) => item.email.trim().toLowerCase() === normalizedEmail);
+  // Un parent ou un compte peut ne pas avoir d'e-mail : il ne doit pas faire planter le Menu.
+  return [...users, ...parents].some((item) => (item.email ?? "").trim().toLowerCase() === normalizedEmail);
 }
 
 export function nextSchoolStaffEmail(school: School, role: SchoolStaffRole, users: AppUser[], parents: ParentProfile[]) {
