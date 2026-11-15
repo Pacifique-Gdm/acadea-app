@@ -178,6 +178,16 @@ async function retire() {
   record('Clôture : comptes désactivés, sessions révoquées, écoles neutralisées, registre fictif inventorié sans suppression');
 }
 try {
+  // Verify the actual browser transport before provisioning any remote fixture.
+  // A successful Node HTTP preflight alone is not a browser availability proof.
+  browser = await chromium.launch({ headless: true });
+  const navigationProbe = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const login = await navigationProbe.newPage();
+    await login.goto(origin + '/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await expect(login.getByPlaceholder('email@ecole.com')).toBeVisible({ timeout: 60000 });
+    record('Transport Chromium et formulaire officiel disponibles avant création des fixtures');
+  } finally { await navigationProbe.close(); }
   const createdAt = new Date().toISOString(), expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
   await put('feeAllocationTestScopes', tag, { projectId: 'acadea-staging', schoolIds: manifest.schools, status: 'active', createdAt, expiresAt });
   const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : sid === volumeSchool ? volumeYear : sid === annualSchool ? annualYear : inactiveYear;
@@ -363,7 +373,7 @@ try {
   const cdfExpense = { action: 'create-expense', schoolYearId: cdfYear, amount: 10, category: 'Fournitures', description: 'Dépense fictive historique', beneficiary: 'Fictif', paymentMethod: 'Espèces', clientRequestId: requestId() };
   await api('cdf-cashier', cdfExpense);
   assert.equal((await s.db.collection('feeAllocationMovements').where('schoolId', '==', foreign).get()).size, 0);
-  browser = await chromium.launch({ headless: true });
+  browser ??= await chromium.launch({ headless: true });
   const activationContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   try {
     const page = await activationContext.newPage(); page.setDefaultTimeout(60000);
