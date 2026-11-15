@@ -21,6 +21,11 @@ import { subscribeCoordinationDashboardUpdates } from "../../services/coordinati
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
 
+/** École → année active (lot 11). */
+function activeYearsBySchool(schools: readonly { id: string; activeSchoolYearId?: string }[]) {
+  return Object.fromEntries([...schools].sort((a, b) => a.id.localeCompare(b.id)).map((school) => [school.id, school.activeSchoolYearId ?? ""]));
+}
+
 export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout: () => void }) {
   const [tab, setTab] = useState<CoordinationTab>("dashboard");
   const [coordination, setCoordination] = useState<Coordination | null>(null);
@@ -86,6 +91,9 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
 
   const activeSchools = useMemo(() => schools.filter((school) => school.status === "active" && relations.some((relation) => relation.schoolId === school.id)), [relations, schools]);
   const supervisionScope = useMemo(() => activeSchools.map((school) => school.id).sort().join("|"), [activeSchools]);
+  // Année active de chaque école : clé stable, pour ne relancer l'écoute qu'en cas de vrai changement d'année.
+  const activeYearsKey = useMemo(() => JSON.stringify(activeYearsBySchool(activeSchools)), [activeSchools]);
+  const activeYears = useMemo(() => JSON.parse(activeYearsKey) as Record<string, string>, [activeYearsKey]);
   const supervisionRequestRef = useRef(0);
   const supervisionScopeRef = useRef(supervisionScope);
   supervisionScopeRef.current = supervisionScope;
@@ -96,7 +104,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     const requestId = ++supervisionRequestRef.current;
     setSupervisionLoading(true); setSupervisionError("");
     try {
-      const model = await loadCoordinationDashboardReadModel(activeSchools.map((school) => school.id), user.role === "sub_coordination_admin");
+      const model = await loadCoordinationDashboardReadModel(activeSchools.map((school) => school.id), user.role === "sub_coordination_admin", activeYears);
       if (requestId === supervisionRequestRef.current && supervisionScopeRef.current === supervisionScope) {
         setSupervisionModel(model); setLoadedSupervisionScope(supervisionScope);
       }
@@ -104,14 +112,15 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       if (requestId === supervisionRequestRef.current && supervisionScopeRef.current === supervisionScope) setSupervisionError("Impossible de charger les données de supervision.");
       throw new Error("Chargement de la supervision impossible.");
     } finally { if (requestId === supervisionRequestRef.current) setSupervisionLoading(false); }
-  }, [activeSchools, supervisionScope, user.role]);
+  }, [activeSchools, activeYears, supervisionScope, user.role]);
 
   useEffect(() => {
     if (!db || tab !== "dashboard" || !supervisionScope) return;
     return subscribeCoordinationDashboardUpdates(db as unknown as Firestore, supervisionScope.split("|"),
       user.role === "sub_coordination_admin", loadSupervision,
-      () => setSupervisionError("Actualisation automatique indisponible. Utilisez Actualiser ou vérifiez votre connexion et vos droits."));
-  }, [loadSupervision, supervisionScope, tab, user.role]);
+      () => setSupervisionError("Actualisation automatique indisponible. Utilisez Actualiser ou vérifiez votre connexion et vos droits."),
+      activeYears);
+  }, [activeYears, loadSupervision, supervisionScope, tab, user.role]);
 
   useEffect(() => {
     if (supervisionScope) return;
