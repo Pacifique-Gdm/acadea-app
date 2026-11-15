@@ -2,7 +2,7 @@ import { FieldValue } from "firebase-admin/firestore";
 
 export const SCHOOL_OWNED_COLLECTIONS = Object.freeze([
   "users", "schoolYears", "students", "teachers", "parents", "classes", "feeTypes",
-  "payments", "expenses", "cashInflows", "financialCounters", "financialIdempotency", "grades", "attendance",
+  "payments", "expenses", "cashInflows", "financialCounters", "financialCashTotals", "financialIdempotency", "grades", "attendance",
   "attendanceSettings", "biometricTerminals", "bulletins", "documents", "announcements", "messages",
   "notifications", "auditLogs", "valves", "conversations", "parentDailyMessageLimits",
   "disciplineSanctions", "correspondences", "secretaryReports", "secretaryCounters",

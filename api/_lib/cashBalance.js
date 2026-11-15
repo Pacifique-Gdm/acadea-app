@@ -101,7 +101,9 @@ export async function protectCashMutation({ db, transaction, schoolId, schoolYea
   if (!Number.isSafeInteger(deltaCents)) throw new CashBalanceError(409, "cash-balance-inconsistent", "Variation financière incohérente : opération bloquée.");
   const lockId = createHash("sha256").update(`${schoolId}:${schoolYearId}:${currency}`).digest("hex");
   const lockRef = db.doc(`financialCashLocks/${lockId}`);
-  await transaction.get(lockRef);
+  // Lot 10 (observation) : total tenu à jour à côté ; la décision reste celle du calcul complet.
+  const totalsRef = db.doc(`financialCashTotals/${lockId}`);
+  const [, totalsSnapshot] = await Promise.all([transaction.get(lockRef), transaction.get(totalsRef)]);
   const balance = await readCashBalance({ db, reader: transaction, schoolId, schoolYearId, currency, yearCurrency });
   if (deltaCents < 0 && balance.availableCents < 0) {
     throw new CashBalanceError(409, "cash-balance-inconsistent", "Solde de caisse déjà négatif : aucun nouveau décaissement autorisé.", { ...balance, requestedCents: -deltaCents });
@@ -112,5 +114,24 @@ export async function protectCashMutation({ db, transaction, schoolId, schoolYea
     });
   }
   transaction.set(lockRef, { schoolId, schoolYearId, currency, updatedAt: now, revision: randomUUID() }, { merge: true });
+  observeCashTotals({ transaction, totalsRef, totalsSnapshot, balance, deltaCents, schoolId, schoolYearId, currency, now, totalsId: lockId });
   return balance;
+}
+
+/** Mode observation (lot 10) : le total est mis à jour dans la même opération que
+ * le paiement, la dépense ou la recette, mais n'influence AUCUNE décision. Avant
+ * chaque opération, il est comparé au calcul complet ; tout écart est signalé
+ * dans les journaux (identifiant haché, sans nom ni montant individuel). Le
+ * premier passage l'initialise à partir du calcul complet : aucune migration. */
+export function observeCashTotals({ transaction, totalsRef, totalsSnapshot, balance, deltaCents, schoolId, schoolYearId, currency, now, totalsId, log = console.warn }) {
+  const data = totalsSnapshot?.exists ? totalsSnapshot.data() : undefined;
+  const tracked = Number.isSafeInteger(data?.availableCents) ? data.availableCents : null;
+  if (tracked !== null && tracked !== balance.availableCents) {
+    log("[Acadéa caisse-observation] Écart entre le total tenu à jour et le calcul complet.", { totalsId, currency, trackedCents: tracked, fullCents: balance.availableCents, gapCents: tracked - balance.availableCents });
+  }
+  const next = (tracked ?? balance.availableCents) + deltaCents;
+  if (!Number.isSafeInteger(next)) return;
+  transaction.set(totalsRef, { schoolId, schoolYearId, currency, availableCents: next, mode: "observation",
+    operations: (Number.isSafeInteger(data?.operations) ? data.operations : 0) + 1,
+    initializedAt: data?.initializedAt ?? now, updatedAt: now, ...(tracked !== null && tracked !== balance.availableCents ? { lastGapAt: now, lastGapCents: tracked - balance.availableCents } : {}) });
 }
