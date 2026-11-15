@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { writeFile } from 'node:fs/promises';
 import financial from '../api/manage-financial-transaction.js';
 import { fixture } from './support/emulatorRecipe';
 
@@ -47,6 +48,11 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
       const payments = (await f.db.collection('payments').where('schoolId', '==', f.school).get()).docs.map(d => d.data());
       expect(payments.find(p => p.studentId === `${f.tag}-BETA`)?.amount).toBe(12);
       await page.screenshot({ path: test.info().outputPath('cashier-reset.png'), fullPage: true });
+    } catch (error) {
+      // Isolated emulator fixtures only; never record authentication headers.
+      await page.screenshot({ path: test.info().outputPath('cashier-failure.png'), fullPage: true });
+      await writeFile(test.info().outputPath('cashier-visible-state.json'), JSON.stringify({ url: page.url(), text: await page.locator('body').innerText() }));
+      throw error;
     } finally { await context.close(); }
   } finally { await f.cleanup(); }
 });
