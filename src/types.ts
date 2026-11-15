@@ -140,6 +140,10 @@ export interface Student {
   exitReasonDetails?: string;
   deletedAt?: string;
   photoUrl?: string;
+  /** Photo dans Firebase Storage (lot 9), lue avec l'identité de l'utilisateur. */
+  photoPath?: string;
+  /** Adresse temporaire fournie par le serveur (liste enseignant) ; jamais enregistrée. */
+  photoStorageUrl?: string;
   parentId?: string;
   biometric?: StudentBiometric;
   importedFromStudentId?: string;

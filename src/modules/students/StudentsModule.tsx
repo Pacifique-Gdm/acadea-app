@@ -22,7 +22,8 @@ import { useStudentPage } from "../../hooks/useStudentPage";
 import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
 import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
 import { failureKind, plainFailureMessage, publicServerMessage } from "../../services/requestFailure";
-import { findSavedStudent } from "../../services/studentSaveVerification";
+import { discardUploadedPhotoIfUnused, findSavedStudent } from "../../services/studentSaveVerification";
+import { needsStorageUpload, uploadStudentPhoto } from "../../services/studentPhotoStorage";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -226,6 +227,8 @@ export function StudentsModule({
     setSaveError("");
     setSaveMessage("");
     let attemptedCreation: { id: string; schoolYearId: string; withParent: boolean } | undefined;
+    let uploadedPhotoPath = "";
+    let attemptedPhotoTarget: { studentId: string; schoolId: string; schoolYearId: string } | undefined;
     try {
       const exists = !form.id.startsWith("new-");
       if ((exists && !studentCapabilities.canEdit) || (!exists && !studentCapabilities.canCreate)) {
@@ -282,6 +285,16 @@ export function StudentsModule({
       if (student.section !== "Secondaire" || !student.option) delete student.option;
       if (!student.classId) delete student.classId;
       if (!student.subClassId) delete student.subClassId;
+      // Lot 9 : une nouvelle photo part dans Storage ; l'ancienne photo intégrée
+      // n'est jamais effacée ici (effacement prévu plus tard, avec accord).
+      const previousPhoto = previousStudent?.photoUrl ?? "";
+      if (needsStorageUpload(student, previousPhoto) && student.photoUrl) {
+        uploadedPhotoPath = await uploadStudentPhoto({ schoolId: school.id, studentId: student.id, dataUrl: student.photoUrl });
+        student.photoPath = uploadedPhotoPath;
+        attemptedPhotoTarget = { studentId: student.id, schoolId: school.id, schoolYearId: targetYearId };
+        if (previousPhoto) student.photoUrl = previousPhoto; else delete student.photoUrl;
+      }
+      if (!student.photoPath) delete student.photoPath;
       const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
       if (!exists) attemptedCreation = { id: student.id, schoolYearId: targetYearId, withParent: Boolean(selectedParentId) };
       const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
@@ -376,6 +389,8 @@ export function StudentsModule({
       if (import.meta.env.DEV) console.error("Enregistrement de l'élève impossible.", error);
       const serverMessage = publicServerMessage(error);
       const kind = failureKind(error);
+      // La photo envoyée n'est retirée qu'après confirmation qu'aucune fiche ne l'utilise.
+      if (uploadedPhotoPath && attemptedPhotoTarget) void discardUploadedPhotoIfUnused({ path: uploadedPhotoPath, ...attemptedPhotoTarget });
       if (serverMessage.includes("Un élève avec le même nom, post-nom et prénom existe déjà.")) {
         setSaveError(serverMessage);
       } else if (kind === "network" && attemptedCreation) {
