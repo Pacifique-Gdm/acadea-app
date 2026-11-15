@@ -9,7 +9,7 @@ const manifest = JSON.parse(readFileSync(path, 'utf8'));
 assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
 assert.equal(manifest.projectId, 'acadea-staging');
 assert.match(manifest.tag, /^e2e-allocation-[a-f0-9]{32}$/);
-assert.ok(manifest.schools.every(id => ['-a', '-b', '-inactive', '-volume'].some(suffix => id === manifest.tag + suffix)));
+assert.ok(manifest.schools.every(id => ['-a', '-b', '-inactive', '-volume', '-annual'].some(suffix => id === manifest.tag + suffix)));
 assert.ok(manifest.users.every(u => u.uid.startsWith(manifest.tag + '-') && u.email === `${u.uid}@example.invalid`));
 const s = services();
 try {
@@ -36,7 +36,11 @@ try {
     assert.equal((await ref.get()).data().active, false); scopes++;
   }
   // Retain an exact inventory, including server-created records and evidence.
-  const retained = {};
+  const retained = { feeAllocationForecastSignals: [] };
+  for (const schoolId of manifest.schools) {
+    const signals = await s.db.collection('feeAllocationForecastSignals').where('schoolId', '==', schoolId).get();
+    retained.feeAllocationForecastSignals.push(...signals.docs.map(doc => ({ schoolId, id: doc.id })));
+  }
   for (const collection of ['payments', 'expenses', 'personnelPayments', 'feeAllocationStates', 'feeAllocationConfigs', 'feeAllocationVersions', 'feeAllocationOpeningAudits', 'feeAllocationBalances', 'feeAllocationMovements', 'feeAllocationRequests', 'feeAllocationAnchors', 'financialIdempotency', 'financialCounters', 'financialCashLocks', 'auditLogs', 'feeAllocationReconciliationRuns', 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions']) {
     retained[collection] = [];
     for (const schoolId of manifest.schools) {

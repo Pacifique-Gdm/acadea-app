@@ -23,8 +23,9 @@ const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.AC
 const panelOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'panel-only';
 const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume' || panelOnly;
 const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel' || panelOnly;
-assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe, 'Parcours de recette inconnu');
-const output = `diagnostics/fee-allocation-hosted/${expectedSha}${volumeOnly ? `-volume-${Date.now()}` : ''}`;
+const annualOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'annual-only';
+assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe || annualOnly, 'Parcours de recette inconnu');
+const output = `diagnostics/fee-allocation-hosted/${expectedSha}${annualOnly ? `-annual-${Date.now()}` : volumeOnly ? `-volume-${Date.now()}` : ''}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
 assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
 assert.equal(process.env.GOOGLE_CLOUD_QUOTA_PROJECT, 'acadea-staging');
@@ -81,7 +82,8 @@ users.push(...[['inactive-admin', 'school_admin'], ['inactive-cashier', 'cashier
 users.push(...[['volume-admin', 'school_admin'], ['volume-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: volumeSchool })));
 users.push(...[['annual-admin', 'school_admin'], ['annual-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: annualSchool })));
 if (volumeOnly) users.splice(0, users.length, ...users.filter(u => u.schoolId === volumeSchool));
-const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: volumeOnly ? [volumeSchool] : [school, foreign, inactiveSchool, volumeSchool, annualSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
+if (annualOnly) users.splice(0, users.length, ...users.filter(u => u.schoolId === annualSchool));
+const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: annualOnly ? [annualSchool] : volumeOnly ? [volumeSchool] : [school, foreign, inactiveSchool, volumeSchool, annualSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
@@ -197,7 +199,7 @@ try {
       schoolType: 'Primaire uniquement', educationLevels: ['Primaire'], schoolOptions: [], subscriptionStatus: 'active', subscriptionPlan: 'premium', ...(sid === school ? { activeCoordinationId: coord } : {}) });
     await put('schoolYears', fixtureYear(sid), { schoolId: sid, status: 'active', currency, name: '2026-2027', startsAt: '2026-09-01', endsAt: '2027-07-31' });
   }
-  if (!volumeOnly) {
+  if (!volumeOnly && !annualOnly) {
   await put('coordinations', coord, { name: 'Coordination fictive répartition', status: 'active', principalCoordinatorUserId: users[2].uid, referenceSchoolYear: '2026-2027' });
   await put('subCoordinations', sub, { name: 'Sous-coordination fictive', status: 'active', active: true, coordinationId: coord, coordinatorUserId: users[3].uid });
   await put('coordinationSchools', `${coord}__${school}`, { schoolId: school, coordinationId: coord, active: true });
@@ -210,7 +212,7 @@ try {
     const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.STAGING_FIREBASE_API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: u.email, password, returnSecureToken: true }) });
     assert.equal(response.status, 200, 'Authentification Firebase officielle refusée'); tokens.set(u.key ?? u.role, `Bearer ${(await response.json()).idToken}`);
   }
-  if (!volumeOnly) {
+  if (!volumeOnly && !annualOnly) {
   const inactiveFee = `${tag}-inactive-fee`, inactiveStudent = `${tag}-inactive-student`;
   await put('classes', `${tag}-inactive-class`, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: '1ère Primaire', section: 'Primaire', active: true });
   await put('feeTypes', inactiveFee, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: 'Frais fictif inactif', className: '1ère Primaire', amount: 100, createdAt });
@@ -648,10 +650,10 @@ try {
   }
   }
   browser ??= await chromium.launch({ headless: true });
-  if (!results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
+  if (!annualOnly && !results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
   if (!volumeOnly && !results.some(result => result.result === 'FAIL')) await runAnnualAllocationHosted({ db: s.db, tag, schoolId: annualSchool, yearId: annualYear,
-    put, api, allocation, manifest, save, output, browser, adminUser: users.find(u => u.key === 'annual-admin'), password, origin, record, tokens });
+    put, api, allocation, manifest, save, output, browser, adminUser: users.find(u => u.key === 'annual-admin'), password, origin, record, tokens, pdfOcr });
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;
   checkpoint();

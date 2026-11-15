@@ -60,10 +60,27 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
       const directRead = await page.evaluate(async ({ user, year }) => {
         const modulePath = '/src/services/firestoreData.ts';
         const service = await import(modulePath);
-        const result = await service.loadFirestoreYearData(user, year);
+        const result = await service.loadFirestoreData(user, year);
         return { students: result.students.map((s: { id: string }) => s.id), fees: result.feeTypes.length };
       }, { user: { id: f.accounts.cashier.uid, role: 'cashier', schoolId: f.school }, year: f.year }).catch(error => ({ error: String(error.message) }));
-      await writeFile(test.info().outputPath('cashier-visible-state.json'), JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), diagnostics, directRead }));
+      const renderedData = await page.locator('main').evaluate(element => {
+        type Fiber = { return?: Fiber; memoizedProps?: { yearData?: { students?: { id: string }[]; feeTypes?: unknown[] } }; memoizedState?: Hook };
+        type Hook = { memoizedState?: unknown; next?: Hook };
+        const key = Object.keys(element).find(key => key.startsWith('__reactFiber$'));
+        let fiber = key ? (element as unknown as Record<string, Fiber>)[key] : undefined;
+        const snapshots: unknown[] = [];
+        while (fiber) {
+          let hook = fiber.memoizedState;
+          while (hook) {
+            const state = hook.memoizedState as { students?: { id: string }[]; feeTypes?: unknown[]; schoolYears?: { id: string }[] } | undefined;
+            if (Array.isArray(state?.students) && Array.isArray(state?.feeTypes)) snapshots.push({ students: state.students.map(s => s.id), fees: state.feeTypes.length, years: state.schoolYears?.map(y => y.id) });
+            hook = hook.next;
+          }
+          fiber = fiber.return;
+        }
+        return snapshots;
+      });
+      await writeFile(test.info().outputPath('cashier-visible-state.json'), JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), diagnostics, directRead, renderedData }));
       throw error;
     } finally { await context.close(); }
   } finally { await f.cleanup(); }
