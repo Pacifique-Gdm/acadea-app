@@ -51,3 +51,36 @@ export async function removeLegacyStudentPhotos({ db, statObject, deleteField, s
   }
   return { ...plan, removed, changed, applied: true };
 }
+
+/** Restauration des anciennes photos depuis une sauvegarde de retrait.
+ * Remet `photoUrl` seulement si la fiche existe, appartient à l'école, pointe
+ * toujours vers la même photo Storage et n'a pas déjà une ancienne photo
+ * (une photo plus récente n'est jamais écrasée). Simulation par défaut. */
+export async function restoreLegacyStudentPhotos({ db, backupContent, schoolId, apply = false }) {
+  if (typeof schoolId !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(schoolId)) throw new Error("Identifiant d'école invalide.");
+  if (!backupContent || backupContent.kind !== "legacy-photo-removal" || backupContent.schoolId !== schoolId || !Array.isArray(backupContent.photos)) throw new Error("Sauvegarde invalide ou d'une autre école.");
+  const result = { schoolId, photos: backupContent.photos.length, toRestore: 0, alreadyPresent: 0, photoChanged: 0, missingStudent: 0, invalid: 0, restored: 0, applied: apply };
+  for (const photo of backupContent.photos) {
+    if (typeof photo?.id !== "string" || typeof photo.photoPath !== "string" || typeof photo.photoUrl !== "string" || !EMBEDDED.test(photo.photoUrl)) { result.invalid += 1; continue; }
+    const reference = db.doc(`students/${photo.id}`);
+    const decide = (snapshot) => {
+      const data = snapshot.exists ? snapshot.data() : undefined;
+      if (!data || data.schoolId !== schoolId) return "missingStudent";
+      if (typeof data.photoUrl === "string" && data.photoUrl) return "alreadyPresent";
+      if (data.photoPath !== photo.photoPath) return "photoChanged";
+      return "restore";
+    };
+    if (!apply) {
+      const outcome = decide(await reference.get());
+      if (outcome === "restore") result.toRestore += 1; else result[outcome] += 1;
+      continue;
+    }
+    const outcome = await db.runTransaction(async (transaction) => {
+      const decision = decide(await transaction.get(reference));
+      if (decision === "restore") transaction.update(reference, { photoUrl: photo.photoUrl });
+      return decision;
+    });
+    if (outcome === "restore") { result.toRestore += 1; result.restored += 1; } else result[outcome] += 1;
+  }
+  return result;
+}
