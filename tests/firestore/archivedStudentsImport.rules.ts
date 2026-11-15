@@ -171,12 +171,14 @@ describe("nouvelle matrice annuelle et continuité multi-modules", () => {
     await db.doc("students/s0").set({ ...source("s0"), ...changes });
   }
 
-  it("ne recrée pas un terminaliste de 4ème Humanité", async () => {
+  // Lot 20 (décision du propriétaire) : le finaliste n'est plus laissé « ACTIVE »
+  // dans l'ancienne année ; il est archivé avec un motif clair (origine 2c232bd).
+  it("ne recrée pas un terminaliste de 4ème Humanité et l'archive avec son motif", async () => {
     await replaceSourceStudent({ className: "4ème Humanité", section: "Secondaire", option: "Sciences" });
     await db.doc("classes/terminal").set({ id: "terminal", schoolId: "school-a", schoolYearId: "new", name: "4ème Humanité", section: "Secondaire", active: true });
     expect(await execute()).toMatchObject({ complete: true, terminalExitCount: 1, promotedCount: 0 });
     expect(await targetStudents()).toHaveLength(0);
-    expect((await db.doc("students/s0").get()).data()?.status).toBe("ACTIVE");
+    expect((await db.doc("students/s0").get()).data()).toMatchObject({ status: "TRANSFERRED", exitReason: "Fin de scolarité", exitReasonDetails: "Finaliste : fin du cycle secondaire", searchArchived: true });
   });
 
   it.each(["TRANSFERRED", "DROPPED", "DECEASED"] as const)("ignore un élève %s sans le réactiver", async (status) => {
@@ -247,6 +249,158 @@ describe("nouvelle matrice annuelle et continuité multi-modules", () => {
     expect((await db.collection("gradeEntries").where("schoolYearId", "==", "new").get()).size).toBe(0);
     expect((await db.doc("gradeEntries/grade-old").get()).exists).toBe(true);
   });
+});
+
+describe("lot 20 : classes, options et cycles non organisés, finalistes", () => {
+  const sourceAt = (id: string, changes: Partial<Student> = {}): Student => ({ ...source(id), ...changes });
+  async function seed(records: Record<string, Record<string, unknown>>) {
+    const batch = db.batch(); for (const [path, value] of Object.entries(records)) batch.set(db.doc(path), value); await batch.commit();
+  }
+  const groupKeyOf = async () => {
+    const inspected = await execute({ mode: "inspect" }) as unknown as { groups: Array<{ key: string }> };
+    return inspected.groups[0].key;
+  };
+
+  it("classe suivante absente dans un cycle configuré : décision requise, puis « Ouvrir la classe suivante »", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["Primaire"] });
+    await db.doc("classes/new-class").delete();
+    const inspected = await execute({ mode: "inspect" }) as unknown as Record<string, unknown> & { groups: Array<Record<string, unknown>> };
+    expect(inspected.decisionRequired).toBe(true);
+    expect(inspected.groups).toEqual([expect.objectContaining({ kind: "missing-class", sourceClassName: "1ère Primaire", targetClassName: "2ème Primaire", canOpen: true, students: [expect.objectContaining({ id: "s0" })] })]);
+    await expect(execute()).rejects.toThrow("Décision requise");
+    expect(await targetStudents()).toHaveLength(0);
+    const key = String(inspected.groups[0].key);
+    expect(await execute({ decisions: { [key]: "open" } })).toMatchObject({ complete: true, promotedCount: 1, archivedCount: 0 });
+    const opened = (await db.collection("classes").where("schoolYearId", "==", "new").where("name", "==", "2ème Primaire").get()).docs;
+    expect(opened).toHaveLength(1);
+    expect(opened[0].data()).toMatchObject({ schoolId: "school-a", active: true, section: "Primaire" });
+    const [target] = await targetStudents();
+    expect(target.data()).toMatchObject({ className: "2ème Primaire", classId: opened[0].id, status: "ACTIVE" });
+    expect((await db.doc("students/s0").get()).data()?.status).toBe("ACTIVE");
+    expect((await db.doc(`archivedStudentImports/${(await db.collection("archivedStudentImports").get()).docs[0].id}`).get()).data()?.decisions).toEqual({ [key]: "open" });
+  });
+
+  it("« Les élèves quittent l'école » archive la fiche de l'ancienne année avec le motif et le repère annualExit", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["Primaire"] });
+    await db.doc("classes/new-class").delete();
+    const key = await groupKeyOf();
+    expect(await execute({ decisions: { [key]: "leave" } })).toMatchObject({ complete: true, promotedCount: 0, archivedCount: 1 });
+    expect(await targetStudents()).toHaveLength(0);
+    const archived = (await db.doc("students/s0").get()).data();
+    expect(archived).toMatchObject({ schoolYearId: "old", status: "TRANSFERRED", exitReason: "Autre", exitReasonDetails: "Fin de parcours dans l'école : classe suivante non organisée", searchArchived: true });
+    expect(typeof archived?.deletedAt).toBe("string");
+    expect(archived?.annualExit).toMatchObject({ kind: "missing-class", targetSchoolYearId: "new", decidedBy: "secretary-a" });
+    expect((await db.doc("parents/parent-a").get()).data()?.studentIds).toEqual(["s0"]);
+  });
+
+  it("cycle suivant absent : archivage par défaut « cycle CTEB non organisé », ou ouverture sur décision", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["Primaire"] });
+    await seed({ "students/s0": sourceAt("s0", { className: "6ème Primaire" }), "students/s1": sourceAt("s1", { className: "6ème Primaire" }), "classes/old-class": { id: "old-class", schoolId: "school-a", schoolYearId: "old", name: "6ème Primaire" } });
+    await db.doc("classes/new-class").delete();
+    const inspected = await execute({ mode: "inspect" }) as unknown as { decisionRequired: boolean; groups: Array<Record<string, unknown>> };
+    expect(inspected.decisionRequired).toBe(false);
+    expect(inspected.groups).toEqual([expect.objectContaining({ kind: "missing-cycle", section: "CTEB", targetClassName: "7ème CTEB", defaultDecision: "leave" })]);
+    expect(await execute({ retainedStudentIds: ["s1"] })).toMatchObject({ complete: true, schoolCycleExitCount: 1, archivedCount: 1, retainedCount: 1 });
+    expect((await db.doc("students/s0").get()).data()).toMatchObject({ status: "TRANSFERRED", exitReason: "Autre", exitReasonDetails: "Fin de parcours dans l'école : cycle CTEB non organisé" });
+    expect((await db.doc("students/s1").get()).data()).toEqual(sourceAt("s1", { className: "6ème Primaire" }));
+  });
+
+  it("cycle suivant absent ouvert par la Secrétaire : classe 7ème CTEB créée et élèves promus", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["Primaire"] });
+    await seed({ "students/s0": sourceAt("s0", { className: "6ème Primaire" }), "classes/old-class": { id: "old-class", schoolId: "school-a", schoolYearId: "old", name: "6ème Primaire" } });
+    await db.doc("classes/new-class").delete();
+    const key = await groupKeyOf();
+    expect(await execute({ decisions: { [key]: "open" } })).toMatchObject({ complete: true, promotedCount: 1, archivedCount: 0 });
+    const [target] = await targetStudents();
+    expect(target.data()).toMatchObject({ className: "7ème CTEB", section: "CTEB" });
+    expect((await db.doc(`classes/${target.data().classId}`).get()).data()).toMatchObject({ name: "7ème CTEB", schoolYearId: "new" });
+  });
+
+  describe("option qui s'arrête", () => {
+    beforeEach(async () => {
+      await db.doc("schools/school-a").update({ educationLevels: ["Secondaire"], schoolOptions: ["Sciences", "Commerciale"] });
+      await db.doc("classes/old-class").delete(); await db.doc("classes/new-class").delete();
+      await seed({
+        "classes/old-h2": { id: "old-h2", schoolId: "school-a", schoolYearId: "old", name: "2ème Humanité", active: true },
+        "classes/old-h2-sci": { id: "old-h2-sci", schoolId: "school-a", schoolYearId: "old", name: "2ème Humanité - Sciences - A", parentClassId: "old-h2", classOptionKey: "old-h2::Sciences", subClassLabel: "A", active: true },
+        "classes/new-h3": { id: "new-h3", schoolId: "school-a", schoolYearId: "new", name: "3ème Humanité", active: true },
+        "classes/new-h3-com": { id: "new-h3-com", schoolId: "school-a", schoolYearId: "new", name: "3ème Humanité - Commerciale - A", parentClassId: "new-h3", classOptionKey: "new-h3::Commerciale", subClassLabel: "A", active: true },
+        "students/s0": sourceAt("s0", { className: "2ème Humanité", section: "Secondaire", option: "Sciences", classId: "old-h2", classOptionKey: "old-h2::Sciences" }),
+      });
+    });
+
+    it("ne monte plus silencieusement sans option : décision requise", async () => {
+      const inspected = await execute({ mode: "inspect" }) as unknown as { decisionRequired: boolean; groups: Array<Record<string, unknown>> };
+      expect(inspected.decisionRequired).toBe(true);
+      expect(inspected.groups).toEqual([expect.objectContaining({ kind: "missing-option", sourceClassName: "2ème Humanité", option: "Sciences", targetClassName: "3ème Humanité" })]);
+      await expect(execute()).rejects.toThrow("Décision requise");
+      expect(await targetStudents()).toHaveLength(0);
+    });
+
+    it("« Ouvrir » crée l'option dans la nouvelle année et y place l'élève", async () => {
+      const key = await groupKeyOf();
+      expect(await execute({ decisions: { [key]: "open" } })).toMatchObject({ complete: true, promotedCount: 1 });
+      const [target] = await targetStudents();
+      expect(target.data()).toMatchObject({ className: "3ème Humanité", classId: "new-h3", classOptionKey: "new-h3::Sciences", option: "Sciences" });
+      const option = (await db.collection("classes").where("classOptionKey", "==", "new-h3::Sciences").get()).docs;
+      expect(option).toHaveLength(1);
+      expect(option[0].data()).toMatchObject({ parentClassId: "new-h3", schoolYearId: "new", subClassLabel: "B", active: true });
+    });
+
+    it("« Quitter » archive avec le motif « classe suivante non organisée »", async () => {
+      const key = await groupKeyOf();
+      expect(await execute({ decisions: { [key]: "leave" } })).toMatchObject({ complete: true, archivedCount: 1 });
+      expect((await db.doc("students/s0").get()).data()).toMatchObject({ status: "TRANSFERRED", exitReasonDetails: "Fin de parcours dans l'école : classe suivante non organisée" });
+    });
+  });
+
+  it("finalistes listés, un finaliste retiré de la liste des partants reste inchangé", async () => {
+    await seed({ "students/s0": sourceAt("s0", { className: "4ème Humanité", option: "Sciences" }), "students/s1": sourceAt("s1", { className: "4ème Humanité", option: "Sciences" }) });
+    const inspected = await execute({ mode: "inspect" }) as unknown as { finalists: Array<{ id: string }> };
+    expect(inspected.finalists.map((item) => item.id).sort()).toEqual(["s0", "s1"]);
+    expect(await execute({ retainedStudentIds: ["s1"] })).toMatchObject({ complete: true, terminalExitCount: 2, archivedCount: 1, retainedCount: 1 });
+    expect((await db.doc("students/s0").get()).data()).toMatchObject({ status: "TRANSFERRED", exitReason: "Fin de scolarité" });
+    expect((await db.doc("students/s1").get()).data()).toEqual(sourceAt("s1", { className: "4ème Humanité", option: "Sciences" }));
+  });
+
+  it("liste les élèves entrant en 1ère Humanité sans option", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["CTEB", "Secondaire"] });
+    await seed({ "students/s0": sourceAt("s0", { className: "8ème CTEB", section: "CTEB" }), "classes/new-class": { id: "new-class", schoolId: "school-a", schoolYearId: "new", name: "1ère Humanité", active: true } });
+    const inspected = await execute({ mode: "inspect" }) as unknown as { withoutOption: Array<{ id: string }> };
+    expect(inspected.withoutOption.map((item) => item.id)).toEqual(["s0"]);
+  });
+
+  it("import interrompu puis repris sans doublon, avec les décisions enregistrées", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["Primaire"] });
+    await db.doc("classes/new-class").delete();
+    const batch = db.batch();
+    for (let index = 1; index <= 90; index++) batch.set(db.doc(`students/s${index}`), source(`s${index}`));
+    await batch.commit();
+    const key = await groupKeyOf();
+    const first = await execute({ decisions: { [key]: "leave" } });
+    expect(first).toMatchObject({ complete: false });
+    // Reprise sans renvoyer les décisions : celles de la fiche de suivi s'appliquent.
+    let result = first;
+    for (let attempt = 0; !result.complete && attempt < 5; attempt++) result = await execute();
+    expect(result).toMatchObject({ complete: true });
+    const archived = await db.collection("students").where("schoolYearId", "==", "old").where("status", "==", "TRANSFERRED").get();
+    expect(archived.size).toBe(91);
+    expect(await targetStudents()).toHaveLength(0);
+    expect((await db.collection("auditLogs").get()).size).toBe(1);
+    await expect(execute({ decisions: { [key]: "open" } })).resolves.toMatchObject({ complete: true });
+    expect(await targetStudents()).toHaveLength(0);
+  }, 60_000);
+
+  it("refuse de changer les décisions d'un import déjà commencé", async () => {
+    await db.doc("schools/school-a").update({ educationLevels: ["Primaire"] });
+    await db.doc("classes/new-class").delete();
+    const batch = db.batch();
+    for (let index = 1; index <= 90; index++) batch.set(db.doc(`students/s${index}`), source(`s${index}`));
+    await batch.commit();
+    const key = await groupKeyOf();
+    await execute({ decisions: { [key]: "leave" } });
+    await expect(execute({ decisions: { [key]: "open" } })).rejects.toThrow("autres décisions");
+  }, 30_000);
 });
 
 describe("réinscription annuelle d'un terminaliste", () => {

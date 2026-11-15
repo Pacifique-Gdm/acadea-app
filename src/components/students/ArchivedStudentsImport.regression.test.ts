@@ -42,7 +42,7 @@ describe("régression de l'import avant normalisation et publication", () => {
     expect(button).toBeDefined();
     (button!.props.onClick as () => void)();
     await vi.waitFor(() => expect(harness.request).toHaveBeenCalledOnce());
-    expect(harness.request).toHaveBeenCalledWith({ schoolId: school.id, schoolYearId: year.id, sourceYearId: oldYear.id, mode: "import", confirmation: "IMPORTER LES ELEVES" });
+    expect(harness.request).toHaveBeenCalledWith({ schoolId: school.id, schoolYearId: year.id, sourceYearId: oldYear.id, mode: "import", confirmation: "IMPORTER LES ELEVES", decisions: {}, retainedStudentIds: [] });
     const payload = importedStudentDocument(student, school.id, year.id, []);
     expect(payload).not.toHaveProperty("option");
     expect(payload?.schoolYearId).toBe(year.id);

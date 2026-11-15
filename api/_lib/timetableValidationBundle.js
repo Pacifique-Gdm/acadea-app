@@ -70,6 +70,12 @@ var ANNUAL_TRANSITION_RESULTS = Object.freeze({
   SCHOOL_CYCLE_EXIT: "SCHOOL_CYCLE_EXIT",
   SKIPPED_INACTIVE: "SKIPPED_INACTIVE"
 });
+var ANNUAL_EXIT_KINDS = Object.freeze({
+  FINALIST: "finalist",
+  MISSING_CLASS: "missing-class",
+  MISSING_OPTION: "missing-option",
+  MISSING_CYCLE: "missing-cycle"
+});
 function normalizeAnnualClassName(value) {
   if (typeof value !== "string") return "";
   const normalized = value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
