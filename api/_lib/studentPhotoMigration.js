@@ -7,20 +7,28 @@ import { randomUUID } from "node:crypto";
 const EMBEDDED = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/;
 const EXTENSION = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
 
-export async function migrateStudentPhotos({ db, bucket, schoolId, apply = false, backup, now = new Date().toISOString(), newId = randomUUID }) {
+export async function migrateStudentPhotos({ db, bucket, schoolId, apply = false, backup, countStudents, now = new Date().toISOString(), newId = randomUUID }) {
   if (typeof schoolId !== "string" || !/^[A-Za-z0-9_-]{1,160}$/.test(schoolId)) throw new Error("Identifiant d'école invalide.");
   if (apply && typeof backup !== "function") throw new Error("Sauvegarde obligatoire avant la migration.");
   const snapshot = await db.collection("students").where("schoolId", "==", schoolId).select("photoUrl", "photoPath").get();
+  // Une lecture coupée en route (constatée une fois sur le staging) est refusée avant toute écriture.
+  if (typeof countStudents === "function") {
+    const expected = await countStudents();
+    if (snapshot.size !== expected) throw new Error(`Lecture incomplète des fiches (${snapshot.size} sur ${expected}) : relancez.`);
+  }
   const candidates = [];
   let invalid = 0;
+  let otherPhotos = 0;
   for (const document of snapshot.docs) {
     const { photoUrl, photoPath } = document.data();
-    if (photoPath || typeof photoUrl !== "string" || !photoUrl.startsWith("data:image/")) continue;
+    if (photoPath || typeof photoUrl !== "string" || !photoUrl) continue;
+    // Photo d'un autre type (adresse web…) : jamais copiée, mais comptée.
+    if (!photoUrl.startsWith("data:image/")) { otherPhotos += 1; continue; }
     const match = EMBEDDED.exec(photoUrl);
     if (!match) { invalid += 1; continue; }
     candidates.push({ id: document.id, contentType: match[1], bytes: Buffer.from(match[2], "base64"), photoUrl });
   }
-  const plan = { schoolId, students: snapshot.size, photosToCopy: candidates.length, unreadablePhotos: invalid,
+  const plan = { schoolId, students: snapshot.size, photosToCopy: candidates.length, unreadablePhotos: invalid, otherPhotos,
     bytes: candidates.reduce((total, item) => total + item.bytes.length, 0), applied: false };
   if (!apply || !candidates.length) return plan;
 
