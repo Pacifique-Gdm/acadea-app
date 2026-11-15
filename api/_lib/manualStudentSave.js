@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { studentForPersistence } from "../../src/utils/studentYearTransition.js";
 import { studentIdentityKey } from "../../src/utils/studentSearch.js";
+import { identityCandidatesQuery, identityIndexReady, identityIndexStateRef, identityLockId } from "./studentIdentityIndex.js";
 
 const DUPLICATE_MESSAGE = "Un élève avec le même nom, post-nom et prénom existe déjà.";
 const EDITABLE_FIELDS = ["nom", "postnom", "prenom", "sexe", "birthDate", "address", "phone", "className", "classId", "subClassId", "classOptionKey", "section", "option", "photoUrl"];
@@ -54,10 +55,6 @@ async function validClassReferences(transaction, db, student, offline = false) {
   }
 }
 
-function identityLockId(schoolId, key) {
-  return createHash("sha256").update(`${schoolId}\0${key}`).digest("hex");
-}
-
 export async function saveManualStudent({ db, caller, body }) {
   const input = body?.student;
   const id = safeId(input?.id);
@@ -90,10 +87,13 @@ export async function saveManualStudent({ db, caller, body }) {
   const counterRef = db.doc(`studentMatriculeCounters/${schoolId}__${schoolYearId}`);
   const schoolStudentsQuery = db.collection("students").where("schoolId", "==", schoolId);
   return db.runTransaction(async (transaction) => {
-    const [actorSnapshot, schoolSnapshot, yearSnapshot, existingSnapshot, receiptSnapshot] = await Promise.all([
+    const [actorSnapshot, schoolSnapshot, yearSnapshot, existingSnapshot, receiptSnapshot, indexStateSnapshot] = await Promise.all([
       transaction.get(actorRef), transaction.get(schoolRef), transaction.get(yearRef), transaction.get(studentRef),
-      receiptRef ? transaction.get(receiptRef) : Promise.resolve(null),
+      receiptRef ? transaction.get(receiptRef) : Promise.resolve(null), transaction.get(identityIndexStateRef(db, schoolId)),
     ]);
+    // École migrée : verrous + candidats au même nom trié, sans relire toute l'école.
+    // École non migrée : ancienne vérification complète, inchangée.
+    const indexed = identityIndexReady(indexStateSnapshot);
     const actor = actorSnapshot.exists ? actorSnapshot.data() : undefined;
     if (!actor || actor.role !== caller.role || actor.schoolId !== schoolId || actor.status === "inactive" || actor.active === false) reject("Compte utilisateur inactif ou hors périmètre.", 403, "permission-denied");
     if (!schoolSnapshot.exists || ["deleting", "inactive", "suspended"].includes(schoolSnapshot.data()?.status)) reject("École inactive ou introuvable.", 409, "failed-precondition");
@@ -128,7 +128,7 @@ export async function saveManualStudent({ db, caller, body }) {
     let newLockRef;
     let students;
     if (identityChanged) {
-      students = await transaction.get(schoolStudentsQuery);
+      students = await transaction.get(indexed ? identityCandidatesQuery(db, schoolId, next) : schoolStudentsQuery);
       if (students.docs.some((snapshot) => snapshot.id !== id && studentIdentityKey(snapshot.data()) === newKey)) reject(DUPLICATE_MESSAGE, 409, "duplicate-student");
       newLockRef = db.doc(`studentIdentityLocks/${identityLockId(schoolId, newKey)}`);
       const newLockSnapshot = await transaction.get(newLockRef);
@@ -136,7 +136,8 @@ export async function saveManualStudent({ db, caller, body }) {
       if (existing) {
         oldLockRef = db.doc(`studentIdentityLocks/${identityLockId(schoolId, oldKey)}`);
         oldLockSnapshot = await transaction.get(oldLockRef);
-        if (oldLockSnapshot.exists && oldLockSnapshot.data()?.studentId === id && !students.docs.some((snapshot) => snapshot.id !== id && studentIdentityKey(snapshot.data()) === oldKey)) transaction.delete(oldLockRef);
+        const oldKeyHolders = indexed ? await transaction.get(identityCandidatesQuery(db, schoolId, existing)) : students;
+        if (oldLockSnapshot.exists && oldLockSnapshot.data()?.studentId === id && !oldKeyHolders.docs.some((snapshot) => snapshot.id !== id && studentIdentityKey(snapshot.data()) === oldKey)) transaction.delete(oldLockRef);
       }
     }
     let sequence;
@@ -145,7 +146,10 @@ export async function saveManualStudent({ db, caller, body }) {
       if (typeof yearName !== "string" || !/^\d{4}/.test(yearName)) reject("Année scolaire invalide.", 409, "failed-precondition");
       const prefix = `ACD-${yearName.slice(2, 4)}-`;
       const counterSnapshot = await transaction.get(counterRef);
-      const sameYear = students.docs.filter((snapshot) => snapshot.data().schoolYearId === schoolYearId);
+      // École migrée : seuls les matricules de l'année sont lus (pas les photos).
+      const sameYear = indexed
+        ? (await transaction.get(db.collection("students").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).select("matricule"))).docs
+        : students.docs.filter((snapshot) => snapshot.data().schoolYearId === schoolYearId);
       const highestExisting = sameYear.reduce((maximum, snapshot) => {
         const matricule = snapshot.data().matricule;
         if (typeof matricule !== "string" || !matricule.startsWith(prefix)) return maximum;
