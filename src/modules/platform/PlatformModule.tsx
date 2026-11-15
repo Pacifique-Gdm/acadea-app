@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KeptTab } from "../../components/layout/KeptTab";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
 import type { ReactNode } from "react";
-import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, LogOut, Menu as MenuIcon, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
+import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
 import { PlatformStatusDistributionCard } from "../../components/platform/PlatformStatusDistributionCard";
-import { AdminDrawer, Field, FormPanel, ImageUploadField, PasswordField } from "../../components/ui";
+import { AdminDrawer, Field, ImageUploadField, LogoutButton, PasswordField } from "../../components/ui";
 import { MobileBottomNavigation } from "../../components/layout/MobileBottomNavigation";
 import type { UseBillingControlsResult } from "../../hooks/useBillingControls";
 import { useRealtimeCoordinations } from "../../hooks/useRealtimeCoordinations";
@@ -1340,11 +1340,9 @@ export function PlatformModule({
                 </button>
               </div>
 
-              <FormPanel title="Session">
-                <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
-                  <LogOut className="h-4 w-4" /> Déconnexion
-                </button>
-              </FormPanel>
+              <div className="mt-2 border-t border-slate-200 pt-4" aria-label="Session Super Administrateur">
+                <LogoutButton onClick={onLogout} />
+              </div>
             </section>
           </KeptTab>
         </main>

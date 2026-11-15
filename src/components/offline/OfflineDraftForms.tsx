@@ -88,6 +88,9 @@ function ScopedOfflineDraftForms({ scope, role }: { scope: OfflineScope; role: O
         if (!studentId || !fee) throw new Error("Élève ou frais préchargé indisponible.");
         await captureOfflineDraft(scope.userId, "payment_proposal", { studentId, feeTypeId: fee.id,
           amount: Number(amount.replace(",", ".")), currency: fee.currency, expectedFeeAmount: fee.amount, note });
+        // The durable local queue has acknowledged the proposal, not a server
+        // payment. Reset only the form; never remove or mark the queue synced.
+        setStudentId(""); setFeeTypeId("");
       }
       setMessage("Brouillon local enregistré. Aucune opération n'est encore confirmée par le serveur.");
       if (role === "school_admin" || role === "secretary") {
