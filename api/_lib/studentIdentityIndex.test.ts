@@ -150,6 +150,14 @@ describe("inscription : index des identités par école (lot 8)", () => {
   it("refuse un identifiant d'école invalide", async () => {
     await expect(migrateStudentIdentityIndex({ db: memoryDb(base()), schoolId: "../autre" })).rejects.toThrow("invalide");
   });
+
+  it("refuse une lecture incomplète des fiches avant toute écriture", async () => {
+    const db = memoryDb(base());
+    const before = JSON.stringify([...db.rows]);
+    await expect(migrateStudentIdentityIndex({ db, schoolId: "school-a", apply: true, countStudents: async () => 3 })).rejects.toThrow("Lecture incomplète");
+    expect(JSON.stringify([...db.rows])).toBe(before);
+    expect(await migrateStudentIdentityIndex({ db, schoolId: "school-a", countStudents: async () => 2 })).toMatchObject({ students: 2 });
+  });
 });
 
 describe("migration : élève modifié pendant la migration (lot 8)", () => {
