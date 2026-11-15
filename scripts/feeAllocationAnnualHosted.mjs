@@ -36,8 +36,15 @@ export async function runAnnualAllocationHosted({ db, tag, schoolId, yearId, put
   await allocation('activate', { openingId: opening.openingId, confirmation: 'ACTIVER LA REPARTITION FICTIVE' }, role);
   const openingRef = db.doc(`feeAllocationOpeningAudits/${opening.openingId}`), openingBefore = (await openingRef.get()).data();
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'allow' });
+  let page;
+  const requestErrors = [];
   try {
-    const page = await context.newPage(); page.setDefaultTimeout(60000);
+    page = await context.newPage(); page.setDefaultTimeout(60000);
+    page.on('response', response => {
+      if (response.url().startsWith(origin + '/api/') && response.status() >= 400) {
+        requestErrors.push({ path: new URL(response.url()).pathname, status: response.status(), action: response.request().postDataJSON()?.action });
+      }
+    });
     await page.addInitScript(() => window.addEventListener('acadea:offline-context-ready', () => { window.acadeaAnnualContextReady = true; }));
     await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' });
     await page.getByPlaceholder('email@ecole.com').fill(adminUser.email);
@@ -168,5 +175,11 @@ export async function runAnnualAllocationHosted({ db, tag, schoolId, yearId, put
     assert.equal((await movements()).length, latest.length);
     assert.deepEqual((await openingRef.get()).data(), openingBefore);
     record('Inscription hors connexion confirmée : un seul élève, prévu 600 → 660 sans clic ni perte du filtre, PDF à jour, caisse et ouverture inchangées');
+  } catch (error) {
+    if (page) {
+      await page.screenshot({ path: `${output}/annual-failure.png`, fullPage: true }).catch(() => {});
+      writeFileSync(`${output}/annual-visible-state.json`, JSON.stringify({ url: page.url(), text: await page.locator('body').innerText(), requestErrors }));
+    }
+    throw error;
   } finally { await context.close(); }
 }

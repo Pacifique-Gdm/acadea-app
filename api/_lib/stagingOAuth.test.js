@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { stagingOAuthProvider } from '../scripts/stagingOAuth.mjs';
+import { stagingOAuthProvider } from '../../scripts/stagingOAuth.mjs';
 const env = { GOOGLE_CLOUD_PROJECT: 'acadea-staging', GOOGLE_CLOUD_QUOTA_PROJECT: 'acadea-staging', ACADEA_STAGING_GCLOUD_AUTH: 'YES' };
 describe('Staging OAuth lifecycle', () => {
   it('refreshes the official identity and shares concurrent refreshes without logging credentials', async () => {

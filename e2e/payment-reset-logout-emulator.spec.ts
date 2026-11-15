@@ -24,19 +24,20 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
       const form = page.getByRole('dialog', { name: 'Enregistrer', exact: true });
       const search = form.getByPlaceholder('Rechercher par nom, postnom, prénom ou matricule');
       const amount = form.getByPlaceholder('Montant', { exact: true });
+      const description = form.getByRole('textbox', { name: 'Description', exact: true });
       await search.fill('ALPHA'); await form.getByRole('button', { name: /ALPHA FICTIF TEST/ }).click();
       await form.getByLabel('Type de frais', { exact: true }).selectOption(`${f.tag}-fee`);
-      await amount.fill('10'); await form.getByLabel('Description', { exact: true }).fill('PREMIER');
+      await amount.fill('10'); await description.fill('PREMIER');
       await form.getByRole('button', { name: 'Enregistrer', exact: true }).click();
       await expect.poll(async () => (await f.db.collection('payments').where('schoolId', '==', f.school).get()).size).toBe(1);
       await expect(search).toHaveValue(''); await expect(amount).toHaveValue('');
       await expect(form.getByText(/Élève sélectionné/)).toHaveCount(0);
-      await expect(form.getByLabel('Description', { exact: true })).toHaveValue('');
+      await expect(description).toHaveValue('');
       await search.fill('BETA'); await form.getByRole('button', { name: /BETA FICTIF TEST/ }).click();
       await expect(form.getByText(/ALPHA/)).toHaveCount(0);
-      await expect(amount).toHaveValue(''); await expect(form.getByLabel('Description', { exact: true })).toHaveValue('');
+      await expect(amount).toHaveValue(''); await expect(description).toHaveValue('');
       await form.getByLabel('Type de frais', { exact: true }).selectOption(`${f.tag}-fee`);
-      await amount.fill('12'); await form.getByLabel('Description', { exact: true }).fill('SECOND');
+      await amount.fill('12'); await description.fill('SECOND');
       let dropped = false;
       await page.route('**/api/manage-financial-transaction', async route => {
         if (!dropped && route.request().postDataJSON()?.action === 'create-payment') { dropped = true; return route.abort('connectionreset'); }
@@ -45,7 +46,7 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
       await form.getByRole('button', { name: 'Enregistrer', exact: true }).click();
       await expect.poll(() => dropped).toBe(true);
       await expect(form.getByRole('button', { name: 'Enregistrer', exact: true })).toBeEnabled();
-      await expect(amount).toHaveValue('12'); await expect(form.getByLabel('Description', { exact: true })).toHaveValue('SECOND');
+      await expect(amount).toHaveValue('12'); await expect(description).toHaveValue('SECOND');
       await expect(form.getByText(/Élève sélectionné : BETA/)).toBeVisible();
       expect((await f.db.collection('payments').where('schoolId', '==', f.school).get()).size).toBe(1);
       await form.getByRole('button', { name: 'Enregistrer', exact: true }).click();
