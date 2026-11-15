@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { KeptTab } from "./KeptTab";
-import { nextVisitedTabs } from "./keptTabState";
+import { frozenWhileHidden, nextVisitedTabs } from "./keptTabState";
 import { nextReturnCount, sameClassRecords } from "../../modules/coordination/coordinationTabReturn";
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8");
@@ -18,6 +18,11 @@ describe("lot 19 : onglets gardés pendant la session", () => {
     expect(renderToStaticMarkup(createElement(KeptTab, { id: "students", active: "dashboard", visited, children: "Élèves" }))).toBe("<div hidden=\"\">Élèves</div>");
     expect(renderToStaticMarkup(createElement(KeptTab, { id: "students", active: "students", visited, children: "Élèves" }))).toBe("<div class=\"contents\">Élèves</div>");
     expect(renderToStaticMarkup(createElement(KeptTab, { id: "control", active: "dashboard", visited, children: "Contrôle" }))).toBe("");
+  });
+
+  it("un onglet caché garde ses valeurs figées (aucun rechargement en arrière-plan)", () => {
+    expect(frozenWhileHidden(false, 7, 3)).toBe(3); // caché : valeur figée, même si les données ont changé
+    expect(frozenWhileHidden(true, 7, 3)).toBe(7); // redevenu visible : dernière valeur
   });
 
   it("compte seulement les vrais retours sur un onglet", () => {
@@ -50,8 +55,17 @@ describe("portail Coordination et Sous-coordination : aller-retour sans recharge
     expect(listener).toContain("subscribeCoordinationDashboardUpdates(");
     expect(listener).not.toContain('tab !== "dashboard"');
     expect(portal).toContain("setDataVersion((value) => value + 1);");
-    expect(portal).toMatch(/<CoordinationStudents [^>]*refreshToken=\{refreshToken \+ dataVersion\} active=\{tab === "students"\}/);
-    expect(portal).toMatch(/<CoordinationControl [^>]*refreshToken=\{refreshToken \+ dataVersion\} active=\{tab === "control"\}/);
+  });
+
+  it("un onglet caché ne se recharge pas : version, actualisation, écoles et école choisie figées", () => {
+    expect(portal).toContain('const studentsToken = useFrozenWhileHidden(tab === "students", refreshToken + dataVersion);');
+    expect(portal).toContain('const controlToken = useFrozenWhileHidden(tab === "control", refreshToken + dataVersion);');
+    expect(portal).toContain('const messagesToken = useFrozenWhileHidden(tab === "messages", refreshToken);');
+    expect(portal).toMatch(/<CoordinationDashboard coordination=\{coordination\} schools=\{dashboardSchools\} selectedSchoolId=\{dashboardSchoolId\}/);
+    expect(portal).toMatch(/<CoordinationStudents [^>]*schools=\{studentsSchools\} selectedSchoolId=\{studentsSchoolId\}[^>]*refreshToken=\{studentsToken\} active=\{tab === "students"\}/);
+    expect(portal).toMatch(/<CoordinationControl [^>]*schools=\{controlSchools\} selectedSchoolId=\{controlSchoolId\}[^>]*refreshToken=\{controlToken\} active=\{tab === "control"\}/);
+    // Message ne charge que selon l'école choisie et l'actualisation (la liste ne sert qu'aux noms).
+    expect(portal).toContain("<CoordinationMessage schools={activeSchools} schoolId={messagesSchoolId} refreshToken={messagesToken}/>");
   });
 
   it("au retour : année active gardée, année passée rechargée (jamais périmée), classes relues sans effacement", () => {

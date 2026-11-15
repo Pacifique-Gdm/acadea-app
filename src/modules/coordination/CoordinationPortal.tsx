@@ -18,7 +18,7 @@ import { runRefreshTask } from "../../utils/refreshTask";
 import { coordinationSchoolBatches } from "../../services/coordinationSchoolBatches";
 import { subscribeCoordinationDashboardUpdates } from "../../services/coordinationDashboardUpdates";
 import { KeptTab } from "../../components/layout/KeptTab";
-import { useVisitedTabs } from "../../components/layout/keptTabState";
+import { useFrozenWhileHidden, useVisitedTabs } from "../../components/layout/keptTabState";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
@@ -46,6 +46,10 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   const visitedTabs = useVisitedTabs(tab);
   const tabRef = useRef(tab);
   tabRef.current = tab;
+  // Un onglet caché garde ses valeurs : il ne se recharge qu’en redevenant visible.
+  const studentsToken = useFrozenWhileHidden(tab === "students", refreshToken + dataVersion);
+  const controlToken = useFrozenWhileHidden(tab === "control", refreshToken + dataVersion);
+  const messagesToken = useFrozenWhileHidden(tab === "messages", refreshToken);
   const [refreshing, setRefreshing] = useState(false);
   const refreshInFlightRef = useRef(false);
   const [refreshError, setRefreshError] = useState("");
@@ -98,6 +102,15 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   }, [refreshToken, user.coordinationId, user.role, user.subCoordinationId]);
 
   const activeSchools = useMemo(() => schools.filter((school) => school.status === "active" && relations.some((relation) => relation.schoolId === school.id)), [relations, schools]);
+  // Onglets cachés : écoles et école choisie figées (un changement fait ailleurs ne les recharge
+  // pas en arrière-plan ; il est pris en compte à leur réouverture).
+  const dashboardSchools = useFrozenWhileHidden(tab === "dashboard", activeSchools);
+  const dashboardSchoolId = useFrozenWhileHidden(tab === "dashboard", selectedSchoolId);
+  const studentsSchools = useFrozenWhileHidden(tab === "students", activeSchools);
+  const studentsSchoolId = useFrozenWhileHidden(tab === "students", selectedSchoolId);
+  const controlSchools = useFrozenWhileHidden(tab === "control", activeSchools);
+  const controlSchoolId = useFrozenWhileHidden(tab === "control", selectedSchoolId);
+  const messagesSchoolId = useFrozenWhileHidden(tab === "messages", selectedSchoolId);
   const supervisionScope = useMemo(() => activeSchools.map((school) => school.id).sort().join("|"), [activeSchools]);
   // Année active de chaque école : clé stable, pour ne relancer l'écoute qu'en cas de vrai changement d'année.
   const activeYearsKey = useMemo(() => JSON.stringify(activeYearsBySchool(activeSchools)), [activeSchools]);
@@ -213,14 +226,14 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     <section data-testid="coordination-content" className="mx-auto grid max-w-6xl gap-4 px-4 py-5">
       {tab !== "dashboard" && tab !== "control" && tab !== "students" && <div className="rounded border border-blue-100 bg-blue-50 p-4 text-sm"><b>École</b><select className="input mt-2 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => setSelectedSchoolId(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({activeSchools.length})</option>{activeSchools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></div>}
       {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {coordination && <KeptTab id="dashboard" active={tab} visited={visitedTabs}><CoordinationDashboard coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} onSchoolChange={setSelectedSchoolId} user={user} model={supervisionModel} loading={supervisionLoading || loadedSupervisionScope !== supervisionScope} loadError={supervisionError} /></KeptTab>}
+      {coordination && <KeptTab id="dashboard" active={tab} visited={visitedTabs}><CoordinationDashboard coordination={coordination} schools={dashboardSchools} selectedSchoolId={dashboardSchoolId} onSchoolChange={setSelectedSchoolId} user={user} model={supervisionModel} loading={supervisionLoading || loadedSupervisionScope !== supervisionScope} loadError={supervisionError} /></KeptTab>}
       {coordination && <KeptTab id="students" active={tab} visited={visitedTabs}>
-        <CoordinationStudents user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} onSchoolChange={setSelectedSchoolId} refreshToken={refreshToken + dataVersion} active={tab === "students"}/>
+        <CoordinationStudents user={user} coordination={coordination} schools={studentsSchools} selectedSchoolId={studentsSchoolId} onSchoolChange={setSelectedSchoolId} refreshToken={studentsToken} active={tab === "students"}/>
       </KeptTab>}
       {coordination && <KeptTab id="control" active={tab} visited={visitedTabs}>
-        <CoordinationControl user={user} coordination={coordination} schools={activeSchools} selectedSchoolId={selectedSchoolId} onSchoolChange={setSelectedSchoolId} refreshToken={refreshToken + dataVersion} active={tab === "control"}/>
+        <CoordinationControl user={user} coordination={coordination} schools={controlSchools} selectedSchoolId={controlSchoolId} onSchoolChange={setSelectedSchoolId} refreshToken={controlToken} active={tab === "control"}/>
       </KeptTab>}
-      <KeptTab id="messages" active={tab} visited={visitedTabs}><CoordinationMessage schools={activeSchools} schoolId={selectedSchoolId} refreshToken={refreshToken}/></KeptTab>
+      <KeptTab id="messages" active={tab} visited={visitedTabs}><CoordinationMessage schools={activeSchools} schoolId={messagesSchoolId} refreshToken={messagesToken}/></KeptTab>
       {tab === "menu" && coordination && (
         <CoordinationMenu
           coordination={coordination}

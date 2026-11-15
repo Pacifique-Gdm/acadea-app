@@ -11,3 +11,15 @@ export function useVisitedTabs<T extends string>(active: T): readonly T[] {
   if (next !== visited) setVisited(next);
   return next;
 }
+
+/** Valeur transmise à un onglet gardé : figée tant qu'il est caché (aucun rechargement, aucune
+ * lecture ni appel serveur en arrière-plan), mise à jour dès qu'il redevient visible. */
+export function frozenWhileHidden<T>(active: boolean, value: T, lastShown: T): T {
+  return active ? value : lastShown;
+}
+
+export function useFrozenWhileHidden<T>(active: boolean, value: T): T {
+  const [lastShown, setLastShown] = useState(value);
+  if (active && !Object.is(lastShown, value)) setLastShown(value);
+  return frozenWhileHidden(active, value, lastShown);
+}
