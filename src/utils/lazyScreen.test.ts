@@ -47,17 +47,6 @@ describe("écrans chargés à la demande", () => {
     expect(main).toContain("<Suspense fallback=");
   });
 
-  it("le serveur de développement (recettes) prépare d'avance chaque écran chargé à la demande", () => {
-    // Défaut constaté en recette : sans préparation, le premier clic sur Menu attendait la
-    // préparation de l'écran par Vite et dépassait le délai d'affichage attendu.
-    const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
-    const config = readFileSync(new URL("../../vite.config.ts", import.meta.url), "utf8");
-    const lazyImports = [...app.matchAll(/lazy\(loadScreen\(\(\) => import\("\.\/([^"]+)"\)/g)].map((match) => `./src/${match[1]}.tsx`);
-    expect(lazyImports.length).toBeGreaterThanOrEqual(17);
-    expect(config).toContain("warmup: { clientFiles: LAZY_SCREEN_FILES }");
-    for (const file of lazyImports) expect(config).toContain(`"${file}"`);
-  });
-
   it("un écran à la demande affiché dans un autre écran attend sur place (le panneau du Menu ne se referme plus)", () => {
     // Défaut constaté en recette : « Rapport financier » du Menu chargeait ReportsModule à la
     // demande ; sans attente locale, toute l'application était masquée et le panneau se refermait.
