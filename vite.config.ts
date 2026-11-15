@@ -6,6 +6,26 @@ import react from "@vitejs/plugin-react";
 import { validateFirebaseEnvironment } from "./src/config/environment";
 
 const buildId = process.env.VERCEL_GIT_COMMIT_SHA?.trim() || process.env.VERCEL_DEPLOYMENT_ID?.trim() || String(Date.now());
+// Écrans chargés à la demande dans src/App.tsx (lot 12), préparés d'avance par le serveur de développement.
+const LAZY_SCREEN_FILES = [
+  "./src/modules/platform/PlatformModule.tsx",
+  "./src/modules/discipline/DisciplinePortal.tsx",
+  "./src/modules/control/ControlModule.tsx",
+  "./src/modules/menu/MenuModule.tsx",
+  "./src/modules/parents/ParentsModule.tsx",
+  "./src/modules/parent/ParentPortal.tsx",
+  "./src/modules/secretary/SecretaryPortal.tsx",
+  "./src/modules/studies/StudyDirectorPortal.tsx",
+  "./src/modules/teacher/TeacherPortal.tsx",
+  "./src/modules/coordination/CoordinationPortal.tsx",
+  "./src/modules/secretary/SecretaryCorrespondenceModule.tsx",
+  "./src/modules/secretary/SecretaryReportsModule.tsx",
+  "./src/modules/secretary/SecretaryMenuModule.tsx",
+  "./src/modules/reports/ReportsModule.tsx",
+  "./src/modules/reports/FinancialReportPage.tsx",
+  "./src/modules/messages/MessagesModule.tsx",
+  "./src/modules/biometrics/BiometricStudentsPage.tsx",
+];
 const ocrAssets = [
   ["tesseract.js/dist/worker.min.js", "worker.min.js"],
   ["tesseract.js-core/tesseract-core-lstm.wasm.js", "tesseract-core-lstm.wasm.js"],
@@ -100,6 +120,12 @@ export default defineConfig(({ mode }) => {
   },
   optimizeDeps: {
     exclude: ["jspdf"],
+  },
+  // Lot 12 : en mode développement (recettes sur émulateurs), Vite ne prépare un écran
+  // chargé à la demande qu'au premier clic, ce qui peut dépasser plusieurs secondes.
+  // Ces écrans sont donc préparés dès le démarrage du serveur. Sans effet sur la production.
+  server: {
+    warmup: { clientFiles: LAZY_SCREEN_FILES },
   },
   };
 });
