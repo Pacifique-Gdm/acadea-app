@@ -57,7 +57,9 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     expect((await configs()).size).toBe(2);
     expect((await invoke(handler, adminToken, lost)).payload.idempotent).toBe(true);
     await page.getByRole("button", { name: "Fonctionnement", exact: true }).first().click();
-    await page.getByRole("button", { name: "Préparer une version", exact: true }).click();
+    const sciencesConfig = page.getByRole('dialog', { name: 'Fonctionnement', exact: true }).locator('section').filter({ has: page.getByRole('heading', { name: /Minerval fictif.*Sciences/ }) });
+    await expect(sciencesConfig).toHaveCount(1);
+    await sciencesConfig.getByRole("button", { name: "Préparer une version", exact: true }).click();
     await expect(page.getByText(/Version 1 · prepared/)).toBeVisible();
     await page.getByRole("button", { name: "Fermer le détail de rubrique", exact: true }).click();
     await context.close(); context = undefined;
@@ -69,13 +71,13 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeEnabled();
       await expect(drawer.getByRole("button", { name: "+ Ajouter", exact: true })).toHaveCount(role === "school_admin" ? 1 : 0);
       await expect(drawer.getByLabel("Filtre", { exact: true }).locator("option")).toHaveText(["Frais", "Classe", "Période"]);
-      await expect(drawer.locator("tbody tr")).toHaveCount(8);
+      await expect(drawer.locator("tbody tr")).toHaveCount(4); // Aggregate per rubric, not per reference tariff.
       await drawer.getByLabel("Filtre", { exact: true }).selectOption("class");
       await drawer.getByLabel("Valeur correspondante", { exact: true }).selectOption(JSON.stringify([f.school, "1ère Secondaire::option::Sciences"]));
       await expect(drawer.locator("tbody tr")).toHaveCount(4);
       await drawer.getByLabel("Filtre", { exact: true }).selectOption("period");
       await drawer.getByLabel("Valeur correspondante", { exact: true }).selectOption("today");
-      await expect(drawer.locator("tbody tr")).toHaveCount(8);
+      await expect(drawer.locator("tbody tr")).toHaveCount(4);
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
