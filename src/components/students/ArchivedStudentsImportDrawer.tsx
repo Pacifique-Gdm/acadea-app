@@ -136,7 +136,7 @@ const effectiveDecision = (group: AnnualDecisionGroup, decisions: Record<string,
 
 /** Résumé avant confirmation, recalculé à chaque choix de la Secrétaire.
  * Le serveur refait le même calcul et refuse toute décision manquante. */
-function summarize(status: ArchivedStudentsImportStatus | undefined, decisions: Record<string, AnnualDecision>, retained: Set<string>): Review {
+export function summarize(status: ArchivedStudentsImportStatus | undefined, decisions: Record<string, AnnualDecision>, retained: Set<string>): Review {
   const groups = status?.groups ?? [];
   const serverOpened = groups.filter((group) => group.decision === "open").reduce((total, group) => total + group.students.length, 0);
   const opened = groups.filter((group) => effectiveDecision(group, decisions) === "open");
@@ -160,7 +160,7 @@ const KIND_LABELS: Record<AnnualDecisionGroup["kind"], string> = {
   "missing-cycle": "cycle non organisé dans l'école",
 };
 
-function AnnualDecisions({ status, decisions, retained, locked, onDecide, onToggleRetained }: {
+export function AnnualDecisions({ status, decisions, retained, locked, onDecide, onToggleRetained }: {
   status: ArchivedStudentsImportStatus; decisions: Record<string, AnnualDecision>; retained: Set<string>; locked: boolean;
   onDecide: (key: string, value: AnnualDecision) => void; onToggleRetained: (id: string) => void;
 }) {
@@ -192,7 +192,7 @@ function AnnualDecisions({ status, decisions, retained, locked, onDecide, onTogg
   </div>;
 }
 
-function AnnualSummary({ review }: { review: Review }) {
+export function AnnualSummary({ review }: { review: Review }) {
   return <div className="grid gap-2 rounded border border-blue-100 bg-blue-50 p-3 text-sm" aria-label="Résumé avant confirmation">
     <p className="font-semibold">Résumé avant confirmation</p>
     <p><strong>{review.promoted}</strong> élève(s) montent dans la classe suivante.</p>
