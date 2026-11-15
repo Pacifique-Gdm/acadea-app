@@ -48,6 +48,10 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
   const filteredStudentIds = new Set(filteredStudents.map((student) => student.id));
   const payments = yearData.payments.filter((payment) => payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.studentId));
   const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
+  // Lot 21 : paiements des anciens élèves (archivés), ligne séparée. Ils ne sont
+  // rattachés à aucune section de l'année actuelle, comme les dépenses.
+  const formerPayments = yearData.payments.filter((payment) => payment.formerStudent === true && payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate);
+  const formerByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: sumMoney(formerPayments.filter((payment) => payment.currency === currency).map((payment) => payment.amount)) })).filter((group) => group.amount > 0);
   const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: sumMoney(arrearsPayments.filter((payment) => payment.currency === currency).map((payment) => payment.amount)) })).filter((group) => group.amount > 0);
   const expenses = resolvedExpenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
   const cashInflows = (yearData.cashInflows ?? []).filter((inflow) => inflow.entryDate >= startDate && inflow.entryDate <= endDate);
@@ -101,6 +105,12 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
         <h2 className="font-bold">Arriérés encaissés pendant la période</h2>
         <p className="text-slate-600">Ces encaissements sont distincts du recouvrement des frais de l'année actuelle.</p>
         {arrearsByCurrency.map((group) => <p key={group.currency} className="font-semibold">{formatCurrencyMoney(group.amount, group.currency)}</p>)}
+      </div>}
+      {formerByCurrency.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm" data-testid="former-student-payments">
+        <h2 className="font-bold">Paiements anciens élèves</h2>
+        <p className="text-slate-600">Dettes d'années passées réglées par des élèves qui ont quitté l'école, encaissées en {year.name}.</p>
+        {formerByCurrency.map((group) => <p key={group.currency} className="font-semibold">{formatCurrencyMoney(group.amount, group.currency)}</p>)}
+        {formerPayments.map((payment) => <p key={payment.id} className="break-words text-slate-600">{payment.paidAt} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId} · {payment.receiptNumber} · {formatCurrencyMoney(payment.amount, payment.currency === "CDF" ? "CDF" : "USD")}</p>)}
       </div>}
       <div className="grid min-w-0 grid-cols-1 gap-4">
         <FormPanel title="Paiements">
