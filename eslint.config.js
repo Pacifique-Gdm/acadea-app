@@ -19,6 +19,8 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // Vérifie aussi les dépendances des calculs mémorisés du tableau de bord.
+      "react-hooks/exhaustive-deps": ["warn", { additionalHooks: "(usePersistentMemo)" }],
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
     },
   },

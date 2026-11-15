@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Expense } from "../types";
 import { auth } from "../firebase";
 import { reportClientFailure } from "../services/clientFailureTelemetry";
-import { applyCachedExpenseCurrencies, expenseNeedsResolution, pendingExpenseCurrencyIds, resolvePendingExpenseCurrencies } from "../services/expenseCurrencyCache";
+import { cachedResolvedRows, expenseNeedsResolution, pendingExpenseCurrencyIds, resolvePendingExpenseCurrencies } from "../services/expenseCurrencyCache";
 import { failureKind, plainFailureMessage } from "../services/requestFailure";
 import { useAutoRetry } from "./useAutoRetry";
 
@@ -38,7 +38,7 @@ export function useExpenseCurrencyResolution(expenses: Expense[]) {
     return () => { cancelled = true; };
   }, [pendingKey, retryToken, schedule, scope, succeeded]);
 
-  const rows = useMemo(() => (needsResolution && !pendingKey ? applyCachedExpenseCurrencies(expenses, scope) : expenses), [expenses, needsResolution, pendingKey, scope]);
+  const rows = useMemo(() => (needsResolution && !pendingKey ? cachedResolvedRows(expenses, scope) : expenses), [expenses, needsResolution, pendingKey, scope]);
   if (!needsResolution) return { rows: expenses, status: "ready" as const, message: "" };
   if (!pendingKey) return { rows, status: "ready" as const, message: "" };
   if (failure?.key === pendingKey) return { rows: expenses, status: "error" as const, message: failure.message };

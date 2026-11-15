@@ -47,6 +47,19 @@ export async function resolvePendingExpenseCurrencies(expenses: readonly Expense
   }
 }
 
+let rowsCache = new WeakMap<readonly Expense[], { scope: string; rows: Expense[] }>();
+
+/** Même tableau résultat pour la même liste de dépenses (déjà entièrement
+ * vérifiée) : les calculs qui en dépendent ne sont pas refaits au retour sur l'écran. */
+export function cachedResolvedRows(expenses: Expense[], scope: string): Expense[] {
+  const hit = rowsCache.get(expenses);
+  if (hit && hit.scope === scope) return hit.rows;
+  const rows = applyCachedExpenseCurrencies(expenses, scope);
+  rowsCache.set(expenses, { scope, rows });
+  return rows;
+}
+
 export function clearExpenseCurrencyCache() {
   cache.clear();
+  rowsCache = new WeakMap();
 }
