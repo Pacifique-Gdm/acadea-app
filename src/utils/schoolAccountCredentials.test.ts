@@ -65,7 +65,7 @@ describe("identifiants temporaires des comptes métier", () => {
   });
 
   it("ne plante pas quand un parent ou un compte n'a pas d'e-mail (le Menu ne s'affichait plus)", () => {
-    const parents = [{ id: "parent-sans-email", name: "Parent fictif" }, { email: "caissier001@cslg.com" }] as ParentProfile[];
+    const parents = [{ id: "parent-sans-email", name: "Parent fictif" }, { email: "caissier001@cslg.com" }] as unknown as ParentProfile[];
     const users = [{ id: "compte-sans-email", schoolId: school.id } as AppUser];
     expect(nextSchoolStaffEmail(school, "cashier", users, parents)).toBe("caissier002@cslg.com");
   });
