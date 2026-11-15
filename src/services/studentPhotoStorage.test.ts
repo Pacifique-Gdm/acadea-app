@@ -123,6 +123,22 @@ describe("migration des photos vers Storage", () => {
     expect(docs.get("students/child-a")).not.toHaveProperty("photoPath");
   });
 
+  it("refuse une lecture incomplète des fiches avant toute sauvegarde ou copie", async () => {
+    const { db, bucket, saved, docs } = fixture();
+    const backup = vi.fn();
+    await expect(migrateStudentPhotos({ db, bucket, schoolId: "school-a", apply: true, backup, countStudents: async () => 4 })).rejects.toThrow("Lecture incomplète");
+    expect(backup).not.toHaveBeenCalled();
+    expect(saved).toEqual([]);
+    expect(docs.get("students/child-a")).not.toHaveProperty("photoPath");
+    expect(await migrateStudentPhotos({ db, bucket, schoolId: "school-a", countStudents: async () => 3 })).toMatchObject({ photosToCopy: 1 });
+  });
+
+  it("compte sans la copier une photo d'un autre type (adresse web)", async () => {
+    const { db, bucket, docs } = fixture();
+    docs.set("students/child-c", { schoolId: "school-a", photoUrl: "https://exemple.test/photo.jpg" });
+    expect(await migrateStudentPhotos({ db, bucket, schoolId: "school-a" })).toMatchObject({ photosToCopy: 1, otherPhotos: 1, unreadablePhotos: 0 });
+  });
+
   it("refuse d'appliquer sans sauvegarde", async () => {
     const { db, bucket } = fixture();
     await expect(migrateStudentPhotos({ db, bucket, schoolId: "school-a", apply: true })).rejects.toThrow("Sauvegarde");
