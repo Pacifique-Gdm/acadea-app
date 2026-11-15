@@ -5,6 +5,7 @@ import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from 
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
 import { AllocationRubricSelect } from "../../components/AllocationRubricSelect";
 import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
+import { FormerStudentPaymentForm } from "../../components/finance/FormerStudentPaymentForm";
 import { loadExpenseCashBalance, type PayrollCashBalance } from "../../services/personnelPayroll";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
@@ -103,7 +104,7 @@ export function ControlModule({
   const [expenseEditError, setExpenseEditError] = useState("");
   const [expenseDeleteTarget, setExpenseDeleteTarget] = useState<Expense | null>(null);
   const [warningOpen, setWarningOpen] = useState(false);
-  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "personnel" | "inflow" | null>(null);
+  const [cashierControlDrawer, setCashierControlDrawer] = useState<"payment" | "expense" | "personnel" | "inflow" | "former" | null>(null);
   const [recordedPersonnelPayment, setRecordedPersonnelPayment] = useState<PersonnelPayment>();
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | "inflow" | null>(null);
@@ -1534,11 +1535,12 @@ export function ControlModule({
           {receiptAction.pending.length > 0 && <p role="status">Préparation du PDF…</p>}
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'enregistrement
-            <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel" | "inflow")}>
+            <select aria-label="Type d'enregistrement" className="input min-w-0 w-full" value={cashierControlDrawer} onChange={(event) => setCashierControlDrawer(event.target.value as "payment" | "expense" | "personnel" | "inflow" | "former")}>
               <option value="payment">Enregistrer un paiement</option>
               <option value="expense">Enregistrer une dépense</option>
               <option value="personnel">Paiement du personnel</option>
               <option value="inflow">Autres entrées de caisse</option>
+              <option value="former">Paiement anciens élèves</option>
             </select>
           </label>
           {cashierControlFeedback && cashierControlFeedbackDrawer === cashierControlDrawer && (
@@ -1614,6 +1616,7 @@ export function ControlModule({
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
+          {cashierControlDrawer === "former" && <FormerStudentPaymentForm school={school} year={year} onRecorded={() => { void refreshExpenseCashBalance().catch(() => {}); }} />}
           {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={(payment) => { setRecordedPersonnelPayment(payment); setCashierControlDrawer(null); void expenseHistory.loadFirstPage(); void refreshExpenseCashBalance().catch(() => {}); }} />}
           {cashierControlDrawer === "inflow" && <OtherCashInflowForm year={year} onRecorded={(inflow) => {
             cashInflowHistory.prependItem(inflow);

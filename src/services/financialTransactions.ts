@@ -53,7 +53,7 @@ export type HistoricalDebt = {
   currency: "USD" | "CDF";
 };
 
-async function financialRequest(input: Record<string, unknown> & { action: FinancialAction | "list-arrears" | "list-arrears-batch" | "list-resolved-expense-currencies"; clientRequestId?: string }) {
+async function financialRequest(input: Record<string, unknown> & { action: FinancialAction | "list-arrears" | "list-arrears-batch" | "list-resolved-expense-currencies" | "search-former-students" | "list-former-debts"; clientRequestId?: string }) {
   const token = await getCurrentFirebaseIdToken();
   const response = await fetch(resolveApiUrl("/api/manage-financial-transaction"), {
     method: "POST",
@@ -87,6 +87,36 @@ export async function resolveHistoricalExpenseCurrencies(expenses: Expense[], fa
     // Preserve the unknown currency and keep financial exports blocked on API failure.
     return expenses;
   }
+}
+
+export type FormerStudentDebts = {
+  id: string; matricule: string; className: string; name: string; exitReason: string;
+  debts: HistoricalDebt[]; totals: { USD: number; CDF: number };
+};
+
+/** Lot 21 : recherche des seuls élèves archivés ayant une dette. */
+export function searchFormerStudents(input: { schoolYearId: string; query: string }) {
+  return financialRequest({ action: "search-former-students", ...input }).then((result) => {
+    const students = (result as { students?: FormerStudentDebts[] }).students;
+    if (!Array.isArray(students)) throw new Error("Réponse de recherche incomplète.");
+    return students;
+  });
+}
+
+export function loadFormerStudentDebts(input: { schoolYearId: string; formerStudentId: string }) {
+  return financialRequest({ action: "list-former-debts", ...input }).then((result) => {
+    const value = result as unknown as FormerStudentDebts;
+    if (!Array.isArray(value.debts)) throw new Error("Réponse des dettes incomplète.");
+    return value;
+  });
+}
+
+/** Paiement d'une dette d'année passée d'un ancien élève (élève archivé). */
+export function createFormerStudentPaymentTransaction(input: { schoolYearId: string; formerStudentId: string; feeTypeId: string; debtSchoolYearId: string; amount: number; note?: string; clientRequestId: string }) {
+  return financialRequest({ action: "create-payment", ...input }).then((result) => {
+    if (!result.payment) throw new Error("Réponse de paiement incomplète.");
+    return result.payment;
+  });
 }
 
 export function createPaymentTransaction(input: { supportDecisionId?: string; schoolYearId: string; studentId: string; feeTypeId: string; debtSchoolYearId?: string; amount: number; note?: string; clientRequestId: string }) {

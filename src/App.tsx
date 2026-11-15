@@ -1512,6 +1512,8 @@ function scopeData(data: AppData, schoolId: string, schoolYearId: string, user: 
     payments: data.payments.filter((payment) => payment.schoolId === schoolId && (
       (payment.schoolYearId === schoolYearId && studentIds.includes(payment.studentId))
       || (payment.collectionSchoolYearId === schoolYearId && Boolean(payment.currentStudentId && studentIds.includes(payment.currentStudentId)))
+      // Lot 21 : paiements d'anciens élèves encaissés cette année (ligne séparée des rapports).
+      || (payment.collectionSchoolYearId === schoolYearId && payment.formerStudent === true)
     )),
     expenses: data.expenses.filter((expense) => expense.schoolId === schoolId && expense.schoolYearId === schoolYearId),
     cashInflows: (data.cashInflows ?? []).filter((inflow) => inflow.schoolId === schoolId && inflow.schoolYearId === schoolYearId),
