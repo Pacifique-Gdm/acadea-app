@@ -652,8 +652,11 @@ try {
   browser ??= await chromium.launch({ headless: true });
   if (!annualOnly && !results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
-  if (!volumeOnly && !results.some(result => result.result === 'FAIL')) await runAnnualAllocationHosted({ db: s.db, tag, schoolId: annualSchool, yearId: annualYear,
-    put, api, allocation, manifest, save, output, browser, adminUser: users.find(u => u.key === 'annual-admin'), password, origin, record, tokens, pdfOcr });
+  if (!volumeOnly && !results.some(result => result.result === 'FAIL')) {
+    pdfOcr ??= await createWorker('fra', 1, { langPath: fileURLToPath(new URL('../node_modules/@tesseract.js-data/fra/4.0.0_best_int', import.meta.url)), cacheMethod: 'none', logger: () => {} });
+    await runAnnualAllocationHosted({ db: s.db, tag, schoolId: annualSchool, yearId: annualYear,
+      put, api, allocation, manifest, save, output, browser, adminUser: users.find(u => u.key === 'annual-admin'), password, origin, record, tokens, pdfOcr });
+  }
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;
   checkpoint();
