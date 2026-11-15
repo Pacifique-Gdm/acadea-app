@@ -5,6 +5,7 @@ import { AllocationApiError, allocationRequest, loadAllocationWorkspace, saveAll
 afterEach(() => vi.unstubAllGlobals());
 describe("transport préparatoire sans succès optimiste", () => {
   const page = (index: number, fingerprint = "a".repeat(64)) => ({ operational: false, school: { id: "s" }, year: { id: "y" }, currency: "USD", fees: [], configs: [],
+    forecast: { status: 'complete', rows: [], studentCount: 0, revision: null },
     ledger: { movements: [{ id: `m${index}`, lines: [{ rubricId: 'r', amountMinor: 100 }] }],
       balances: [{ rubricId: 'r', openingMinor: 0, receivedMinor: 200, spentMinor: 0, reservedMinor: 0, availableMinor: 200 }],
       pagination: { page: index, hasNext: index === 0, nextCursor: `m${index}`, fingerprint } } });

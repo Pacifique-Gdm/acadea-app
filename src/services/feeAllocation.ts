@@ -8,6 +8,8 @@ export type AllocationWorkspace = {
   year: { id: string; schoolId: string; name: string; status: string; startsAt: string | null; endsAt: string | null };
   currency: "USD" | "CDF"; canConfigure: boolean; operational: false;
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
+  forecast?: { status: 'complete'; revision: string | null; calculatedAt: string; studentCount: number;
+    rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; studentsCount: number }[] };
   ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string }[];
     pagination?: { page: number; hasNext: boolean; nextCursor: string | null; fingerprint: string };
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
@@ -61,6 +63,8 @@ export async function loadAllocationWorkspace(schoolId: string, signal?: AbortSi
   const result = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId }, signal);
   if (result.school?.id !== schoolId || !result.year?.id || !["USD", "CDF"].includes(result.currency)
     || !Array.isArray(result.fees) || !Array.isArray(result.configs)) throw new AllocationApiError("Contexte de répartition incomplet.");
+  if (result.forecast?.status !== 'complete' || !Array.isArray(result.forecast.rows)
+    || result.forecast.rows.some(r => !Number.isSafeInteger(r.amountMinor) || r.amountMinor < 0)) throw new AllocationApiError("Prévu annuel non confirmé : tableau et export indisponibles.");
   const first = result.ledger?.pagination;
   if (first && result.ledger) {
     if (first.page !== 0 || typeof first.hasNext !== 'boolean' || !/^[a-f0-9]{64}$/.test(first.fingerprint)) throw new AllocationApiError("Pagination de registre invalide.");

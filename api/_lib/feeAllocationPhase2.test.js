@@ -21,10 +21,15 @@ function fixture() {
     "subCoordinations/sub": { coordinationId: "co", coordinatorUserId: "sub", active: true }, "subCoordinationSchools/sub__s": { schoolId: "s", coordinationId: "co", active: true },
   }));
   const snap = (path) => ({ id: path.split("/").at(-1), exists: records.has(path), data: () => structuredClone(records.get(path)) });
-  const query = (collection, filters = []) => ({ where: (field, op, value) => { expect(op).toBe("=="); return query(collection, [...filters, [field, value]]); }, get: async () => ({ docs: [...records.keys()].filter((path) => path.startsWith(`${collection}/`) && filters.every(([field, value]) => records.get(path)[field] === value)).map(snap) }) });
+  const query = (collection, filters = [], limit = Infinity, after = '') => ({
+    where: (field, op, value) => { expect(op).toBe("=="); return query(collection, [...filters, [field, value]], limit, after); },
+    orderBy: () => query(collection, filters, limit, after), select: () => query(collection, filters, limit, after),
+    startAfter: doc => query(collection, filters, limit, doc.id), limit: n => query(collection, filters, n, after),
+    get: async () => ({ docs: [...records.keys()].filter(path => path.startsWith(`${collection}/`) && path.split('/').length === 2 && path.split('/')[1] > after && filters.every(([field, value]) => records.get(path)[field] === value)).sort().slice(0, limit).map(snap) }),
+  });
   return { records, doc: (path) => ({ path, get: async () => snap(path) }), collection: query,
     runTransaction: async (fn) => { const changes = []; let writes = false;
-      const result = await fn({ get: async (ref) => { if (writes) throw Error("read after write"); return snap(ref.path); },
+      const result = await fn({ get: async (ref) => { if (writes) throw Error("read after write"); return ref.path ? snap(ref.path) : ref.get(); },
         create: (ref, data) => { writes = true; if (records.has(ref.path)) throw Error("already exists"); changes.push([ref.path, data]); },
         set: (ref, data) => { writes = true; changes.push([ref.path, data]); },
         update: (ref, data) => { writes = true; if (!records.has(ref.path)) throw Error("missing"); changes.push([ref.path, { ...records.get(ref.path), ...data }]); } });
@@ -33,6 +38,24 @@ function fixture() {
 }
 const call = (db, input = body, caller = admin) => manageFeeAllocationPhase2({ db, caller, body: input });
 describe("phase 2 : brouillons atomiques, isolation et versions", () => {
+  it('agrège toutes les pages de 2401 élèves sans retour d’identité ni plafond silencieux', async () => {
+    const db = fixture();
+    db.records.get('feeTypes/f1').classOptionKey = null;
+    for (let i = 0; i < 2401; i++) db.records.set(`students/s-${String(i).padStart(5, '0')}`, { schoolId: 's', schoolYearId: 'y', className: '1ère', status: 'ACTIVE', nom: 'CONFIDENTIEL' });
+    db.records.set('students/foreign', { schoolId: 'other', schoolYearId: 'y', className: '1ère', status: 'ACTIVE' });
+    const read = await call(db, { action: 'get-workspace', schoolId: 's' });
+    expect(read.forecast.studentCount).toBe(2401);
+    expect(read.forecast.rows.reduce((n, r) => n + r.amountMinor, 0)).toBe(24010000);
+    expect(JSON.stringify(read.forecast)).not.toContain('CONFIDENTIEL');
+    expect(JSON.stringify(read.forecast)).not.toContain('s-00001');
+  });
+  it('borne le signal de changement au même périmètre autorisé que les montants', async () => {
+    const db = fixture();
+    for (const reader of [admin, ...readers]) {
+      expect(await call(db, { action: 'get-forecast-revision', schoolId: 's' }, reader)).toMatchObject({ schoolId: 's', yearId: 'y', revision: null });
+      await expect(call(db, { action: 'get-forecast-revision', schoolId: 'other' }, reader)).rejects.toMatchObject({ status: 403 });
+    }
+  });
   it("calcule deux tarifs sans toucher à la caisse, puis conserve les versions", async () => {
     const db = fixture(); const result = await call(db);
     expect(result.configs.map((c) => c.draft.feeAmountMinor)).toEqual([10000, 20000]);

@@ -23,12 +23,12 @@ export function completeAllocationFixture() {
     [`feeAllocationTestScopes/${fixtureId}`]: { projectId: "demo-acadea", fixtureId, schoolIds: ["school"], status: "active", createdAt: "2026-11-13T00:00:00.000Z", expiresAt: "2026-11-14T00:00:00.000Z" },
     "feeTypes/fee": { id: "fee", schoolId: "school", schoolYearId: "year", name: "Minerval", amount: 100, className: "1ère", createdAt: later },
     "students/student": { id: "student", schoolId: "school", schoolYearId: "year", className: "1ère", status: "ACTIVE", createdAt: later },
-    [`feeAllocationConfigs/${configId}`]: { id: configId, schoolId: "school", schoolYearId: "year", feeTypeId: "fee", draftRevision: 1 },
+    [`feeAllocationConfigs/${configId}`]: { id: configId, schoolId: "school", schoolYearId: "year", currency: 'USD', feeTypeId: "fee", draftRevision: 1 },
     "feeAllocationVersions/version": { id: "version", configId, schoolId: "school", schoolYearId: "year", feeTypeId: "fee", className: "1ère", currency: "USD", version: 1, feeAmountMinor: 10000, status: "prepared", effectiveFrom: null, rubrics, shares: validateFeeAllocationRubrics(rubrics, 10000).shares },
   }));
   const snapshot = path => ({ id: path.split("/").at(-1), exists: records.has(path), data: () => structuredClone(records.get(path)) });
   const query = (collection, filters = [], limit = Infinity, after = "") => ({ where: (k, op, v) => { expect(op).toBe("=="); return query(collection, [...filters, [k, v]], limit, after); },
-    orderBy: () => query(collection, filters, limit, after), startAfter: doc => query(collection, filters, limit, typeof doc === 'string' ? doc : doc.id),
+    select: () => query(collection, filters, limit, after), orderBy: () => query(collection, filters, limit, after), startAfter: doc => query(collection, filters, limit, typeof doc === 'string' ? doc : doc.id),
     limit: n => query(collection, filters, n, after), get: async () => ({ docs: [...records].filter(([p, d]) => p.startsWith(`${collection}/`) && p.split("/").length === collection.split('/').length + 1 && p.split("/").at(-1) > after && filters.every(([k, v]) => d[k] === v)).sort(([a], [b]) => a < b ? -1 : 1).slice(0, limit).map(([p]) => snapshot(p)) }) });
   const db = { projectId: "demo-acadea", records, doc: path => ({ path, id: path.split("/").at(-1), get: async () => snapshot(path) }), collection: query,
     runTransaction: async fn => {

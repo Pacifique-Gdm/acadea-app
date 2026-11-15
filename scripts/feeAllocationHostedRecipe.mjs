@@ -13,6 +13,7 @@ import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
 import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
 import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
 import { runHostedAllocationPanel } from './feeAllocationHostedPanel.mjs';
+import { runAnnualAllocationHosted } from './feeAllocationAnnualHosted.mjs';
 import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
 // A mutation is followed by authenticated workspace + activation reads. Match
 // the hosted response budget, not Playwright's unrelated five-second default.
@@ -71,14 +72,16 @@ const tag = `e2e-allocation-${randomUUID().replaceAll('-', '')}`;
 const school = `${tag}-a`, foreign = `${tag}-b`, year = `${tag}-year`, fee = `${tag}-fee`, student = `${tag}-student`;
 const inactiveSchool = `${tag}-inactive`, inactiveYear = `${tag}-inactive-year`;
 const volumeSchool = `${tag}-volume`, volumeYear = `${tag}-volume-year`;
+const annualSchool = `${tag}-annual`, annualYear = `${tag}-annual-year`;
 const coord = `${tag}-coord`, sub = `${tag}-sub`;
 const roles = ['school_admin', 'cashier', 'coordination_admin', 'sub_coordination_admin', 'teacher'];
 const users = roles.map(role => ({ role, uid: `${tag}-${role}`, email: `${tag}-${role}@example.invalid` }));
 users.push(...[['cdf-admin', 'school_admin'], ['cdf-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: foreign })));
 users.push(...[['inactive-admin', 'school_admin'], ['inactive-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: inactiveSchool })));
 users.push(...[['volume-admin', 'school_admin'], ['volume-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: volumeSchool })));
+users.push(...[['annual-admin', 'school_admin'], ['annual-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: annualSchool })));
 if (volumeOnly) users.splice(0, users.length, ...users.filter(u => u.schoolId === volumeSchool));
-const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: volumeOnly ? [volumeSchool] : [school, foreign, inactiveSchool, volumeSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
+const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: volumeOnly ? [volumeSchool] : [school, foreign, inactiveSchool, volumeSchool, annualSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
@@ -149,7 +152,8 @@ async function retire() {
       body: JSON.stringify({ action: 'fee-allocation.get-workspace', schoolId: u.schoolId ?? school }), signal: AbortSignal.timeout(30000) });
     assert.ok([401, 403].includes(response.status), 'Compte fictif encore autorisé après neutralisation');
   }
-  const retained = {};
+  const retained = { feeAllocationForecastSignals: [] };
+  for (const sid of manifest.schools) retained.feeAllocationForecastSignals.push(...(await s.db.collection('feeAllocationForecastSignals').where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
   for (const collection of ['payments', 'expenses', 'personnelPayments', 'feeAllocationStates', 'feeAllocationConfigs', 'feeAllocationVersions', 'feeAllocationOpeningAudits', 'feeAllocationBalances', 'feeAllocationMovements', 'feeAllocationRequests', 'feeAllocationAnchors', 'financialIdempotency', 'financialCounters', 'financialCashLocks', 'auditLogs', 'socialSupportDecisions', 'socialSupportRequests', 'socialSupportAudit', 'socialSupportFeeLocks', 'feeAllocationReconciliationRuns', 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions']) {
     retained[collection] = [];
     for (const sid of manifest.schools) retained[collection].push(...(await s.db.collection(collection).where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
@@ -176,8 +180,8 @@ async function retire() {
 try {
   const createdAt = new Date().toISOString(), expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
   await put('feeAllocationTestScopes', tag, { projectId: 'acadea-staging', schoolIds: manifest.schools, status: 'active', createdAt, expiresAt });
-  const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : sid === volumeSchool ? volumeYear : inactiveYear;
-  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD'], [volumeSchool, 'USD']]) {
+  const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : sid === volumeSchool ? volumeYear : sid === annualSchool ? annualYear : inactiveYear;
+  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD'], [volumeSchool, 'USD'], [annualSchool, 'USD']]) {
     if (!manifest.schools.includes(sid)) continue;
     await put('schools', sid, { name: `Répartition fictive ${currency}`, status: 'active', active: true, currency, activeSchoolYearId: fixtureYear(sid),
       schoolType: 'Primaire uniquement', educationLevels: ['Primaire'], schoolOptions: [], subscriptionStatus: 'active', subscriptionPlan: 'premium', ...(sid === school ? { activeCoordinationId: coord } : {}) });
@@ -416,9 +420,11 @@ try {
     await activationClick('Activer la répartition', 'activate');
     await expect(panel.getByRole('heading', { name: 'Active', exact: true })).toBeVisible({ timeout: 45000 });
     await page.screenshot({ path: `${output}/activation-administrateur-cdf.png`, fullPage: true });
-    await panel.getByRole('button', { name: 'Mettre en pause', exact: true }).click();
-    await panel.getByLabel('Motif audité', { exact: true }).fill('Pause fictive de contrôle du panneau');
-    await activationClick('Confirmer la pause', 'pause');
+    await expect(panel.getByRole('button', { name: 'Mettre en pause', exact: true })).toHaveCount(0);
+    // Emergency backend pause remains audited. The daily panel no longer offers it.
+    await allocation('pause', { reason: 'Pause fictive de contrôle du panneau' }, 'cdf-admin');
+    await page.getByRole('button', { name: 'Fermer Répartition des frais', exact: true }).click();
+    await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     await expect(panel.getByRole('heading', { name: 'En pause', exact: true })).toBeVisible();
     await panel.getByRole('button', { name: 'Reprendre la répartition', exact: true }).click();
     await panel.getByLabel('Motif audité', { exact: true }).fill('Reprise fictive de contrôle du panneau');
@@ -538,9 +544,9 @@ try {
       const drawer = page.getByRole('dialog', { name: 'Répartition des frais', exact: true });
       await expect(drawer.getByRole('button', { name: 'Exporter PDF', exact: true })).toBeEnabled({ timeout: 60000 });
       await expect(drawer.locator('tbody tr')).toHaveCount(21);
-      await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(0);
+      await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(u.role === 'school_admin' ? 1 : 0);
       const toolbar = drawer.getByRole('region', { name: 'Commandes de répartition' });
-      await expect(toolbar.locator('button, select')).toHaveCount(3);
+      await expect(toolbar.locator('button, select')).toHaveCount(u.role === 'school_admin' ? 4 : 3);
       assert.ok((await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents()).every(text => !text.includes('Répartition fictive USD')));
       await page.screenshot({ path: `${output}/${u.role}-desktop.png`, fullPage: true });
       let expectedReceived = 581, expectedFilter;
@@ -634,6 +640,8 @@ try {
   browser ??= await chromium.launch({ headless: true });
   if (!results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
+  if (!volumeOnly && !results.some(result => result.result === 'FAIL')) await runAnnualAllocationHosted({ db: s.db, tag, schoolId: annualSchool, yearId: annualYear,
+    put, api, allocation, manifest, save, output, browser, adminUser: users.find(u => u.key === 'annual-admin'), password, origin, record, tokens });
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;
   checkpoint();

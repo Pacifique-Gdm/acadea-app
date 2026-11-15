@@ -103,6 +103,9 @@ async function syncUnlocked(scope: OfflineScope, onChange?: () => void): Promise
     try {
       await submit(scope, operation);
       await transitionOfflineOperation(scope, operation.id, "SERVER_CONFIRMED");
+      if (typeof window !== 'undefined' && ['student_enrollment', 'payment_proposal'].includes(operation.kind)) {
+        window.dispatchEvent(new Event('acadea:financial-projection-changed'));
+      }
     } catch (cause) {
       const error = cause as Error & { status?: number; code?: string };
       const authenticationFailure = error.status === 401 || error.code === "unauthenticated"

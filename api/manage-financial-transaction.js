@@ -87,12 +87,12 @@ export default async function handler(req, res) {
         action: requestedAction, idempotencyKey: mutation ? body.requestId : undefined,
         // Bounded ledger pages share a 60/min budget with financial creation;
         // retain a finite budget while allowing a 3,001-row export to finish.
-        ...(mutation || allocationAction === 'get-workspace' ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
+        ...(mutation || ['get-workspace', 'get-forecast-revision'].includes(allocationAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
       const manage = reconciliationActions.has(allocationAction) ? manageAllocationReconciliation
         : allocationLifecycleActions.has(allocationAction) ? manageFeeAllocationLifecycle
         : ["get-activation", "get-history-proofs"].includes(allocationAction) ? readAllocationActivation
         : allocationAction === "spend-options" ? getAllocationSpendOptions
-        : ["get-workspace", "save-drafts"].includes(allocationAction) ? manageFeeAllocationPhase2 : manageFeeAllocationPhase1;
+        : ["get-workspace", "get-forecast-revision", "save-drafts"].includes(allocationAction) ? manageFeeAllocationPhase2 : manageFeeAllocationPhase1;
       return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction } }));
     }
     if (["list-social-support", "list-social-support-personnel", "save-social-support", "cancel-social-support"].includes(requestedAction)) {

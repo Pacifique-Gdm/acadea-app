@@ -5,6 +5,7 @@ import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { readFeeAllocationLedger } from "./feeAllocationLedger.js";
 import { evidenceRevisionRef } from './feeAllocationRevision.js';
+import { forecastSignalId, readAllocationForecast } from './feeAllocationForecast.js';
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const id = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
@@ -14,18 +15,23 @@ const active = (value) => value && value.active !== false && !["inactive", "disa
 const isAdmin = (role) => role === "school_admin" || role === "admin";
 const fields = (body, allowed) => { if (Object.keys(body).some((key) => !allowed.includes(key))) fail(400, "invalid-argument", "Champs de répartition non autorisés."); };
 
-/** The only read model for the phase 2 drawer. No payments, balances or student records are read. */
+/** Authorized aggregate read model. Student identities/social details never leave the server. */
 export async function manageFeeAllocationPhase2({ db, caller, body }) {
+  if (body.action === 'get-forecast-revision') {
+    fields(body, ['action', 'schoolId']);
+    const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
+    const { yearId } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
+    const signal = (await db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`).get()).data();
+    return { schoolId, yearId, revision: signal?.revision ?? null, operational: false };
+  }
   if (body.action === "get-workspace") {
     fields(body, ["action", "schoolId", "ledgerPage", "ledgerFingerprint", "ledgerCursor"]);
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
     const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
     // Subsequent ledger pages need only their verified scope and cursor. The
     // first page already carries configuration metadata, immutable while active.
-    const [fees, configs] = (body.ledgerPage ?? 0) > 0 ? [{ docs: [] }, { docs: [] }] : await Promise.all([
-      db.collection("feeTypes").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId).get(),
-      db.collection("feeAllocationConfigs").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId).get(),
-    ]);
+    const { fees, configs, forecast } = (body.ledgerPage ?? 0) > 0 ? { fees: { docs: [] }, configs: { docs: [] }, forecast: undefined }
+      : await readAllocationForecast({ db, schoolId, yearId, currency });
     return {
       school: { id: schoolId, name: school.name, activeSchoolYearId: yearId },
       year: { id: yearId, schoolId, name: year.name, status: year.status, startsAt: year.startsAt ?? null, endsAt: year.endsAt ?? null },
@@ -33,6 +39,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       fees: fees.docs.map((row) => { const fee = row.data(); return { id: row.id, name: fee.name,
         className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
       configs: configs.docs.map((row) => row.data()),
+      ...(forecast ? { forecast } : {}),
       ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }),
     };
   }
@@ -73,7 +80,6 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
     const stateRef = db.doc(`feeAllocationStates/${hash([schoolId, body.schoolYearId, currency])}`);
     const state = await transaction.get(stateRef);
-    if (state.exists && ["ACTIVE", "PAUSED"].includes(state.data().status)) fail(409, "phase-not-ready", "Modification préparatoire interdite après activation.");
     const rows = await Promise.all(targets.map(async (target) => {
       const configId = feeAllocationConfigId(schoolId, body.schoolYearId, target.feeTypeId);
       const ref = db.doc(`feeAllocationConfigs/${configId}`);
@@ -82,6 +88,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       if (!feeSnapshot.exists || fee.schoolId !== schoolId || fee.schoolYearId !== body.schoolYearId
         || !fee.className || nameKey(fee.name) !== nameKey(base.name)) fail(403, "permission-denied", "Frais ou classe hors de la sélection autorisée.");
       if (config && (config.schoolId !== schoolId || config.schoolYearId !== body.schoolYearId || config.feeTypeId !== target.feeTypeId)) fail(403, "permission-denied", "Configuration hors périmètre.");
+      if (["ACTIVE", "PAUSED"].includes(state.data()?.status) && config?.currentVersionId) fail(409, "conflict", "Ce frais est déjà réparti : sa configuration en service ne peut pas être remplacée.");
       if ((config?.draftRevision ?? 0) !== target.expectedRevision) fail(409, "conflict", "Un brouillon a changé. Actualisez avant de réessayer.");
       let minor;
       try { minor = toMoneyMinor(fee.amount); } catch { fail(400, "invalid-argument", "Tarif invalide."); }
@@ -113,6 +120,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       resourceType: "feeAllocation", resourceId: configs[0].id, metadata: { targetCount: configs.length, operational: false } }));
     const result = { configs, operational: false };
     transaction.set(evidenceRevisionRef(db, schoolId, body.schoolYearId), { schoolId, schoolYearId: body.schoolYearId, revision: fingerprint });
+    transaction.set(db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, body.schoolYearId)}`), { schoolId, schoolYearId: body.schoolYearId, revision: fingerprint });
     transaction.create(receiptRef, { schoolId, schoolYearId: body.schoolYearId, userId: caller.uid, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });
