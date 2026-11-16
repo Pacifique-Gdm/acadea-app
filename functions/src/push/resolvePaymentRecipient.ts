@@ -38,7 +38,7 @@ export async function resolvePaymentRecipient(
     repository.findParentUsers(notification.parentId, notification.schoolId),
   ]);
 
-  if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId) return [];
+/* Lot 25 : la fiche parent est commune à l'école (elle garde l'année de sa création) ; la portée annuelle est prouvée par l'élève. */ if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId) return [];
   if (!student || student.schoolId !== notification.schoolId || student.schoolYearId !== notification.schoolYearId) return [];
   const parentOwnsStudent = student.parentId === parent.id || parent.studentIds?.includes(student.id) === true;
   if (!parentOwnsStudent) return [];
@@ -48,8 +48,7 @@ export async function resolvePaymentRecipient(
       user.role === "parent" &&
       user.status !== "inactive" &&
       user.schoolId === notification.schoolId &&
-      user.parentId === notification.parentId &&
-      (!user.activeSchoolYearId || user.activeSchoolYearId === notification.schoolYearId),
+      user.parentId === notification.parentId,
   );
 
   const recipients = await Promise.all(

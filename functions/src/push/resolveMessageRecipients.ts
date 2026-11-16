@@ -41,7 +41,9 @@ export function isMessageNotification(value: Record<string, unknown>): value is 
 }
 
 function activeForYear(user: SchoolUserRecord, schoolId: string, schoolYearId: string) {
-  return user.status !== "inactive" && user.schoolId === schoolId && (!user.activeSchoolYearId || user.activeSchoolYearId === schoolYearId);
+  // Lot 25 : l'année affichée par le compte n'est pas une condition (elle peut dater d'une année passée).
+  void schoolYearId;
+  return user.status !== "inactive" && user.schoolId === schoolId;
 }
 
 async function recipientsWithTokens(users: SchoolUserRecord[], repository: MessageRecipientRepository) {
@@ -76,7 +78,7 @@ export async function resolveMessageRecipients(notification: MessageNotification
       repository.findParentUsers(parentId, notification.schoolId),
     ]);
     const allowedSenderRoles = ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"];
-    if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId) return null;
+    if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId) return null;
     if (!sender || !allowedSenderRoles.includes(sender.role ?? "") || !activeForYear(sender, notification.schoolId, notification.schoolYearId)) return null;
     const authorized = users.filter((user) => user.role === "parent" && user.parentId === parentId && activeForYear(user, notification.schoolId, notification.schoolYearId));
     return { event: "school_message_received", parentId, recipients: await recipientsWithTokens(authorized, repository) };
@@ -93,7 +95,7 @@ export async function resolveMessageRecipients(notification: MessageNotification
       ? repository.getUser(notification.recipientUserId).then((user) => user ? [user] : [])
       : repository.findSchoolUsers(notification.schoolId, schoolRolesByRecipient[schoolRecipient!]),
   ]);
-  if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId) return null;
+  if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId) return null;
   if (!sender || sender.role !== "parent" || sender.parentId !== parentId || !activeForYear(sender, notification.schoolId, notification.schoolYearId)) return null;
   const allowedRoles = notification.recipientUserId
     ? ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]
