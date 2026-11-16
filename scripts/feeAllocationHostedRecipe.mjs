@@ -26,7 +26,7 @@ const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel' || panelOnl
 const annualOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'annual-only';
 const browserOptions = { headless: true, ...(process.env.ACADEA_HOSTED_BROWSER_CHANNEL === 'chrome' ? { channel: 'chrome' } : {}) };
 assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe || annualOnly, 'Parcours de recette inconnu');
-const output = `diagnostics/fee-allocation-hosted/${expectedSha}${annualOnly ? `-annual-${Date.now()}` : volumeOnly ? `-volume-${Date.now()}` : ''}`;
+const output = `diagnostics/fee-allocation-hosted/${expectedSha}-${annualOnly ? 'annual' : volumeOnly ? 'volume' : 'full'}-${Date.now()}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
 assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
 assert.equal(process.env.GOOGLE_CLOUD_QUOTA_PROJECT, 'acadea-staging');
@@ -396,33 +396,43 @@ try {
     await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Activation par établissement' });
     const transportFailures = [];
+    let mutationResponseGate = Promise.resolve();
     await page.route('**/api/manage-financial-transaction', guardedRoute(async route => {
       const action = route.request().postDataJSON()?.action;
       if (!['publish-configuration', 'start-reconciliation', 'prepare-opening', 'approve-opening', 'activate', 'pause', 'resume'].some(a => action === `fee-allocation.${a}`)) return route.continue();
       const response = await route.fetch({ maxRetries: 1 });
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await mutationResponseGate;
       await route.fulfill({ response });
     }, transportFailures));
     // Wait for the actual authenticated mutation, not Playwright's five-second
     // assertion default. A slow confirmed reply is not a server rejection.
     async function activationClick(label, action) {
+      const control = panel.getByRole('button', { name: label, exact: true });
+      await expect(control).toBeVisible();
+      await expect(control).toBeEnabled();
+      const before = await control.boundingBox();
+      assert.ok(before, 'Bouton d’activation visible requis avant sa mesure');
+      let releaseResponse;
+      mutationResponseGate = new Promise(resolve => { releaseResponse = resolve; });
       const responsePromise = page.waitForResponse(response => {
         if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
         try { return response.request().postDataJSON()?.action === `fee-allocation.${action}`; } catch { return false; }
       }, { timeout: 45000 });
       void responsePromise.catch(() => {}); // Awaited below; never leak a raw event error.
-      const control = panel.getByRole('button', { name: label, exact: true });
-      const before = await control.boundingBox();
+      try {
       await control.click();
       const waiting = panel.getByRole('button', { name: 'Chargement...', exact: true });
       await expect(waiting).toBeDisabled();
       const during = await waiting.boundingBox();
+      assert.ok(during, 'Bouton de chargement visible requis pendant la requête');
       assert.equal(before.width, during.width); assert.equal(before.height, during.height);
+      releaseResponse();
       const response = await responsePromise;
       assert.equal(transportFailures.length, 0, 'Transport hébergé interrompu');
       const reply = await response.json();
       assert.equal(response.status(), 200, `Activation ${action}: HTTP ${response.status()}, code ${reply.code ?? 'inconnu'}`);
       assert.equal(reply.operational, false, 'Contrat de confirmation invalide');
+      } finally { releaseResponse(); }
     }
     await activationClick('Publier la répartition', 'publish-configuration');
     await expect(panel.getByRole('button', { name: 'Publier la répartition', exact: true })).toHaveCount(0, { timeout: 45000 });
