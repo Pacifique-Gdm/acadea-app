@@ -103,10 +103,10 @@ export async function sendMessage(req, res, db, caller) {
   batches.push(batch);
   // Les messages ont des identifiants stables : une reprise après coupure réécrit les mêmes documents, sans doublon.
   for (let index = 0; index < batches.length; index += 5) await Promise.all(batches.slice(index, index + 5).map((item) => item.commit()));
-  const closing = db.batch();
-  closing.set(auditRef, { id: auditRef.id, eventType: "coordination.message.sent", coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, actorRole: caller.role, actorName: caller.profile.name ?? "Coordinateur", action: "Message Coordination envoyé", source: "server", createdAt: now, metadata: { recipientCount: recipients.length, ...(audience ? { audienceRole: audience.role, audienceSchoolId: selectedSchoolId || "toutes" } : {}) } });
-  closing.create(requestRef, { id: requestId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, messageCount: messageIds.length, ...(messageIds.length <= 500 ? { messageIds } : {}), createdAt: now });
-  await closing.commit();
+  batch = db.batch();
+  batch.set(auditRef, { id: auditRef.id, eventType: "coordination.message.sent", coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, actorRole: caller.role, actorName: caller.profile.name ?? "Coordinateur", action: "Message Coordination envoyé", source: "server", createdAt: now, metadata: { recipientCount: recipients.length, ...(audience ? { audienceRole: audience.role, audienceSchoolId: selectedSchoolId || "toutes" } : {}) } });
+  batch.create(requestRef, { id: requestId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, messageCount: messageIds.length, ...(messageIds.length <= 500 ? { messageIds } : {}), createdAt: now });
+  await batch.commit();
   return sendJson(res, 200, { messageIds: messageIds.length <= 500 ? messageIds : [], recipientCount: messageIds.length, idempotent: false });
 }
 
