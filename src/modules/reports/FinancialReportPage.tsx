@@ -15,9 +15,11 @@ type FinancialReportPageProps = {
   school: School;
   year: SchoolYear;
   onBack: () => void;
+  refreshing?: boolean;
+  refreshError?: string;
 };
 
-export function FinancialReportPage({ yearData, school, year, onBack }: FinancialReportPageProps) {
+export function FinancialReportPage({ yearData, school, year, onBack, refreshing, refreshError }: FinancialReportPageProps) {
   return (
     <section className="grid min-w-0 gap-4">
       <div className="mb-4 min-w-0">
@@ -29,7 +31,7 @@ export function FinancialReportPage({ yearData, school, year, onBack }: Financia
         </div>
         <p className="mt-1 break-words text-sm text-slate-500">Rapports financiers dédiés à l'année scolaire sélectionnée.</p>
       </div>
-      <ReportsModule yearData={yearData} school={school} year={year} />
+      <ReportsModule yearData={yearData} school={school} year={year} refreshing={refreshing} refreshError={refreshError} />
     </section>
   );
 }

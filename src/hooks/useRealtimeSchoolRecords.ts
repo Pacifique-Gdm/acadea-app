@@ -48,10 +48,12 @@ export function useRealtimeSchoolRecords({
     if (canReadStudents && includeStudents) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "students"), ...studentConstraints),
+        { includeMetadataChanges: true },
         (snapshot) => {
           if (!active) return;
+          if ((user.role === "school_admin" || user.role === "cashier") && (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites)) return;
           latestStudents = disciplineStudentScope(user, snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Student));
-          onData({ students: latestStudents, parents: disciplineParentScope(user, latestParents, latestStudents), disciplineSanctions: disciplineSanctionScope(user, latestSanctions, latestStudents) });
+          onData(user.role === "discipline_director" ? { students: latestStudents, parents: disciplineParentScope(user, latestParents, latestStudents), disciplineSanctions: disciplineSanctionScope(user, latestSanctions, latestStudents) } : { students: latestStudents });
         },
         (error) => { if (active) onError?.("students", error); },
       ));
@@ -59,8 +61,10 @@ export function useRealtimeSchoolRecords({
     if (canReadParents) {
       unsubscribes.push(onSnapshot(
         query(collection(db, "parents"), where("schoolId", "==", schoolId)),
+        { includeMetadataChanges: true },
         (snapshot) => {
           if (!active) return;
+          if ((user.role === "school_admin" || user.role === "cashier") && (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites)) return;
           latestParents = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as ParentProfile);
           onData({ parents: disciplineParentScope(user, latestParents, latestStudents) });
         },

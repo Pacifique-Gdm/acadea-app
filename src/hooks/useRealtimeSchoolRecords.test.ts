@@ -54,6 +54,19 @@ describe("useRealtimeSchoolRecords", () => {
     expect(mocks.onSnapshot).not.toHaveBeenCalled();
   });
 
+  it("n'écrase pas les élèves confirmés par le cache ni les parents par un tableau initial vide", () => {
+    const onData = vi.fn();
+    mocks.onSnapshot.mockReturnValue(vi.fn());
+    useRealtimeSchoolRecords({ user: baseUser, schoolId: "school-1", schoolYearId: "year-1", onData });
+    effects[0]();
+    const receive = mocks.onSnapshot.mock.calls[0][2];
+    receive({ docs: [], metadata: { fromCache: true, hasPendingWrites: false } });
+    receive({ docs: [], metadata: { fromCache: false, hasPendingWrites: true } });
+    expect(onData).not.toHaveBeenCalled();
+    receive({ docs: [], metadata: { fromCache: false, hasPendingWrites: false } });
+    expect(onData).toHaveBeenCalledExactlyOnceWith({ students: [] });
+  });
+
   it("sépare le flux paginé Élèves du listener global sans couper parents et sanctions", () => {
     mocks.onSnapshot.mockReturnValue(vi.fn());
     useRealtimeSchoolRecords({ user: baseUser, schoolId: "school-1", schoolYearId: "year-1", includeStudents: false, onData: vi.fn() });

@@ -45,7 +45,7 @@ import { useRealtimeSchoolSettings } from "./hooks/useRealtimeSchoolSettings";
 import { useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
-import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch, realtimeManagedCollections, SchoolSuspendedError, type SecondarySchoolSection } from "./services/firestoreData";
+import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch, realtimeManagedCollections, SchoolSuspendedError, startSchoolRefresh, type SecondarySchoolSection } from "./services/firestoreData";
 import { loadSuperAdminGlobalCounts, loadSuperAdminInitialData } from "./services/superAdminData";
 import type { SuperAdminGlobalCounts } from "./services/superAdminData";
 import { isSessionAuditAction } from "./utils/audit";
@@ -230,6 +230,46 @@ export default function App() {
   }, []);
   const [dataRefreshToken, setDataRefreshToken] = useState(0);
   const refreshInFlightRef = useRef(false);
+  const schoolRefreshRef = useRef<ReturnType<typeof startSchoolRefresh> | null>(null);
+  const realtimeReadRevisions = useRef<Partial<Record<keyof AppData, number>>>({});
+  const [financialRefreshing, setFinancialRefreshing] = useState(true);
+  const startScopedSchoolRefresh = useCallback((refreshUser: AppUser, yearId: string) => {
+    schoolRefreshRef.current?.stop();
+    const requestVersion = yearRequestVersion.current;
+    const version = ++secondaryRefreshVersion.current;
+    const revisionsAtStart = { ...realtimeReadRevisions.current };
+    refreshInFlightRef.current = true;
+    setIsRefreshing(true);
+    setFinancialRefreshing(true);
+    const task = startSchoolRefresh(refreshUser, yearId, ({ section, data: next, error, durationMs }) => {
+      if (requestVersion !== yearRequestVersion.current || version !== secondaryRefreshVersion.current) return;
+      if (error) logRefreshError({ module: section, error });
+      else if (durationMs >= 15000) console.info("[Acadéa refresh] Confirmation serveur tardive", { section, durationMs });
+      if (section === "financial") {
+        setFinancialRefreshing(false);
+        setRefreshError(error ? `Données scolaires et financières non confirmées. ${refreshErrorMessage(error)}` : "");
+        if (next) setDataRefreshToken(value => value + 1);
+      } else applySecondaryRefreshResult(section, error ? refreshErrorMessage(error) : "");
+      // Only a complete, server-confirmed group may replace the previous data.
+      if (next) setData(previous => {
+        const merged = { ...previous };
+        for (const key of Object.keys(next) as Array<keyof typeof next>) {
+          // A slow one-shot read must not overwrite a newer realtime snapshot.
+          if ((realtimeReadRevisions.current[key] ?? 0) !== (revisionsAtStart[key] ?? 0)) continue;
+          merged[key] = next[key] as never;
+        }
+        return merged;
+      });
+    });
+    schoolRefreshRef.current = task;
+    void task.done.then(() => {
+      if (version !== secondaryRefreshVersion.current) return;
+      refreshInFlightRef.current = false;
+      setIsRefreshing(false);
+    });
+    return task.done;
+  }, [applySecondaryRefreshResult]);
+  useEffect(() => () => schoolRefreshRef.current?.stop(), []);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [pendingPushMessageId, setPendingPushMessageId] = useState(() => {
     if (typeof window === "undefined") return "";
@@ -254,6 +294,7 @@ export default function App() {
   // be erased and never re-emitted when no document changes (empty cashier).
   const realtimeYearId = dataLoading ? "" : selectedYearId;
   const applyRealtimeValves = useCallback((valves: AppData["valves"], scope: { schoolId: string; schoolYearId: string }) => {
+    realtimeReadRevisions.current.valves = (realtimeReadRevisions.current.valves ?? 0) + 1;
     setData((current) => ({
       ...current,
       valves: reconcileRealtimeValves(current.valves, valves, scope),
@@ -265,7 +306,12 @@ export default function App() {
     schoolYearId: realtimeYearId,
     onValves: applyRealtimeValves,
   });
+  const handleFinancialRealtimeError = useCallback((error: Error) => {
+    logRefreshError({ module: "financial-realtime", error });
+    setRefreshError(refreshErrorMessage(error));
+  }, []);
   const applyRealtimeFeeTypes = useCallback((fees: AppData["feeTypes"]) => {
+    realtimeReadRevisions.current.feeTypes = (realtimeReadRevisions.current.feeTypes ?? 0) + 1;
     if (!user?.schoolId || !selectedYearId) return;
     setData((current) => ({
       ...current,
@@ -277,8 +323,10 @@ export default function App() {
     schoolId: user?.schoolId ?? "",
     schoolYearId: realtimeYearId,
     onFees: applyRealtimeFeeTypes,
+    onError: handleFinancialRealtimeError,
   });
   const applyRealtimePayments = useCallback((payments: AppData["payments"]) => {
+    realtimeReadRevisions.current.payments = (realtimeReadRevisions.current.payments ?? 0) + 1;
     if (!user?.schoolId || !selectedYearId) return;
     const schoolId = user.schoolId;
     setData((current) => ({
@@ -287,6 +335,7 @@ export default function App() {
     }));
   }, [selectedYearId, user?.schoolId]);
   const applyRealtimeExpenses = useCallback((expenses: AppData["expenses"]) => {
+    realtimeReadRevisions.current.expenses = (realtimeReadRevisions.current.expenses ?? 0) + 1;
     if (!user?.schoolId || !selectedYearId) return;
     const schoolId = user.schoolId;
     setData((current) => ({
@@ -295,6 +344,7 @@ export default function App() {
     }));
   }, [selectedYearId, user?.schoolId]);
   const applyRealtimeCashInflows = useCallback((cashInflows: NonNullable<AppData["cashInflows"]>) => {
+    realtimeReadRevisions.current.cashInflows = (realtimeReadRevisions.current.cashInflows ?? 0) + 1;
     if (!user?.schoolId || !selectedYearId) return;
     const schoolId = user.schoolId;
     setData((current) => ({
@@ -302,9 +352,6 @@ export default function App() {
       cashInflows: reconcileFinancialSnapshot(current.cashInflows ?? [], cashInflows, { schoolId, schoolYearId: selectedYearId }),
     }));
   }, [selectedYearId, user?.schoolId]);
-  const handleFinancialRealtimeError = useCallback((error: Error) => {
-    console.warn("Actualisation temps réel des transactions indisponible.", error);
-  }, []);
   useRealtimeFinancialTransactions({
     enabled: user?.role === "school_admin" || user?.role === "cashier",
     schoolId: user?.schoolId ?? "",
@@ -315,11 +362,13 @@ export default function App() {
     onError: handleFinancialRealtimeError,
   });
   const applyRealtimeSchoolRecords = useCallback((next: Partial<Pick<AppData, "students" | "parents" | "disciplineSanctions">>) => {
+    for (const key of Object.keys(next) as Array<keyof typeof next>) realtimeReadRevisions.current[key] = (realtimeReadRevisions.current[key] ?? 0) + 1;
     setData((current) => ({ ...current, ...next }));
   }, []);
   const handleSchoolRecordsRealtimeError = useCallback((source: "students" | "parents" | "disciplineSanctions", error: Error) => {
-    console.warn(`Actualisation temps réel de ${source} indisponible.`, error);
-  }, []);
+    logRefreshError({ module: source, error });
+    if (source !== "disciplineSanctions" && (user?.role === "school_admin" || user?.role === "cashier")) setRefreshError(refreshErrorMessage(error));
+  }, [user?.role]);
   useRealtimeSchoolRecords({
     user,
     schoolId: user?.schoolId ?? "",
@@ -590,6 +639,7 @@ export default function App() {
 
   useEffect(() => {
     const bootstrapUser = firestoreBootstrapUserRef.current;
+    schoolRefreshRef.current?.stop();
     if (!bootstrapUser || !canUseFirestoreData()) return;
 
     let cancelled = false;
@@ -659,16 +709,20 @@ export default function App() {
         markAuthStep("auth:school-loaded");
         measureAuthStep("auth:redirect-to-shell", "auth:redirect-complete", "auth:school-loaded");
 
+        if (bootstrapUser.role === "school_admin" || bootstrapUser.role === "cashier") {
+          if (nextYearId) await startScopedSchoolRefresh(bootstrapUser, nextYearId);
+          return;
+        }
+
         const bootstrapSecondaryFailed = new Set<SecondarySchoolSection>();
-        const isSchoolPortal = bootstrapUser.role === "school_admin" || bootstrapUser.role === "cashier";
         const firestoreData = await loadFirestoreData(bootstrapUser, nextYearId, bootstrap, {
           omitRealtimeManagedCollections: true,
-          onSecondaryResult: isSchoolPortal ? (section, error) => {
+          onSecondaryResult: (section, error) => {
             if (error) bootstrapSecondaryFailed.add(section);
             if (cancelled || requestVersion !== yearRequestVersion.current || secondaryVersion !== secondaryRefreshVersion.current) return;
             applySecondaryRefreshResult(section, error ? refreshErrorMessage(error) : "");
             if (error) logRefreshError({ module: section, error });
-          } : undefined,
+          },
         });
         if (!firestoreData || cancelled) return;
         if (requestVersion !== yearRequestVersion.current) return;
@@ -723,7 +777,7 @@ export default function App() {
       cancelled = true;
       setDataLoading(false);
     };
-  }, [bootstrapRetry, firestoreBootstrapIdentity, applySecondaryRefreshResult]);
+  }, [bootstrapRetry, firestoreBootstrapIdentity, applySecondaryRefreshResult, startScopedSchoolRefresh]);
 
   useEffect(() => {
     if (!user) {
@@ -761,6 +815,10 @@ export default function App() {
       return updated;
     });
     if (user && canUseFirestoreData()) {
+      if (user.role === "school_admin" || user.role === "cashier") {
+        void startScopedSchoolRefresh(user, yearId);
+        return;
+      }
       setDataLoading(true);
       loadFirestoreData(user, yearId)
         .then((firestoreData) => {
@@ -791,6 +849,7 @@ export default function App() {
   }
 
   async function logout() {
+    schoolRefreshRef.current?.stop();
     yearRequestVersion.current += 1;
     secondaryRefreshVersion.current++;
     setSecondaryRefreshIssues({});
@@ -852,6 +911,10 @@ export default function App() {
 
   const refreshCurrentYearData = useCallback(async () => {
     if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return false;
+    if (user.role === "school_admin" || user.role === "cashier") {
+      await startScopedSchoolRefresh(user, selectedYearId);
+      return true;
+    }
     const requestVersion = yearRequestVersion.current;
     return runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, retryOnError: retryableRefreshError, load: async () => {
       const secondaryVersion = ++secondaryRefreshVersion.current;
@@ -867,7 +930,7 @@ export default function App() {
       logRefreshError({ module: "school-portal", error });
       setRefreshError(refreshErrorMessage(error));
     } });
-  }, [user, selectedYearId, applySecondaryRefreshResult]);
+  }, [user, selectedYearId, applySecondaryRefreshResult, startScopedSchoolRefresh]);
 
   const hasSchoolRefreshIssue = Boolean(refreshError || Object.keys(secondaryRefreshIssues).length);
   useEffect(() => {
@@ -1354,7 +1417,7 @@ export default function App() {
         unreadNotifications={unreadNotifications}
         notificationsOpen={Boolean(focusedPushMessage || focusedOperationalNotification) || notificationsOpen}
         isRefreshing={isRefreshing}
-        refreshError={refreshError}
+        refreshError={activeTab === "messages" || activeTab === "menu" && route !== "/admin/rapport-financier" ? "" : refreshError}
         onRefresh={refreshCurrentYearData}
         onToggleNotifications={openNotifications}
         onCloseNotifications={() => {
@@ -1396,12 +1459,14 @@ export default function App() {
             yearData={yearData}
             school={currentSchool}
             year={selectedYear}
+            refreshing={financialRefreshing}
+            refreshError={refreshError}
             onBack={() => {
               setActiveTab("menu");
               navigate("/dashboard");
             }}
           />
-        ) : activeTab === "dashboard" && <Dashboard data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} refreshing={isRefreshing} refreshError={refreshError} />}
+        ) : activeTab === "dashboard" && <Dashboard data={{ ...yearData, users: realtimeDashboardUsers.length > 0 ? realtimeDashboardUsers : yearData.users }} school={currentSchool} year={selectedYear} refreshing={financialRefreshing} refreshError={refreshError} />}
         {!standaloneAdminRoute && activeTab === "students" && (
           <StudentsModule
             user={user}
@@ -1432,12 +1497,14 @@ export default function App() {
             yearData={yearData}
             school={currentSchool}
             year={selectedYear}
+            refreshing={financialRefreshing}
+            refreshError={refreshError}
             updateData={updateData}
             createId={uid}
           />
         )}
         {!standaloneAdminRoute && activeTab === "reports" && (
-          <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} />
+          <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} refreshing={financialRefreshing} refreshError={refreshError} />
         )}
         {!standaloneAdminRoute && activeTab === "messages" && (
           <>
@@ -1467,7 +1534,7 @@ export default function App() {
             schoolEducationLevelChoices={schoolEducationLevelChoices}
             feeTargetHasOption={feeTargetHasOption}
             formatFeeTargetLabel={formatFeeTargetLabel}
-            renderFinancialReport={() => <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} />}
+            renderFinancialReport={() => <ReportsModule yearData={yearData} school={currentSchool} year={selectedYear} refreshing={financialRefreshing} refreshError={refreshError} />}
             renderActivityHistory={(role) => <ActivityHistoryContent user={user} data={data} yearData={yearData} role={role} schoolYearId={selectedYear.id} loading={isRefreshing} error={secondaryRefreshIssues.auditLogs ?? refreshError} />}
             maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}
             onOpenBiometrics={(mode) => navigate(mode === "fingerprints" ? "/admin/empreintes" : "/admin/cartes")}
