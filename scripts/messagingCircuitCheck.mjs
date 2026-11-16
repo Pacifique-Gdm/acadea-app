@@ -33,6 +33,10 @@ const PATHS = [
   ...["coordination_admin", "sub_coordination_admin", "school_admin"].map((to) => ["super_admin", to]),
 ];
 // Le retour (réponse) est attendu partout, SAUF parent → Coordination / Sous-coordination (décision du propriétaire).
+// Comptes parents de l'école de référence : en cas de limite (3 messages / 12 h par parent,
+// réglage anti-abus à ne pas changer), le script essaie le parent suivant.
+let parentPool = [];
+const isQuota = (error) => /HTTP 429/.test(String(error?.message ?? ""));
 const replyAllowed = (from, to) => !(to === "parent" && ["coordination_admin", "sub_coordination_admin"].includes(from));
 
 function readEnvAccounts() {
@@ -124,7 +128,8 @@ function messageIdsFrom(result) {
 }
 
 /** Un envoi (un message vers plusieurs destinataires) puis contrôle de chaque destinataire. */
-async function checkSend(sender, recipients, label, observer, replyTo) {
+async function checkSend(initialSender, recipients, label, observer, replyTo) {
+  let sender = initialSender;
   const rows = new Map(recipients.map((recipient) => [recipient.uid, { arrive: "non", entete: "non", badge: "non", lu: "non", cause: "" }]));
   // Destinataire d'école : son école et son année. Coordination : l'école de l'expéditeur.
   // Super administrateur, ou message venant de la plateforme : notifications de plateforme.
@@ -135,11 +140,18 @@ async function checkSend(sender, recipients, label, observer, replyTo) {
   await sleep(1500);
   const sentAt = Date.now();
   let messageIds = [];
-  try { messageIds = messageIdsFrom(await send(sender, recipients, `[Essai circuit] ${label}`, replyTo)); }
-  catch (error) { for (const row of rows.values()) row.cause = `envoi refusé : ${error.message}`; }
+  const candidates = sender.role === "parent" ? [sender, ...parentPool.filter((item) => item.uid !== sender.uid)] : [sender];
+  for (const candidate of candidates) {
+    try { messageIds = messageIdsFrom(await send(candidate, recipients, `[Essai circuit] ${label}`, replyTo)); sender = candidate; for (const row of rows.values()) row.cause = ""; break; }
+    catch (error) {
+      const quota = isQuota(error) && candidate.role === "parent";
+      for (const row of rows.values()) { row.cause = quota ? "limite atteinte : 3 messages par 12 h pour le(s) compte(s) parent de test (réglage anti-abus, pas un défaut)" : `envoi refusé : ${error.message}`; if (quota) { row.arrive = row.entete = row.badge = row.lu = "limite"; } }
+      if (!quota) break;
+    }
+  }
   for (const recipient of recipients) {
     const row = rows.get(recipient.uid), watch = watches.get(recipient.uid);
-    if (row.cause) continue;
+    if (row.cause || !messageIds.length) continue;
     const notification = await waitFor(() => [...watch.state.items.entries()].find(([, item]) => messageIds.includes(item.messageId) || (item.createdAt && Date.parse(item.createdAt) >= sentAt - 2000 && String(item.body ?? "").includes(label))), WAIT_MS);
     if (!notification) { row.cause = watch.state.errors.length ? `écoute refusée (${watch.state.errors[0]})` : "aucune notification reçue"; continue; }
     const [notificationId, item] = notification;
@@ -192,6 +204,7 @@ async function main() {
     if (!byRole.has(user.role)) byRole.set(user.role, user);
   }
   const observer = users.find((user) => user.schoolId && user.schoolId !== schoolId);
+  parentPool = users.filter((user) => user.role === "parent" && user.schoolId === schoolId);
   const results = [];
   const senders = [...new Set(PATHS.map(([from]) => from))];
   for (const from of senders) {

@@ -95,6 +95,18 @@ export async function sendPlatformMessage(db, caller, input) {
   return { messageIds, idempotent: false };
 }
 
+/** Chemin d'une réponse : « platform » (au Super administrateur), « coordination », ou null pour une
+ * réponse ordinaire entre membres d'une même école, qui garde l'envoi normal (comme avant le lot 23). */
+export async function replyRoute(db, replyToMessageId) {
+  const id = text(replyToMessageId, 160);
+  if (!id || id.includes("/")) return null;
+  const snapshot = await db.doc(`messages/${id}`).get();
+  const senderRole = role(snapshot.exists ? snapshot.data()?.senderRole : undefined);
+  if (senderRole === "super_admin") return "platform";
+  if (COORDINATION_ROLES.has(senderRole)) return "coordination";
+  return null;
+}
+
 /** Réponse à un message reçu : contrôle que l'appelant en est bien destinataire et que
  * le chemin de retour est autorisé. Renvoie l'expéditeur d'origine (destinataire de la réponse). */
 export async function resolveReplyTarget(db, caller, replyToMessageId) {

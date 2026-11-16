@@ -3,7 +3,7 @@ import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
-import { resolveReplyTarget, SENDER_ROLE_LABELS, sendCoordinationReply, sendPlatformReply } from "./_lib/platformMessaging.js";
+import { replyRoute, resolveReplyTarget, SENDER_ROLE_LABELS, sendCoordinationReply, sendPlatformReply } from "./_lib/platformMessaging.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -160,7 +160,9 @@ export default async function handler(req, res) {
     const { auth, db, bucket } = initAdmin();
     const caller = await requireMessagingCaller(auth, db, token);
     const body = await readBody(req);
-    if (body.replyToMessageId) {
+    // Seules les réponses à la Coordination ou au Super administrateur prennent ce chemin ;
+    // une réponse entre membres de l'école garde l'envoi normal (régression corrigée).
+    if (body.replyToMessageId && await replyRoute(db, body.replyToMessageId)) {
       // Lot 23 : réponse du personnel à la Coordination (pas les parents) ou d'un administrateur au Super administrateur.
       const replyKey = text(req.headers["x-idempotency-key"], 128);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: "school.message.send", idempotencyKey: replyKey, ...API_RATE_LIMITS.SCHOOL_MESSAGE });
