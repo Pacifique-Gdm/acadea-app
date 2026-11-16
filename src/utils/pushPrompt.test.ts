@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { detectPushDevice, needsIosInstall, PUSH_PROMPT_DELAY_MS, pushPromptDue } from "./pushPrompt";
+import { detectPushDevice, needsIosInstall, PUSH_PROMPT_DELAY_MS, PUSH_STATUS_RECHECK_MS, pushPromptDue, pushPromptVisible, pushSettingsVisible } from "./pushPrompt";
 
 describe("lot 24 : bandeau d'activation des notifications", () => {
   it("« Plus tard » : redemande au plus une fois tous les 3 jours", () => {
@@ -27,5 +27,28 @@ describe("lot 24 : bandeau d'activation des notifications", () => {
     for (const file of ["../App.tsx", "../modules/coordination/CoordinationPortal.tsx", "../modules/teacher/TeacherPortal.tsx", "../modules/studies/StudyDirectorPortal.tsx", "../modules/platform/PlatformModule.tsx"]) {
       expect(readFileSync(new URL(file, import.meta.url), "utf8")).toContain("<PushNotificationSettings user={user} />");
     }
+  });
+});
+
+describe("lot 26 : réglage et bandeau masqués quand les notifications sont actives", () => {
+  const android = { ios: false, android: true, standalone: false };
+  it("le réglage du Menu disparaît quand elles sont actives et revient dès qu'elles ne le sont plus", () => {
+    expect(pushSettingsVisible("enabled")).toBe(false);
+    expect(pushSettingsVisible("loading")).toBe(false);
+    // Déconnexion, nouvel appareil ou jeton invalide supprimé : l'état redevient « available ».
+    expect(pushSettingsVisible("available")).toBe(true);
+    // Autorisation retirée dans les réglages du téléphone.
+    expect(pushSettingsVisible("blocked")).toBe(true);
+  });
+  it("le bandeau suit la même logique, en respectant « Plus tard »", () => {
+    expect(pushPromptVisible("enabled", android, true)).toBe(false);
+    expect(pushPromptVisible("available", android, true)).toBe(true);
+    expect(pushPromptVisible("blocked", android, true)).toBe(true);
+    expect(pushPromptVisible("available", android, false)).toBe(false);
+    expect(pushPromptVisible("unsupported", android, true)).toBe(false);
+    expect(pushPromptVisible("unsupported", { ios: true, android: false, standalone: false }, true)).toBe(true);
+  });
+  it("revérifie l'état automatiquement au moins chaque minute", () => {
+    expect(PUSH_STATUS_RECHECK_MS).toBeLessThanOrEqual(60_000);
   });
 });
