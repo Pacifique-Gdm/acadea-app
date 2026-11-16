@@ -6,6 +6,7 @@ import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymen
 import { AllocationRubricSelect } from "../../components/AllocationRubricSelect";
 import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
 import { FormerStudentPaymentForm } from "../../components/finance/FormerStudentPaymentForm";
+import { isArchivedStudent } from "../../utils/formerStudents";
 import { loadExpenseCashBalance, type PayrollCashBalance } from "../../services/personnelPayroll";
 import { PersonnelPayrollHistory } from "../../components/personnel/PersonnelPayrollHistory";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
@@ -249,7 +250,14 @@ export function ControlModule({
       .finally(() => { if (active) setExpenseCashLoading(false); });
     return () => { active = false; };
   }, [cashierControlDrawer, expenseCurrency, expenseEditTarget, isArchivedContext, school.id, user.role, year.id]);
-  const selectedPaymentStudent = controlIndexes.studentsById.get(studentId);
+  // Lot 22 : un élève archivé n'est jamais proposé ni gardé sélectionné ici (écoute en temps réel).
+  const selectedPaymentStudentRecord = controlIndexes.studentsById.get(studentId);
+  const selectedPaymentStudent = selectedPaymentStudentRecord && !isArchivedStudent(selectedPaymentStudentRecord) ? selectedPaymentStudentRecord : undefined;
+  const selectedPaymentStudentArchived = Boolean(selectedPaymentStudentRecord && isArchivedStudent(selectedPaymentStudentRecord));
+  useEffect(() => {
+    // Élève archivé pendant que le formulaire est ouvert : la sélection est retirée.
+    if (selectedPaymentStudentArchived && !paymentSubmittingRef.current) { setStudentId(""); setPaymentStudentQuery(""); }
+  }, [selectedPaymentStudentArchived]);
   const payableFeeTypes = selectedPaymentStudent ? controlIndexes.applicableFeeTypesByStudentId.get(selectedPaymentStudent.id) ?? [] : [];
   const selectedFeeTypeValue = payableFeeTypes.some((fee) => fee.id === feeTypeId) || paymentArrears.some((debt) => debt.feeTypeId === feeTypeId)
     ? feeTypeId : payableFeeTypes[0]?.id ?? paymentArrears[0]?.feeTypeId ?? "";
@@ -313,7 +321,7 @@ export function ControlModule({
   const selectedHistoryStudent = controlIndexes.studentsById.get(selectedHistoryStudentId);
   const paymentStudentSearch = paymentStudentQuery.trim().toLowerCase();
   const paymentStudentResults = paymentStudentSearch
-    ? yearData.students.filter((student) => `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`.toLowerCase().includes(paymentStudentSearch)).slice(0, 8)
+    ? yearData.students.filter((student) => !isArchivedStudent(student) && `${student.nom} ${student.postnom} ${student.prenom} ${student.matricule}`.toLowerCase().includes(paymentStudentSearch)).slice(0, 8)
     : [];
 
   const rows = useMemo(() => yearData.students
@@ -1621,7 +1629,7 @@ export function ControlModule({
               <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
-          {cashierControlDrawer === "former" && <FormerStudentPaymentForm school={school} year={year} onRecorded={() => { void refreshExpenseCashBalance().catch(() => {}); }} />}
+          {cashierControlDrawer === "former" && <FormerStudentPaymentForm school={school} year={year} students={yearData.students} payments={yearData.payments} onRecorded={() => { void refreshExpenseCashBalance().catch(() => {}); }} />}
           {cashierControlDrawer === "personnel" && <PersonnelPaymentForm school={school} year={year} onRecorded={(payment) => { setRecordedPersonnelPayment(payment); setCashierControlDrawer(null); void expenseHistory.loadFirstPage(); void refreshExpenseCashBalance().catch(() => {}); }} />}
           {cashierControlDrawer === "inflow" && <OtherCashInflowForm year={year} onRecorded={(inflow) => {
             cashInflowHistory.prependItem(inflow);

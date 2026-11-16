@@ -12,6 +12,7 @@ const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "formerStude
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const FORMER_SEARCH_KEYS = ["action", "schoolYearId", "query"];
 const FORMER_DEBTS_KEYS = ["action", "schoolYearId", "formerStudentId"];
+const FORMER_LIST_KEYS = ["action", "schoolYearId"];
 const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId", "allocationRubricId"];
 const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "categoryDetail", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
@@ -356,7 +357,7 @@ async function formerStudentDebts(transaction, db, caller, formerStudentId, acti
   const student = snapshot.exists ? { ...snapshot.data(), id } : undefined;
   if (!student || student.schoolId !== caller.schoolId) throw new FinancialApiError(404, "not-found", "Ancien élève introuvable dans cet établissement.");
   if (!isArchivedStudentRecord(student)) throw new FinancialApiError(409, "failed-precondition", "Cet élève n'est pas archivé : utilisez « Enregistrer un paiement ».");
-  if (student.schoolYearId === activeYearId) throw new FinancialApiError(409, "failed-precondition", "Cet élève a été archivé pendant l'année active : ses frais de l'année se règlent par « Enregistrer un paiement ».");
+  if (student.schoolYearId === activeYearId) return { student, debts: await currentYearArchivedDebts(transaction, db, caller, student, activeYearId, activeYear, school) };
   const [yearSnapshot, returning] = await Promise.all([
     transaction.get(db.doc(`schoolYears/${student.schoolYearId}`)),
     transaction.get(db.collection("students").where("schoolId", "==", caller.schoolId).where("sortName", "==", studentAlphabeticalKey(student))),
@@ -375,6 +376,29 @@ async function formerStudentDebts(transaction, db, caller, formerStudentId, acti
   const records = [{ student, year: { ...year, id: student.schoolYearId } }, ...others];
   const debts = await historicalDebts(transaction, db, caller, student, activeYear, school, undefined, records);
   return { student, debts };
+}
+
+/** Élève archivé PENDANT l'année active (lot 22) : frais de l'année restant dus,
+ * plus ses dettes d'années passées. Même règle d'application des frais que les arriérés. */
+async function currentYearArchivedDebts(transaction, db, caller, student, activeYearId, activeYear, school) {
+  const [feeSnapshot, paymentSnapshot] = await Promise.all([
+    transaction.get(db.collection("feeTypes").where("schoolYearId", "==", activeYearId)),
+    transaction.get(db.collection("payments").where("studentId", "==", student.id)),
+  ]);
+  const payments = paymentSnapshot.docs.map((document) => document.data()).filter((payment) => payment.schoolId === caller.schoolId && payment.schoolYearId === activeYearId);
+  const currency = activeYear.currency === "USD" || activeYear.currency === "CDF" ? activeYear.currency : school.currency === "CDF" ? "CDF" : "USD";
+  const current = [];
+  for (const document of feeSnapshot.docs) {
+    const fee = document.data();
+    if (fee.schoolId !== caller.schoolId || !feeAppliesToHistoricalStudent(fee, student)) continue;
+    const expectedMinor = toMoneyMinor(supportBalance(student, { ...fee, id: document.id }).net);
+    if (expectedMinor <= 0) continue;
+    const paidMinor = payments.filter((payment) => payment.feeTypeId === document.id).reduce((total, payment) => total + recordedMinor(payment.amount), 0);
+    current.push({ schoolYearId: activeYearId, yearName: activeYear.name, studentId: student.id, feeTypeId: document.id, feeName: text(fee.name, 160) || "Frais",
+      expected: fromMoneyMinor(expectedMinor), paid: fromMoneyMinor(paidMinor), remaining: fromMoneyMinor(Math.max(expectedMinor - paidMinor, 0)), currency });
+  }
+  const past = await historicalDebts(transaction, db, caller, student, activeYear, school);
+  return [...current, ...past];
 }
 
 const formerSummary = (student, debts) => ({
@@ -411,6 +435,37 @@ export async function searchFormerStudents({ db, caller: rawCaller, body }) {
   });
 }
 
+/** Lot 22 : liste, en une seule lecture groupée à l'ouverture du formulaire, des
+ * élèves archivés (pendant l'année ou avant) qui ont encore une dette. La
+ * recherche se fait ensuite sur l'appareil pendant la saisie, comme pour
+ * « Enregistrer un paiement » : l'onglet Contrôle n'est jamais rechargé. */
+export async function listFormerStudents({ db, caller: rawCaller, body }) {
+  assertAllowedKeys(body, FORMER_LIST_KEYS);
+  const caller = assertRole(rawCaller, ["cashier", "school_admin"]);
+  return db.runTransaction(async (transaction) => {
+    const { schoolYearId, year, school } = await requireActiveCollectionYear(transaction, db, caller, body.schoolYearId);
+    const [flagged, byStatus] = await Promise.all([
+      transaction.get(db.collection("students").where("schoolId", "==", caller.schoolId).where("searchArchived", "==", true)),
+      transaction.get(db.collection("students").where("schoolId", "==", caller.schoolId).where("status", "in", ["TRANSFERRED", "DROPPED", "DECEASED"])),
+    ]);
+    const candidates = new Map([...flagged.docs, ...byStatus.docs].map((document) => [document.id, { ...document.data(), id: document.id }]));
+    const results = [];
+    for (const candidate of candidates.values()) {
+      if (!isArchivedStudentRecord(candidate)) continue;
+      try {
+        const { student, debts } = await formerStudentDebts(transaction, db, caller, candidate.id, schoolYearId, year, school);
+        const summary = formerSummary(student, debts);
+        if (summary.debts.length) results.push({ ...summary, schoolYearId: student.schoolYearId, archivedThisYear: student.schoolYearId === schoolYearId });
+      } catch (error) {
+        // Élève revenu, fiche incohérente ou année non archivée : jamais proposé ici.
+        if (!(error instanceof FinancialApiError)) throw error;
+      }
+    }
+    results.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    return { students: results };
+  });
+}
+
 /** Dette frais par frais et année par année d'un ancien élève. */
 export async function listFormerStudentDebts({ db, caller: rawCaller, body }) {
   assertAllowedKeys(body, FORMER_DEBTS_KEYS);
@@ -432,16 +487,23 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   const debtSchoolYearId = text(body.debtSchoolYearId, 120);
   const note = text(body.note, 1000);
   if (!currentStudentId || !feeTypeId) throw new FinancialApiError(400, "invalid-argument", "Élève et type de frais requis.");
-  if (formerStudentId && (body.studentId !== undefined || !debtSchoolYearId || body.supportDecisionId !== undefined)) {
-    throw new FinancialApiError(400, "invalid-argument", "Paiement d'ancien élève : une dette d'année passée est requise.");
+  if (formerStudentId && (body.studentId !== undefined || body.supportDecisionId !== undefined)) {
+    throw new FinancialApiError(400, "invalid-argument", "Paiement d'ancien élève invalide.");
   }
   const currentStudentRef = db.doc(`students/${currentStudentId}`);
   const feeRef = db.doc(`feeTypes/${feeTypeId}`);
   const [currentStudentSnapshot, feeSnapshot] = await Promise.all([transaction.get(currentStudentRef), transaction.get(feeRef)]);
   const currentStudent = currentStudentSnapshot.data() ?? {};
   const fee = feeSnapshot.data() ?? {};
+  let formerDebts;
   if (formerStudentId) {
     if (!currentStudentSnapshot.exists || currentStudent.schoolId !== caller.schoolId) throw new FinancialApiError(404, "not-found", "Ancien élève introuvable dans cet établissement.");
+    if (year.status !== "active" || school.activeSchoolYearId !== collectionSchoolYearId) throw new FinancialApiError(409, "failed-precondition", "L'année scolaire active est requise.");
+    // Contrôle complet (archivé, même école, non revenu) et dettes réelles, avant toute écriture.
+    formerDebts = (await formerStudentDebts(transaction, db, caller, formerStudentId, collectionSchoolYearId, year, school)).debts;
+    if (!debtSchoolYearId && !formerDebts.some((item) => item.schoolYearId === collectionSchoolYearId && item.feeTypeId === feeTypeId && item.remaining > 0)) {
+      throw new FinancialApiError(400, "invalid-argument", "Aucune dette de l'année en cours pour ce frais.");
+    }
   } else if (!currentStudentSnapshot.exists || currentStudent.schoolId !== caller.schoolId || currentStudent.schoolYearId !== collectionSchoolYearId || currentStudent.status !== "ACTIVE") {
     throw new FinancialApiError(400, "invalid-argument", "Élève invalide pour cet établissement et cette année.");
   }
@@ -460,7 +522,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
       throw new FinancialApiError(409, "failed-precondition", "Une créance historique exige l'année scolaire active.");
     }
     const debts = formerStudentId
-      ? (await formerStudentDebts(transaction, db, caller, formerStudentId, collectionSchoolYearId, year, school)).debts
+      ? formerDebts.filter((item) => item.schoolYearId !== collectionSchoolYearId)
       : await historicalDebts(transaction, db, caller, { id: currentStudentId, ...currentStudent }, year, school);
     debt = debts.find((item) => item.schoolYearId === debtSchoolYearId && item.feeTypeId === feeTypeId);
     if (!debt) throw new FinancialApiError(400, "invalid-argument", "Créance historique invalide pour cet élève.");
@@ -523,6 +585,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     ...(typeof currentStudent.parentId === "string" && currentStudent.parentId ? { parentId: currentStudent.parentId } : {}),
     feeTypeId,
     ...(debt ? { collectionSchoolYearId, ...(formerStudentId ? { formerStudent: true, formerStudentId } : { currentStudentId }), debtSchoolYearName: debt.yearName, feeName: debt.feeName, currency: debt.currency } : {}),
+    ...(!debt && formerStudentId ? { formerStudent: true, formerStudentId, feeName: text(fee.name, 160) || "Frais" } : {}),
     amount,
     currency: debt?.currency ?? currency,
     ...(note ? { note } : {}),
@@ -784,5 +847,5 @@ export async function executeFinancialOperation({ db, caller: rawCaller, body, n
 
 export function authorizeFinancialCaller(rawCaller, action) {
   const createAction = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow";
-  return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : ["list-arrears-batch", "search-former-students", "list-former-debts"].includes(action) ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
+  return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : ["list-arrears-batch", "search-former-students", "list-former-debts", "list-former-students"].includes(action) ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }
