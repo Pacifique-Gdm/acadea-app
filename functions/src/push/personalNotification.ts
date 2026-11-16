@@ -106,7 +106,7 @@ export async function handlePersonalNotification(notificationId: string, value: 
         webpush: { headers: { TTL: String(TTL_SECONDS), Urgency: "high" } },
       });
       successCount += response.successCount; failureCount += response.failureCount;
-      await Promise.all(response.responses.map((item, index) => (!item.success && isInvalidTokenError(item.error?.code) && batch[index]) ? deactivateInvalidToken(database, userId, batch[index]!.id) : Promise.resolve()));
+      await Promise.all(response.responses.map((item, index) => (!item.success && (isInvalidTokenError(item.error?.code) || item.error?.code === "messaging/invalid-argument") && batch[index]) ? deactivateInvalidToken(database, userId, batch[index]!.id) : Promise.resolve()));
     }
     await dispatchRef.set({ status: "completed", successCount, failureCount, completedAt: new Date().toISOString() }, { merge: true });
     return { status: "completed" as const, successCount, failureCount };
