@@ -548,14 +548,10 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     .map((payment) => fromMoneyMinor(recordedMinor(payment.amount))));
   const financialStudent = debt ? { id: studentId, ...(await transaction.get(db.doc(`students/${studentId}`))).data() } : { ...currentStudent, id: studentId };
   const balance = supportBalance(financialStudent, { ...fee, id: feeTypeId }, matchingPayments);
-  const supportDecisionId = text(body.supportDecisionId, 120);
-  let payerRemaining = balance.studentRemaining;
-  if (supportDecisionId) {
-    const commitment = balance.commitments.find(item => item.decisionId === supportDecisionId);
-    if (!commitment) throw new FinancialApiError(400, "invalid-argument", "Engagement tiers introuvable.");
-    payerRemaining = fromMoneyMinor(Math.max(0, commitment.amount - sumMoneyMinor(matchingPayments.filter(p => p.supportDecisionId === supportDecisionId && p.feeTypeId === feeTypeId && p.studentId === studentId).map(p => p.amount))));
-  }
-  const remainingMinor = Math.min(Math.max(toMoneyMinor(balance.net) - alreadyPaidMinor, 0), toMoneyMinor(payerRemaining));
+  // Lot 26c : plus de paiement « par un tiers » ; tout paiement passe par la caisse normale,
+  // jusqu'au reste dû (montant net − déjà payé). Les anciens paiements restent comptés comme avant.
+  if (body.supportDecisionId !== undefined) throw new FinancialApiError(400, "invalid-argument", "Le paiement par un tiers n'existe plus : enregistrez un paiement ordinaire.");
+  const remainingMinor = Math.max(toMoneyMinor(balance.net) - alreadyPaidMinor, 0);
   if (remainingMinor === 0) {
     throw new FinancialApiError(409, "conflict", "Ce type de frais est déjà soldé.");
   }
@@ -578,7 +574,6 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   const paymentId = `pay_${hash.slice(0, 24)}`;
   const payment = {
     id: paymentId,
-    ...(supportDecisionId ? { supportDecisionId } : {}),
     schoolId: caller.schoolId,
     schoolYearId,
     studentId,

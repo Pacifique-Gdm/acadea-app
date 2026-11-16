@@ -45,7 +45,6 @@ const supportReasons: Record<string, string> = {
   scholarship: "Bourse scolaire",
   direction: "Décision de la direction",
   personnel: "Personnel de l’école",
-  "third-party": "Décision historique",
   other: "Autre motif",
 };
 const natures: Record<string, string> = {
@@ -58,7 +57,7 @@ export function SocialSupportDrawer({
   school,
   years,
   data: initialData,
-  readOnly = false,
+  readOnly: readOnlyRequested = false,
   scopeSchools,
   editingDecision,
   onEdited,
@@ -74,6 +73,8 @@ export function SocialSupportDrawer({
   onEdited?: (decision: SupportDecision) => void;
   onDirtyChange?: (dirty: boolean) => void;
 }) {
+  // Lot 26c : seul l'Administrateur accorde, modifie ou retire ; les autres rôles consultent seulement.
+  const readOnly = readOnlyRequested || !["school_admin", "admin"].includes(user.role);
   const scopedSchools = scopeSchools?.length ? scopeSchools : [school];
   const scopeIds = scopedSchools.map((item) => item.id);
   const scopeKey = scopeIds.join("|");
@@ -92,16 +93,15 @@ export function SocialSupportDrawer({
     [nature, setNature] = useState(editingDecision?.nature ?? "fixed"),
     [reason, setReason] = useState(editingDecision?.reason ?? ""),
     [personnelId, setPersonnelId] = useState(editingDecision?.personnelId ?? ""),
-    [thirdPartyName, setThirdPartyName] = useState(editingDecision?.thirdPartyName ?? ""),
     [observation, setObservation] = useState(editingDecision?.observation ?? ""),
     [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(Object.entries(editingDecision?.lines ?? {}).map(([id, line]) => [id, String(line.value)]))),
     [editing, setEditing] = useState<SupportDecision | null>(editingDecision ?? null);
   const [editTarget, setEditTarget] = useState<SupportDecision | null>(null);
   const [editDirty, setEditDirty] = useState(false);
-  const initialEditFingerprint = useRef(JSON.stringify([nature, reason, personnelId, thirdPartyName, observation, values]));
+  const initialEditFingerprint = useRef(JSON.stringify([nature, reason, personnelId, observation, values]));
   useLayoutEffect(() => {
-    onDirtyChange?.(busy || initialEditFingerprint.current !== JSON.stringify([nature, reason, personnelId, thirdPartyName, observation, values]));
-  }, [busy, nature, reason, personnelId, thirdPartyName, observation, values, onDirtyChange]);
+    onDirtyChange?.(busy || initialEditFingerprint.current !== JSON.stringify([nature, reason, personnelId, observation, values]));
+  }, [busy, nature, reason, personnelId, observation, values, onDirtyChange]);
   const [search, setSearch] = useState(""),
     [filterSchool, setFilterSchool] = useState(""),
     [filterYear, setFilterYear] = useState(""),
@@ -226,11 +226,11 @@ export function SocialSupportDrawer({
         )
           throw new Error("Saisir un nombre valide.");
         const ceiling = supportReductionCeiling(balance);
-        const basis = toMoneyMinor(reason === "third-party" ? balance.studentRemaining : Math.max(0, balance.net - balance.commitment));
+        const basis = toMoneyMinor(Math.max(0, balance.net - balance.commitment));
         const amountMinor = supportAmount(nature, Number(raw), basis);
         if (amountMinor > ceiling) throw new Error(supportCeilingMessage(ceiling, currency));
         const amount = fromMoneyMinor(amountMinor);
-        const net = balance.net - (reason === "third-party" ? 0 : amount);
+        const net = balance.net - amount;
         return {
           fee,
           balance,
@@ -262,7 +262,6 @@ export function SocialSupportDrawer({
     preview.every((p) => !p.error) &&
     yearValid &&
     (reason !== "personnel" || personnelId) &&
-    (reason !== "third-party" || thirdPartyName.trim()) &&
     !busy;
   const status = (d: SupportDecision) =>
     d.status === "cancelled"
@@ -331,7 +330,6 @@ export function SocialSupportDrawer({
     setValues({});
     setReason("");
     setPersonnelId("");
-    setThirdPartyName("");
     setObservation("");
     setNature("fixed");
   }
@@ -647,11 +645,10 @@ export function SocialSupportDrawer({
                 onChange={(e) => {
                   setReason(e.target.value);
                   setPersonnelId("");
-                  setThirdPartyName("");
                 }}
               >
                 <option value="">Sélectionner un motif</option>
-                {Object.entries(supportReasons).filter(([id]) => id !== "third-party" || editing?.reason === "third-party").map(([id, label]) => (
+                {Object.entries(supportReasons).map(([id, label]) => (
                   <option key={id} value={id}>
                     {label}
                   </option>
@@ -707,7 +704,7 @@ export function SocialSupportDrawer({
                 </p>
                 <p>
                   Nouvel avantage : {money(p.amount)}{" "}
-                  {reason !== "third-party" && "(réduction)"}
+                  (réduction)
                 </p>
                 <p>
                   Net exigible : {money(p.net)} · Encaissé :{" "}
@@ -753,7 +750,6 @@ export function SocialSupportDrawer({
                 nature,
                 reason,
                 personnelId,
-                thirdPartyName,
                 observation,
                 lines: preview.map((p) => ({
                   feeTypeId: p.fee.id,
