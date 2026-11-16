@@ -104,3 +104,9 @@ describe("lot 24 : push personnels", () => {
     expect(isMessageNotification({ type: "message", recipientRole: "school", schoolId: "s", schoolYearId: "y", messageId: "m", recipientUserId: "u" })).toBe(false);
   });
 });
+
+describe("lot 25 : Équipe ACADÉA", () => {
+  it("un message du Super administrateur s'annonce « Nouveau message de l'Équipe ACADÉA »", () => {
+    expect(personalText("message_received", { senderName: "Équipe ACADÉA", senderRole: "super_admin" }).title).toBe("Nouveau message de l'Équipe ACADÉA");
+  });
+});

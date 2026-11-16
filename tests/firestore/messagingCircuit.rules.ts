@@ -74,8 +74,9 @@ describe("Super administrateur → coordinations, sous-coordinations, administra
     const coordNotifications = await assertSucceeds(getDocs(query(collection(coordClient, "notifications"), where("recipientUserId", "==", "coord"), where("platformMessage", "==", true), where("read", "==", false))));
     expect(coordNotifications.size).toBe(1);
     const message = (await assertSucceeds(getDoc(doc(coordClient, "messages", coordNotifications.docs[0].data().messageId)))).data();
-    expect(message).toMatchObject({ senderName: "Super Admin Fictif", senderRole: "super_admin" });
-    expect(coordNotifications.docs[0].data().title).toBe("Nouveau message de Super Admin Fictif (Super administrateur)");
+    // Lot 25 (décision du propriétaire) : le Super administrateur apparaît comme « Équipe ACADÉA ».
+    expect(message).toMatchObject({ senderName: "Équipe ACADÉA", senderRole: "super_admin", recipientLabel: "Coordinateur Fictif (Coordinateur)" });
+    expect(coordNotifications.docs[0].data().title).toBe("Nouveau message de l'Équipe ACADÉA");
     await assertSucceeds(updateDoc(doc(coordClient, "notifications", coordNotifications.docs[0].id), { read: true }));
     // Administrateur : requête habituelle de l'application (école + année).
     const adminClient = client("school_admin-school-a", { role: "school_admin", schoolId: "school-a" });
@@ -104,6 +105,11 @@ describe("Super administrateur → coordinations, sous-coordinations, administra
     const unread = await assertSucceeds(getDocs(query(collection(saClient, "notifications"), where("recipientUserId", "==", "sa"), where("read", "==", false))));
     expect(unread.docs.map((item) => item.data().messageId).sort()).toEqual([coordReply.message.id, adminReply.message.id].sort());
     expect(unread.docs.map((item) => item.data().title).sort()).toEqual(["Réponse de Coordinateur Fictif (Coordinateur)", "Réponse de school_admin school-a (Administrateur)"]);
+    // Lot 25 : la réponse de l'Administrateur figure dans SA PROPRE messagerie (requête habituelle de l'école).
+    const adminClient = client("school_admin-school-a", { role: "school_admin", schoolId: "school-a" });
+    const adminSent = await assertSucceeds(getDocs(query(collection(adminClient, "messages"), where("schoolId", "==", "school-a"), where("schoolYearId", "==", "year-a"), where("participantIds", "array-contains", "school_admin-school-a"))));
+    expect(adminSent.docs.map((item) => item.id)).toContain(adminReply.message.id);
+    expect(adminReply.message).toMatchObject({ recipientLabel: "Équipe ACADÉA" });
     // Un message du Super administrateur n'est pas « répondable » par quelqu'un qui n'en est pas destinataire.
     await expect(resolveReplyTarget(db, staff("school_admin", "school-b"), messageIds[1])).rejects.toMatchObject({ code: "invalid-recipient" });
   });
@@ -150,6 +156,12 @@ describe("Coordination : envoi « Tous les … »", () => {
     const recipients = notifications.docs.map((item) => item.data().recipientUserId);
     expect(new Set(recipients).size).toBe(251);
     expect(recipients.every((id: string) => id.startsWith("parent"))).toBe(true);
+    // Lot 25 : une seule copie chez l'expéditeur, « À : 251 parents » ; les destinataires ne le voient pas comme participant.
+    const copies = await db.collection("messages").where("senderCopy", "==", true).get();
+    expect(copies.size).toBe(1);
+    expect(copies.docs[0].data()).toMatchObject({ participantIds: ["coord"], recipientLabel: "251 parents", recipientCount: 251 });
+    const perRecipient = await db.collection("messages").where("groupId", "==", copies.docs[0].data().groupId).get();
+    expect(perRecipient.docs.filter((item) => item.data().participantIds.includes("coord"))).toHaveLength(1);
     // Rejouer le même envoi ne crée rien de plus.
     await coordinationSend({ audience: { role: "parent", schoolId: "school-a" }, subject: "Annonce", body: "À tous" }, "audience-key");
     expect((await db.collection("notifications").where("coordinationId", "==", "c1").get()).size).toBe(251);

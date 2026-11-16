@@ -1074,6 +1074,7 @@ export default function App() {
         platformLogoUrl={platformLogoUrl}
         onPlatformLogoSaved={setPlatformLogoUrl}
         onLogout={logout}
+        onRefresh={() => setBootstrapRetry((value) => value + 1)}
         showInstallButton={showInstallPwaButton}
         onInstallPwa={installPwa}
         billingControls={billingControls}

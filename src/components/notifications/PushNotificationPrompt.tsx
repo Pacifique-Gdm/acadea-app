@@ -8,8 +8,9 @@ function currentDevice() {
   return detectPushDevice(typeof navigator === "undefined" ? "" : navigator.userAgent, Boolean(standalone));
 }
 
-function readSnooze() { try { return window.localStorage.getItem(PUSH_PROMPT_SNOOZE_KEY); } catch { return null; } }
-function writeSnooze() { try { window.localStorage.setItem(PUSH_PROMPT_SNOOZE_KEY, new Date().toISOString()); } catch { /* sans stockage : redemande à la prochaine connexion */ } }
+// Lot 25 : « Plus tard » est propre à chaque compte (un parent ne perd pas le bandeau parce qu'un autre compte l'a repoussé sur ce téléphone).
+function readSnooze(userId: string) { try { return window.localStorage.getItem(`${PUSH_PROMPT_SNOOZE_KEY}:${userId}`); } catch { return null; } }
+function writeSnooze(userId: string) { try { window.localStorage.setItem(`${PUSH_PROMPT_SNOOZE_KEY}:${userId}`, new Date().toISOString()); } catch { /* sans stockage : redemande à la prochaine connexion */ } }
 
 /** État et activation des notifications, partagés par le bandeau et le réglage du Menu. */
 export function usePushNotificationState(user: AppUser) {
@@ -46,9 +47,9 @@ export function PushNotificationHelp({ status, device }: { status: PushNotificat
 /** Bandeau affiché après la connexion tant que les notifications ne sont pas activées. Ne bloque jamais l'utilisation. */
 export function PushNotificationPrompt({ user }: { user: AppUser }) {
   const { status, error, enable, device } = usePushNotificationState(user);
-  const [visible, setVisible] = useState(() => pushPromptDue(typeof window === "undefined" ? null : readSnooze()));
+  const [visible, setVisible] = useState(() => pushPromptDue(typeof window === "undefined" ? null : readSnooze(user.id)));
   if (!visible || status === "loading" || status === "enabled" || status === "unauthorized" || status === "not_configured" || (status === "unsupported" && !needsIosInstall(device))) return null;
-  const later = () => { writeSnooze(); setVisible(false); };
+  const later = () => { writeSnooze(user.id); setVisible(false); };
   return <div role="region" aria-label="Activer les notifications" className="mx-auto mt-2 grid max-w-6xl gap-2 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
     <p className="font-semibold">Activez les notifications pour recevoir vos messages et paiements, même quand l'application est fermée.</p>
     <PushNotificationHelp status={status} device={device} />

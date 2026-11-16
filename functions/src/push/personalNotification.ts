@@ -13,7 +13,7 @@ import { deactivateInvalidToken, isInvalidTokenError } from "./cleanupInvalidTok
  * sanctions et annonces restent envoyés par leurs fonctions existantes.
  * Les textes visibles sur l'écran verrouillé ne contiennent ni montant ni motif. */
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super administrateur", coordination_admin: "Coordinateur", sub_coordination_admin: "Sous-coordinateur",
+  super_admin: "Équipe ACADÉA", coordination_admin: "Coordinateur", sub_coordination_admin: "Sous-coordinateur",
   school_admin: "Administrateur", admin: "Administrateur", secretary: "Secrétaire", cashier: "Caissier",
   discipline_director: "Directeur de discipline", study_director: "Directeur des études", teacher: "Enseignant", parent: "Parent",
 };
@@ -50,7 +50,8 @@ export function personalText(event: PersonalEvent, sender?: { senderName?: unkno
   if (event === "message_received") {
     const name = typeof sender?.senderName === "string" && sender.senderName.trim() ? sender.senderName.trim() : "";
     const role = typeof sender?.senderRole === "string" ? ROLE_LABELS[sender.senderRole] ?? "" : "";
-    const who = name ? `${name}${role ? ` (${role})` : ""}` : role || "Acadéa";
+    // Lot 25 : le Super administrateur signe « l'Équipe ACADÉA ».
+    const who = sender?.senderRole === "super_admin" ? "l'Équipe ACADÉA" : name ? `${name}${role ? ` (${role})` : ""}` : role || "Acadéa";
     return { title: `${replyTo ? "Réponse" : "Nouveau message"} de ${who}`, body: "Ouvrez Acadéa pour lire le message." };
   }
   if (event === "payment_corrected") return { title: "Paiement modifié", body: "Une modification de paiement est disponible dans Acadéa." };

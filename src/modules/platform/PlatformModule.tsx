@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PushNotificationPrompt } from "../../components/notifications/PushNotificationPrompt";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import { KeptTab } from "../../components/layout/KeptTab";
-import { PlatformMessages } from "./PlatformMessages";
+import { PlatformMessages, usePlatformUnreadCount } from "./PlatformMessages";
+import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerShell";
+import { syncAppBadge } from "../../utils/appBadge";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
 import type { ReactNode } from "react";
-import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, MessageSquare, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
+import { ArrowUpDown, Bell, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, MessageSquare, RefreshCw, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
 import { PlatformStatusDistributionCard } from "../../components/platform/PlatformStatusDistributionCard";
@@ -53,6 +55,7 @@ export function PlatformModule({
   showInstallButton,
   onInstallPwa,
   onLogout,
+  onRefresh,
   billingControls,
   uid,
   schoolLevelChoices,
@@ -75,6 +78,8 @@ export function PlatformModule({
   showInstallButton: boolean;
   onInstallPwa: () => void;
   onLogout: () => void;
+  /** Lot 25 : relance le chargement des données de la plateforme. */
+  onRefresh?: () => void;
   billingControls: UseBillingControlsResult;
   uid: (prefix: string) => string;
   schoolLevelChoices: SchoolLevelChoice[];
@@ -107,6 +112,9 @@ export function PlatformModule({
   const [customOptionPending, setCustomOptionPending] = useState(false);
   const [customOptionSaving, setCustomOptionSaving] = useState(false);
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
+  const [messagingOpen, setMessagingOpen] = useState(false);
+  const platformUnread = usePlatformUnreadCount(user.id);
+  useEffect(() => { syncAppBadge(platformUnread); }, [platformUnread]);
   // Lot 19 : les onglets Coordinations et Menu restent en place (masqués) après leur première ouverture.
   const visitedViews = useVisitedTabs(platformView);
   const [selectedSchoolId, setSelectedSchoolId] = useState(data.schools[0]?.id ?? "");
@@ -1212,14 +1220,21 @@ export function PlatformModule({
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded border border-slate-200 bg-white font-bold text-ink">
               {platformLogoUrl ? <img src={platformLogoUrl} alt="" className="h-full w-full object-contain p-1" /> : "A"}
             </div>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="break-words text-lg font-bold text-ink">Plateforme Acadéa</p>
               <p className="break-words text-xs text-slate-500">{roleLabels[user.role]} | dashboard SaaS anonymisé</p>
             </div>
+            {/* Lot 25 : actualisation et cloche, comme chez l'Administrateur. */}
+            <button type="button" onClick={() => onRefresh?.()} className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser"><RefreshCw className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setMessagingOpen(true)} className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
+              <Bell className="h-4 w-4" />
+              {platformUnread > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{platformUnread}</span>}
+            </button>
           </div>
           </div>
         </header>
         <PushNotificationPrompt user={user} />
+        {messagingOpen && <MessagingDrawerShell onClose={() => setMessagingOpen(false)}><PlatformMessages user={user} schools={visibleSchools} /></MessagingDrawerShell>}
 
         <main className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8">
           {platformLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLoadError}</p>}

@@ -141,6 +141,7 @@ async function registerPushNotifications(user: AppUser, requestPermission: boole
     const foregroundNotification = new Notification(payload.notification?.title || (isMessage ? "Nouveau message Acadéa" : "Paiement enregistré"), {
       body: payload.notification?.body || (isMessage ? "Un nouveau message est disponible dans Acadéa." : "Un nouveau paiement est disponible dans votre espace financier Acadéa."),
       icon: "/icons/icon-192.png",
+      badge: "/icons/notification-badge.png",
       tag: isMessage ? `message-${data.notificationId}` : `payment-recorded-${data.notificationId}`,
     });
     foregroundNotification.onclick = () => {

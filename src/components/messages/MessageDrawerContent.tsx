@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { AppData, AppNotification, AppUser, AuditLog, Message, ParentProfile, School, Student } from "../../types";
-import { administrativeSenderDetails } from "../../utils/administrativeSender";
+import { administrativeSenderDetails, sentMessageRecipientLabel } from "../../utils/administrativeSender";
 import { MessageReplyBox } from "./MessageReplyBox";
 import { MessageAttachments } from "./MessageAttachments";
 
@@ -245,7 +245,7 @@ export function MessageDrawerContent({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className={`break-words font-semibold ${senderIsParent ? "text-white" : "text-ink"}`}>
-              {sender.role === "École" ? sender.name : sender.type === "school" ? `${sender.name} — ${sender.role}` : `${sender.role} : ${sender.name}`}
+              {sender.role === "École" || !sender.role ? sender.name : sender.type === "school" ? `${sender.name} — ${sender.role}` : `${sender.role} : ${sender.name}`}
             </p>
             {sender.children.length > 0 && (
               <p className={`break-words text-xs font-semibold ${senderIsParent ? "text-slate-200" : "text-slate-500"}`}>
@@ -257,6 +257,9 @@ export function MessageDrawerContent({
             {message.senderId === user.id ? "Envoyé" : "Reçu"}
           </span>
         </div>
+        {message.senderId === user.id && sentMessageRecipientLabel(message, [...data.users, ...yearData.users]) && (
+          <p className={`mt-1 break-words text-xs font-semibold ${senderIsParent ? "text-slate-200" : "text-slate-500"}`}>À : {sentMessageRecipientLabel(message, [...data.users, ...yearData.users])}</p>
+        )}
         <p className={`mt-3 break-words text-sm font-semibold ${senderIsParent ? "text-white" : "text-slate-700"}`}>
           {senderIsParent || parentDisciplineMessage ? `Objet : ${messageSubject}` : messageSubject}
         </p>
