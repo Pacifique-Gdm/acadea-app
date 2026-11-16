@@ -6,7 +6,7 @@ import { feeAllocationAnchorId, feeAllocationStateId } from "../api/_lib/feeAllo
 import { feeAllocationConfigId } from "../api/_lib/feeAllocationPhase1.js";
 import { validateFeeAllocationRubrics } from "../api/_lib/feeAllocationMath.js";
 
-test("encaissements répartis : Auth réel, concurrence, arriérés, social, tiers, corrections et refus", async () => {
+test("encaissements répartis : Auth réel, concurrence, arriérés, social, corrections et refus", async () => {
   test.setTimeout(240_000);
   const f = fixture();
   try {
@@ -88,11 +88,9 @@ test("encaissements répartis : Auth réel, concurrence, arriérés, social, tie
       financialSupport: { d: { id: "d", schoolYearId: f.year, lines: { [fee]: { reductionMinor: 5000, commitmentMinor: 3000 } } } } });
     const beforeSocial = (await ledger()).length;
     await good(request(20, { studentId: socialStudent }));
-    const thirdBody = request(30, { studentId: socialStudent, supportDecisionId: "d" });
-    const third = await good(thirdBody); await good(thirdBody);
-    expect((await ledger()).length).toBe(beforeSocial + 2);
-    const thirdPayment = third.payment as { id: string };
-    expect((await invoke(handler, adminToken, { action: "delete-payment", transactionId: thirdPayment.id, reason: "Interdit", clientRequestId: `${f.tag}-third-delete` })).status).toBe(409);
+    // Lot 26c : la notion de « tiers » est supprimée ; un tel paiement est refusé, sans mouvement.
+    expect((await invoke(handler, token, request(30, { studentId: socialStudent, supportDecisionId: "d" }))).status).toBe(400);
+    expect((await ledger()).length).toBe(beforeSocial + 1);
     for (const role of ["coordination_admin", "sub_coordination_admin", "teacher", "school_admin"]) expect((await invoke(handler, await f.token(role), request(1))).status).toBe(403);
     expect((await invoke(handler, token, request(1, { rubricId: "forged" }))).status).toBe(400);
     const activationDenied = await invoke(handler, adminToken, { action: "fee-allocation.activate" });
