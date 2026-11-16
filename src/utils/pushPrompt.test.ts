@@ -17,7 +17,7 @@ describe("lot 24 : bandeau d'activation des notifications", () => {
     expect(needsIosInstall(detectPushDevice("Mozilla/5.0 (Linux; Android 14) Chrome/130 Mobile", false))).toBe(false);
   });
   it("le jeton de l'appareil est retiré à la déconnexion, tous les rôles peuvent activer", () => {
-    const auth = readFileSync(new URL("../services/auth.ts", import.meta.url), "utf8");
+    const auth = readFileSync(new URL("../services/auth.ts", import.meta.url), "utf8").split("\r\n").join("\n");
     const push = readFileSync(new URL("../services/pushNotifications.ts", import.meta.url), "utf8");
     expect(auth.indexOf("forgetDevicePushToken(uid)")).toBeLessThan(auth.indexOf("await authModule.signOut(auth);\n}"));
     expect(push).toContain("export async function forgetDevicePushToken(userId: string)");
