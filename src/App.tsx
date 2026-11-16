@@ -1,5 +1,5 @@
 ﻿import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { PushNotificationPrompt, PushNotificationSettings } from "./components/notifications/PushNotificationPrompt";
+import { PushNotificationSettings } from "./components/notifications/PushNotificationPrompt";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { auth } from "./firebase";
 import { randomId } from "./utils/randomId";
