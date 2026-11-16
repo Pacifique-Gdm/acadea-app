@@ -4,7 +4,7 @@ import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { doc, getDoc } from "firebase/firestore";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
-import { executeFinancialOperation, listFormerStudentDebts, searchFormerStudents } from "../../api/_lib/financialTransactions.js";
+import { executeFinancialOperation, listFormerStudentDebts, listFormerStudents, searchFormerStudents } from "../../api/_lib/financialTransactions.js";
 import { studentForPersistence } from "../../src/utils/studentYearTransition.js";
 
 // Lot 21 — « Paiement anciens élèves » sur l'émulateur Firestore réel.
@@ -106,5 +106,45 @@ describe("lot 21 : paiement anciens élèves", () => {
 
   it("réservé au Caissier pour l'encaissement", async () => {
     await expect(pay({}, { ...cashier, role: "parent" })).rejects.toMatchObject({ code: "permission-denied" });
+  });
+});
+
+describe("lot 22 : liste des anciens élèves, archivage en cours d'année", () => {
+  const list = () => listFormerStudents({ db, caller: cashier, body: { action: "list-former-students", schoolYearId: "y2" } }).then((result) => result.students as Array<{ id: string; archivedThisYear: boolean; debts: Array<{ schoolYearId: string; remaining: number }> }>);
+  beforeEach(async () => {
+    const batch = db.batch();
+    batch.set(db.doc("feeTypes/fee-y2"), { id: "fee-y2", schoolId: "school-a", schoolYearId: "y2", name: "Minerval", amount: 60, className: "2ème Primaire" });
+    // Élève archivé PENDANT l'année en cours (dette sur l'année en cours).
+    batch.set(db.doc("students/midyear"), student("midyear", { schoolYearId: "y2", prenom: "Milieu", matricule: "M-mid", className: "2ème Primaire", status: "TRANSFERRED", deletedAt: "2026-11-16T08:00:00.000Z", exitReason: "Mutation", exitReasonDetails: "Mutation" }));
+    // Élève actif de l'année : jamais dans la liste.
+    batch.set(db.doc("students/active-y2"), student("active-y2", { schoolYearId: "y2", prenom: "Actif", matricule: "M-act", className: "2ème Primaire" }));
+    await batch.commit();
+  });
+
+  it("ne liste que les élèves archivés ayant une dette, quel que soit le moment de l'archivage", async () => {
+    const students = await list();
+    expect(students.map((item) => item.id).sort()).toEqual(["former", "midyear"]);
+    expect(students.find((item) => item.id === "midyear")).toMatchObject({ archivedThisYear: true, debts: [expect.objectContaining({ schoolYearId: "y2", remaining: 60 })] });
+    expect(students.find((item) => item.id === "former")).toMatchObject({ archivedThisYear: false, debts: [expect.objectContaining({ schoolYearId: "y1", remaining: 70 })] });
+  });
+
+  it("encaisse la dette de l'année en cours d'un élève archivé en cours d'année", async () => {
+    const { payment } = await pay({ formerStudentId: "midyear", feeTypeId: "fee-y2", debtSchoolYearId: undefined, amount: 25 });
+    expect(payment).toMatchObject({ schoolYearId: "y2", studentId: "midyear", formerStudent: true, formerStudentId: "midyear", amount: 25, receiptNumber: "REC-2026-0001" });
+    expect(payment).not.toHaveProperty("collectionSchoolYearId");
+    await expect(pay({ formerStudentId: "midyear", feeTypeId: "fee-y2", debtSchoolYearId: undefined, amount: 35.01 })).rejects.toThrow("dépasse");
+    expect((await list()).find((item) => item.id === "midyear")?.debts[0].remaining).toBe(35);
+  });
+
+  it("un élève qui a tout payé disparaît de la liste", async () => {
+    await pay({ formerStudentId: "midyear", feeTypeId: "fee-y2", debtSchoolYearId: undefined, amount: 60 });
+    await pay({ amount: 70 });
+    expect(await list()).toEqual([]);
+  });
+
+  it("un élève réactivé disparaît de la liste et ne peut plus payer ici", async () => {
+    await db.doc("students/midyear").update({ status: "ACTIVE", deletedAt: null, searchArchived: false });
+    expect((await list()).map((item) => item.id)).toEqual(["former"]);
+    await expect(pay({ formerStudentId: "midyear", feeTypeId: "fee-y2", debtSchoolYearId: undefined, amount: 5 })).rejects.toThrow("n'est pas archivé");
   });
 });

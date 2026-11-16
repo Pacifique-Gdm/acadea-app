@@ -1,40 +1,61 @@
-import { useRef, useState } from "react";
-import { Download, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Download, Search, X } from "lucide-react";
 import { MoneyInput } from "../ui";
-import { createFormerStudentPaymentTransaction, loadFormerStudentDebts, searchFormerStudents, type FormerStudentDebts } from "../../services/financialTransactions";
+import { createFormerStudentPaymentTransaction, listFormerStudents, type FormerStudentDebts } from "../../services/financialTransactions";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { generateReceiptPdf } from "../../utils/pdf";
 import type { Payment, School, SchoolYear, Student } from "../../types";
+import { formerStudentsRefreshKey, searchFormerStudentsLocally, visibleFormerStudents } from "../../utils/formerStudents";
 
-/** Lot 21 — « Paiement anciens élèves » : seuls les élèves archivés ayant une
- * dette d'une année passée apparaissent. L'argent entre dans la caisse de
- * l'année active ; la dette de l'ancienne année diminue (contrôle serveur). */
-export function FormerStudentPaymentForm({ school, year, onRecorded }: { school: School; year: SchoolYear; onRecorded: (payment: Payment) => void }) {
+/** Lot 21/22 — « Paiement anciens élèves » : seuls les élèves archivés ayant une
+ * dette (année en cours ou années passées) apparaissent ; contrôle final côté serveur. */
+export function FormerStudentPaymentForm({ school, year, students, payments, onRecorded }: {
+  school: School; year: SchoolYear; students: Student[]; payments: Payment[]; onRecorded: (payment: Payment) => void;
+}) {
+  const [list, setList] = useState<FormerStudentDebts[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<FormerStudentDebts[]>();
-  const [selected, setSelected] = useState<FormerStudentDebts>();
+  const [selectedId, setSelectedId] = useState("");
   const [debtKey, setDebtKey] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [recorded, setRecorded] = useState<{ payment: Payment; student: FormerStudentDebts } | null>(null);
+  const [reload, setReload] = useState(0);
   const attempt = useRef<{ signature: string; id: string } | null>(null);
   const submitting = useRef(false);
-  const debt = selected?.debts.find((item) => `${item.schoolYearId}:${item.feeTypeId}` === debtKey);
+  const refreshKey = formerStudentsRefreshKey(students, payments);
 
-  async function search() {
-    setError(""); setSelected(undefined); setRecorded(null);
-    if (query.trim().length < 2) { setError("Saisissez au moins 2 caractères."); return; }
-    setBusy(true);
-    try { setResults(await searchFormerStudents({ schoolYearId: year.id, query: query.trim() })); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Recherche impossible."); }
-    finally { setBusy(false); }
-  }
+  useEffect(() => {
+    let active = true;
+    // Relecture discrète (pas plus d'une fois par seconde) : uniquement la liste des anciens élèves.
+    const timer = window.setTimeout(() => {
+      void listFormerStudents({ schoolYearId: year.id })
+        .then((next) => { if (active) { setList(next); setError(""); } })
+        .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Liste des anciens élèves indisponible."); })
+        .finally(() => { if (active) setLoading(false); });
+    }, reload === 0 && list.length === 0 ? 0 : 800);
+    return () => { active = false; window.clearTimeout(timer); };
+    // La liste est relue quand l'année, les archivages ou les paiements concernés changent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year.id, refreshKey, reload]);
+
+  const visible = useMemo(() => visibleFormerStudents(list, students), [list, students]);
+  const selected = visible.find((item) => item.id === selectedId);
+  const results = selected ? [] : searchFormerStudentsLocally(visible, query);
+  const debts = selected?.debts.filter((item) => item.remaining > 0) ?? [];
+  const debt = debts.find((item) => `${item.schoolYearId}:${item.feeTypeId}` === debtKey) ?? debts[0];
 
   function choose(student: FormerStudentDebts) {
-    setSelected(student); setDebtKey(student.debts[0] ? `${student.debts[0].schoolYearId}:${student.debts[0].feeTypeId}` : ""); setAmount(""); setError(""); setRecorded(null);
+    setSelectedId(student.id); setQuery(`${student.name} | ${student.matricule}`);
+    setDebtKey(student.debts[0] ? `${student.debts[0].schoolYearId}:${student.debts[0].feeTypeId}` : ""); setAmount(""); setError(""); setRecorded(null);
+  }
+
+  function clear() {
+    if (submitting.current) return;
+    setSelectedId(""); setQuery(""); setDebtKey(""); setAmount(""); setError("");
   }
 
   async function submit() {
@@ -44,7 +65,7 @@ export function FormerStudentPaymentForm({ school, year, onRecorded }: { school:
     try {
       if (!Number.isFinite(numericAmount) || toMoneyMinor(numericAmount) <= 0) throw new Error("Saisissez un montant strictement positif.");
       if (toMoneyMinor(numericAmount) > toMoneyMinor(debt.remaining)) throw new Error("Le montant saisi dépasse la dette restante pour ce frais.");
-      const payload = { schoolYearId: year.id, formerStudentId: selected.id, feeTypeId: debt.feeTypeId, debtSchoolYearId: debt.schoolYearId, amount: numericAmount, ...(note.trim() ? { note: note.trim() } : {}) };
+      const payload = { schoolYearId: year.id, formerStudentId: selected.id, feeTypeId: debt.feeTypeId, ...(debt.schoolYearId !== year.id ? { debtSchoolYearId: debt.schoolYearId } : {}), amount: numericAmount, ...(note.trim() ? { note: note.trim() } : {}) };
       const signature = JSON.stringify(payload);
       const requestId = attempt.current?.signature === signature ? attempt.current.id : crypto.randomUUID();
       attempt.current = { signature, id: requestId };
@@ -54,8 +75,7 @@ export function FormerStudentPaymentForm({ school, year, onRecorded }: { school:
       setRecorded({ payment, student: selected });
       setAmount(""); setNote("");
       onRecorded(payment);
-      const refreshed = await loadFormerStudentDebts({ schoolYearId: year.id, formerStudentId: selected.id }).catch(() => undefined);
-      if (refreshed) { setSelected(refreshed); setDebtKey(refreshed.debts[0] ? `${refreshed.debts[0].schoolYearId}:${refreshed.debts[0].feeTypeId}` : ""); }
+      setReload((value) => value + 1);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
     } finally { submitting.current = false; setBusy(false); }
@@ -68,37 +88,33 @@ export function FormerStudentPaymentForm({ school, year, onRecorded }: { school:
   }
 
   return <div className="grid min-w-0 gap-3" aria-label="Paiement anciens élèves">
-    <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm text-blue-800">Seuls les élèves archivés (partis de l'école) qui ont encore une dette apparaissent. L'argent entre dans la caisse de {year.name}.</p>
-    <div className="flex min-w-0 gap-2">
-      <label className="flex min-w-0 flex-1 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
+    <div className="grid min-w-0 gap-2">
+      <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
         <Search className="h-4 w-4 shrink-0 text-slate-400" />
-        <input aria-label="Rechercher un ancien élève" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void search(); }} className="min-w-0 flex-1 outline-none" placeholder="Nom, postnom, prénom ou matricule" />
+        <input aria-label="Rechercher un ancien élève" value={query} disabled={busy} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setRecorded(null); }} className="min-w-0 flex-1 outline-none" placeholder="Rechercher par nom, postnom, prénom ou matricule" />
       </label>
-      <button type="button" className="secondary-button" disabled={busy} onClick={() => void search()}>Rechercher</button>
-    </div>
-    {results && !selected && (results.length === 0
-      ? <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun ancien élève avec une dette ne correspond.</p>
-      : <div className="grid max-h-64 gap-2 overflow-y-auto">{results.map((student) => <button key={student.id} type="button" onClick={() => choose(student)} className="rounded border border-slate-100 bg-slate-50 p-3 text-left text-sm">
-        <p className="break-words font-semibold">{student.name}</p>
-        <p className="text-xs text-slate-500">{student.matricule} | {student.className}{student.exitReason ? ` | ${student.exitReason}` : ""}</p>
+      {!selected && query.trim() === "" && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{loading ? "Chargement des anciens élèves…" : "Saisissez un nom ou un matricule pour afficher les anciens élèves."}</p>}
+      {!selected && query.trim() !== "" && results.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{loading ? "Chargement des anciens élèves…" : "Aucun ancien élève avec une dette trouvé."}</p>}
+      {results.length > 0 && <div className="max-h-64 space-y-2 overflow-y-auto pr-1 scrollbar-thin">{results.map((student) => <button key={student.id} type="button" onClick={() => choose(student)} className="w-full rounded border border-slate-100 bg-slate-50 p-3 text-left text-sm transition hover:border-slate-200">
+        <p className="break-words font-semibold text-ink">{student.name}</p>
+        <p className="text-xs text-slate-500">{student.matricule} | {student.className}</p>
         <p className="text-xs font-semibold text-amber-700">Dette : {(["USD", "CDF"] as const).filter((currency) => student.totals[currency] > 0).map((currency) => formatCurrencyMoney(student.totals[currency], currency)).join(" + ")}</p>
-      </button>)}</div>)}
-    {selected && <div className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2"><p className="font-semibold">Ancien élève : {selected.name} ({selected.matricule})</p><button type="button" className="text-xs underline" onClick={() => setSelected(undefined)} disabled={busy}>Changer</button></div>
-      {selected.debts.length === 0 ? <p>Toutes les dettes de cet élève sont soldées.</p> : <>
-        <p className="font-semibold">Dette frais par frais et année par année :</p>
-        <ul className="grid gap-1">{selected.debts.map((item) => <li key={`${item.schoolYearId}:${item.feeTypeId}`}>{item.yearName} · {item.feeName} : attendu {formatCurrencyMoney(item.expected, item.currency)}, payé {formatCurrencyMoney(item.paid, item.currency)}, reste <strong>{formatCurrencyMoney(item.remaining, item.currency)}</strong></li>)}</ul>
-        <label className="grid gap-1 font-semibold">Frais à payer
-          <select aria-label="Dette à payer" className="input" value={debtKey} disabled={busy} onChange={(event) => { setDebtKey(event.target.value); setError(""); }}>
-            {selected.debts.map((item) => <option key={`${item.schoolYearId}:${item.feeTypeId}`} value={`${item.schoolYearId}:${item.feeTypeId}`}>{item.feeName} — {item.yearName} — Reste : {formatCurrencyMoney(item.remaining, item.currency)}</option>)}
-          </select>
-        </label>
-        {debt && <MoneyInput value={amount} onChange={setAmount} max={debt.remaining} disabled={busy} className="input" />}
-        <label className="grid gap-1 font-semibold">Description
-          <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} className="input min-h-16" placeholder="Facultatif" />
-        </label>
-        <button type="button" className="primary-button justify-center" disabled={busy || !debt || !amount} onClick={() => void submit()}>{busy ? "Enregistrement…" : "Enregistrer le paiement"}</button>
-      </>}
+      </button>)}</div>}
+      {selected && <div className="flex min-w-0 items-center gap-2 rounded bg-mint/10 py-1.5 pl-3 pr-1.5 text-sm font-semibold text-mint">
+        <span className="min-w-0 flex-1 break-words">Ancien élève sélectionné : {selected.name}</span>
+        <button type="button" aria-label="Effacer l’ancien élève sélectionné" title="Effacer l’ancien élève sélectionné" onClick={clear} disabled={busy} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 disabled:opacity-50"><X className="h-4 w-4" aria-hidden="true" /></button>
+      </div>}
+    </div>
+    {selected && debt && <div className="grid gap-2 text-sm">
+      <ul className="grid gap-1">{debts.map((item) => <li key={`${item.schoolYearId}:${item.feeTypeId}`}>{item.yearName} · {item.feeName} : attendu {formatCurrencyMoney(item.expected, item.currency)}, payé {formatCurrencyMoney(item.paid, item.currency)}, reste <strong>{formatCurrencyMoney(item.remaining, item.currency)}</strong></li>)}</ul>
+      <select aria-label="Dette à payer" className="input" value={`${debt.schoolYearId}:${debt.feeTypeId}`} disabled={busy} onChange={(event) => { setDebtKey(event.target.value); setError(""); }}>
+        {debts.map((item) => <option key={`${item.schoolYearId}:${item.feeTypeId}`} value={`${item.schoolYearId}:${item.feeTypeId}`}>{item.feeName} — {item.yearName} — Reste : {formatCurrencyMoney(item.remaining, item.currency)}</option>)}
+      </select>
+      <MoneyInput value={amount} onChange={setAmount} max={debt.remaining} disabled={busy} className="input" />
+      <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Description
+        <textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} className="input min-h-16" />
+      </label>
+      <button type="button" className="primary-button w-full justify-center" disabled={busy || !amount} onClick={() => void submit()}>{busy ? "Enregistrement…" : "Enregistrer"}</button>
     </div>}
     {recorded && <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">
       <span>Paiement enregistré : reçu {recorded.payment.receiptNumber}</span>
