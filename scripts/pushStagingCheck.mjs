@@ -1,7 +1,7 @@
 // Essai des notifications push sur le STAGING (lot 24), sans téléphone.
 //
 // Lancement (PowerShell, depuis Documents\AC) :
-//   node .claude\worktrees\sweet-galileo-16823c\scripts\pushStagingCheck.mjs
+//   node .claude\worktrees\sweet-galileo-16823c\tmp\verification\pushStagingCheck.mjs
 // Le script lit lui-même les comptes E2E_<NOM>_EMAIL / _PASSWORD de .env.local
 // (rien n'est affiché). Principe : chaque compte enregistre un « appareil d'essai »
 // au jeton volontairement invalide. Quand un message lui est envoyé, la fonction
@@ -64,8 +64,11 @@ async function main() {
   for (const user of users.filter((u) => ["coordination_admin", "sub_coordination_admin"].includes(u.role))) {
     try { covered.set(user.uid, new Set((await api(user, "/api/coordination-message-recipients", "GET")).recipients.map((r) => r.schoolId))); } catch { covered.set(user.uid, new Set()); }
   }
-  const counts = new Map(); users.filter((u) => u.schoolId).forEach((u) => counts.set(u.schoolId, (counts.get(u.schoolId) ?? 0) + 1));
-  const schoolId = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  // École de référence : le plus de comptes, puis une Coordination ET une Sous-coordination qui la supervisent.
+  const score = (id) => users.filter((u) => u.schoolId === id).length
+    + (users.some((u) => u.role === "coordination_admin" && covered.get(u.uid)?.has(id)) ? 5 : 0)
+    + (users.some((u) => u.role === "sub_coordination_admin" && covered.get(u.uid)?.has(id)) ? 5 : 0);
+  const schoolId = [...new Set(users.map((u) => u.schoolId).filter(Boolean))].sort((a, b) => score(b) - score(a))[0];
   const pick = (role) => users.find((u) => u.role === role && (u.schoolId ? u.schoolId === schoolId : !["coordination_admin", "sub_coordination_admin"].includes(role) || covered.get(u.uid)?.has(schoolId)));
   const observer = users.find((u) => u.schoolId && u.schoolId !== schoolId);
   const cases = [
