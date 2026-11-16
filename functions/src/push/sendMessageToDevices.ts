@@ -1,4 +1,5 @@
 import type { Firestore } from "firebase-admin/firestore";
+import { messagePushText } from "./pushTexts.js";
 import type { Messaging } from "firebase-admin/messaging";
 import { deactivateInvalidToken, isInvalidTokenError } from "./cleanupInvalidTokens.js";
 import type { MessageNotificationRecord, ResolvedMessageDispatch } from "./types.js";
@@ -9,7 +10,10 @@ export async function sendMessageToDevices(
   notification: MessageNotificationRecord,
   dispatch: ResolvedMessageDispatch,
 ) {
-  const schoolToParent = dispatch.event === "school_message_received";
+  // Lot 25 : « Nouveau message — Expéditeur » / « Objet : … ».
+  const text = dispatch.recipients.some((item) => item.tokens.length) && notification.messageId
+    ? messagePushText((await database.doc(`messages/${notification.messageId}`).get()).data())
+    : messagePushText(null);
   let successCount = 0;
   let failureCount = 0;
   let retryableFailureCount = 0;
@@ -18,12 +22,7 @@ export async function sendMessageToDevices(
       const tokenRecords = recipient.tokens.slice(offset, offset + 500);
       const response = await messaging.sendEachForMulticast({
         tokens: tokenRecords.map((item) => item.token as string),
-        notification: {
-          title: schoolToParent ? "Nouveau message Acadéa" : "Nouveau message parent",
-          body: schoolToParent
-            ? "Un nouveau message de votre école est disponible."
-            : "Un nouveau message est disponible dans la messagerie Acadéa.",
-        },
+        notification: text,
         data: {
           module: "messages",
           event: dispatch.event,

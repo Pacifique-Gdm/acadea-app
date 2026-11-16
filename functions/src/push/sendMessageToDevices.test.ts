@@ -3,15 +3,15 @@ import { sendMessageToDevices } from "./sendMessageToDevices.js";
 
 describe("envoi push de messagerie", () => {
   it.each([
-    ["school_message_received", "Nouveau message Acadéa", "Un nouveau message de votre école est disponible."],
-    ["parent_message_received", "Nouveau message parent", "Un nouveau message est disponible dans la messagerie Acadéa."],
+    ["school_message_received", "Nouveau message — Marie Kabila", "Objet : Réunion des parents"],
+    ["parent_message_received", "Nouveau message — Marie Kabila", "Objet : Réunion des parents"],
   ] as const)("envoie un payload minimal pour %s et nettoie les tokens invalides", async (event, title, body) => {
     const sendEachForMulticast = vi.fn(async (input: Record<string, unknown>) => {
       void input;
       return { successCount: 0, failureCount: 1, responses: [{ success: false, error: { code: "messaging/registration-token-not-registered" } }] };
     });
     const remove = vi.fn(async () => undefined);
-    const database = { doc: vi.fn(() => ({ delete: remove })) };
+    const database = { doc: vi.fn(() => ({ delete: remove, get: async () => ({ exists: true, data: () => ({ senderName: "Marie Kabila", senderRole: "secretary", subject: "Réunion des parents", body: "corps complet" }) }) })) };
     await sendMessageToDevices(
       { sendEachForMulticast } as never,
       database as never,
@@ -30,7 +30,7 @@ describe("envoi push de messagerie", () => {
     const remove = vi.fn();
     await expect(sendMessageToDevices(
       { sendEachForMulticast } as never,
-      { doc: vi.fn(() => ({ delete: remove })) } as never,
+      { doc: vi.fn(() => ({ delete: remove, get: async () => ({ exists: false, data: () => undefined }) })) } as never,
       { id: "notif-a", type: "message", recipientRole: "parent", schoolId: "school-a", schoolYearId: "year-a", parentId: "parent-a", messageId: "message-a" },
       { event: "school_message_received", parentId: "parent-a", recipients: [{ userId: "user-a", tokens: [{ id: "token-a", userId: "user-a", token: "token-a", active: true }] }] },
     )).rejects.toThrow("Échec FCM temporaire");

@@ -1,25 +1,29 @@
 import type { Firestore } from "firebase-admin/firestore";
+import { loadPushContext, pushText } from "./pushTexts.js";
 import type { Messaging } from "firebase-admin/messaging";
 import { deactivateInvalidToken, isInvalidTokenError } from "./cleanupInvalidTokens.js";
 import type { OperationalDispatch, OperationalNotificationRecord } from "./types.js";
 
-const content = {
-  student_absent: { title: "Absence signalée", body: "Une absence concernant votre enfant a été enregistrée." },
-  student_late: { title: "Retard signalé", body: "Un retard concernant votre enfant a été enregistré." },
-  discipline_incident_created: { title: "Nouvelle information disciplinaire", body: "Une nouvelle information concernant le suivi disciplinaire de votre enfant est disponible." },
-  announcement_published: { title: "Nouvelle annonce Acadéa", body: "Une nouvelle annonce est disponible dans Acadéa." },
-} as const;
+/** Lot 25 : école, prénom de l'élève (sanction : élève lu sur la fiche, jamais le motif), titre de l'annonce. */
+async function operationalText(database: Firestore, notification: OperationalNotificationRecord, event: OperationalDispatch["event"]) {
+  let studentId = notification.studentId;
+  if (!studentId && notification.disciplineSanctionId) studentId = (await database.doc(`disciplineSanctions/${notification.disciplineSanctionId}`).get()).data()?.studentId;
+  const context = await loadPushContext(database, notification.schoolId, event === "announcement_published" ? undefined : studentId);
+  const title = event === "announcement_published" && notification.announcementId ? (await database.doc(`valves/${notification.announcementId}`).get()).data()?.title : undefined;
+  return pushText(event, context, { title });
+}
 
 export async function sendOperationalToDevices(messaging: Messaging, database: Firestore, notification: OperationalNotificationRecord, dispatch: OperationalDispatch) {
   let successCount = 0;
   let failureCount = 0;
   let retryableFailureCount = 0;
+  const text = dispatch.recipients.some((item) => item.tokens.length) ? await operationalText(database, notification, dispatch.event) : null;
   for (const recipient of dispatch.recipients) {
     for (let offset = 0; offset < recipient.tokens.length; offset += 500) {
       const tokens = recipient.tokens.slice(offset, offset + 500);
       const response = await messaging.sendEachForMulticast({
         tokens: tokens.map((token) => token.token as string),
-        notification: content[dispatch.event],
+        notification: text!,
         data: {
           module: dispatch.module,
           event: dispatch.event,
