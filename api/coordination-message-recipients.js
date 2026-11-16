@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { chunks, coordinationHttpError, requireActiveCoordinationActor, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
-import { displayName, SENDER_ROLE_LABELS, sendPlatformReply } from "./_lib/platformMessaging.js";
+import { displayName, replyRoute, SENDER_ROLE_LABELS, sendPlatformReply } from "./_lib/platformMessaging.js";
 
 /** Envoi « Tous les … » : plafond de sécurité par envoi groupé (le plafond de 200 reste pour une liste choisie). */
 export const AUDIENCE_MAX_RECIPIENTS = 5000;
@@ -50,7 +50,9 @@ async function scopedRecipients(db, scope) {
 export async function sendMessage(req, res, db, caller) {
   const input = await readBody(req);
   const subject = text(input.subject, 200); const messageBody = text(input.body); const idempotencyKey = text(req.headers["x-idempotency-key"], 128);
-  if (input.replyToMessageId) {
+  // Seule une réponse au Super administrateur prend ce chemin ; une réponse à un
+  // Administrateur d'école garde l'envoi normal de la Coordination (régression corrigée).
+  if (input.replyToMessageId && (await replyRoute(db, input.replyToMessageId)) === "platform") {
     // Lot 23 : réponse de la Coordination au Super administrateur.
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.message.send", idempotencyKey, ...API_RATE_LIMITS.SCHOOL_MESSAGE });
     return sendJson(res, 200, await sendPlatformReply(db, caller, { ...input, idempotencyKey }));

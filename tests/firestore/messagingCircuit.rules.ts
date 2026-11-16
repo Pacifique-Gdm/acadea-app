@@ -132,6 +132,16 @@ describe("Coordination → école, réponse du personnel (pas des parents)", () 
   });
 });
 
+describe("Administrateur → Coordination, puis réponse de la Coordination (régression du staging)", () => {
+  it("la Coordination répond à l'Administrateur avec la référence du message d'origine", async () => {
+    await db.doc("messages/admin-to-coord").set({ id: "admin-to-coord", schoolId: "school-a", schoolYearId: "year-a", senderId: "school_admin-school-a", senderName: "Admin", senderRole: "school_admin", recipientIds: ["coord"], participantIds: ["school_admin-school-a", "coord"], subject: "Question", body: "?", createdAt: new Date().toISOString() });
+    const reply = await coordinationSend({ recipientIds: ["school_admin-school-a"], subject: "Re : Question", body: "Réponse", replyToMessageId: "admin-to-coord" });
+    expect((reply.messageIds as string[])).toHaveLength(1);
+    const message = (await db.doc(`messages/${(reply.messageIds as string[])[0]}`).get()).data();
+    expect(message).toMatchObject({ senderRole: "coordination_admin", recipientIds: ["school_admin-school-a"], schoolId: "school-a" });
+  });
+});
+
 describe("Coordination : envoi « Tous les … »", () => {
   it("envoie une seule fois à chaque parent de l'école (251), sans doublon, au-delà de 200, sans fuite vers une autre école", async () => {
     const sent = await coordinationSend({ audience: { role: "parent", schoolId: "school-a" }, subject: "Annonce", body: "À tous" }, "audience-key");
