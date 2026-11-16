@@ -5,11 +5,12 @@ export const OWN_PAYROLL_CACHE_MS = 2 * 60 * 1000;
 
 type Entry<T> = { userId: string; at: number; promise: Promise<T> };
 
-export function createOwnPayrollCache<T>(loader: () => Promise<T>, now: () => number = Date.now) {
+/** Le paramètre `userId` sert de clé (compte, ou école + année) ; le chargeur le reçoit. */
+export function createOwnPayrollCache<T>(loader: (key: string) => Promise<T>, now: () => number = Date.now) {
   let entry: Entry<T> | null = null;
   return function load(userId: string, fresh = false): Promise<T> {
     if (!fresh && entry && entry.userId === userId && now() - entry.at < OWN_PAYROLL_CACHE_MS) return entry.promise;
-    const current: Entry<T> = { userId, at: now(), promise: loader() };
+    const current: Entry<T> = { userId, at: now(), promise: loader(userId) };
     entry = current;
     current.promise.catch(() => { if (entry === current) entry = null; });
     return current.promise;

@@ -22,4 +22,13 @@ describe("lot 26b : Salaire/Prime préparé dès l'affichage du Menu", () => {
     await load("u2");
     expect(loader).toHaveBeenCalledTimes(3);
   });
+  it("cotes du parent : la clé école + année est transmise au chargeur", async () => {
+    const loader = vi.fn(async (key: string) => key);
+    const load = createOwnPayrollCache(loader, () => 0);
+    expect(await load("ecole|annee")).toBe("ecole|annee");
+    await load("ecole|annee");
+    expect(loader).toHaveBeenCalledTimes(1);
+    await load("ecole|annee", true); // actualisation demandée : nouvelle lecture
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
 });
