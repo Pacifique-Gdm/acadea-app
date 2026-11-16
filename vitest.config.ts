@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   define: {
+    __ACADEA_APP_VERSION__: JSON.stringify("1.0.0-test"),
     "import.meta.env.VITE_APP_ENV": JSON.stringify("staging"),
     "import.meta.env.VITE_FIREBASE_API_KEY": JSON.stringify("test-public-api-key"),
     "import.meta.env.VITE_FIREBASE_AUTH_DOMAIN": JSON.stringify("acadea-staging.firebaseapp.com"),
