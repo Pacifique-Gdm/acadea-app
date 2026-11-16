@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { chunks, coordinationHttpError, requireActiveCoordinationActor, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
-import { displayName, replyRoute, SENDER_ROLE_LABELS, sendPlatformReply } from "./_lib/platformMessaging.js";
+import { displayName, personLabel, recipientsLabel, replyRoute, sendPlatformReply } from "./_lib/platformMessaging.js";
 
 /** Envoi « Tous les … » : plafond de sécurité par envoi groupé (le plafond de 200 reste pour une liste choisie). */
 export const AUDIENCE_MAX_RECIPIENTS = 5000;
@@ -97,11 +97,17 @@ export async function sendMessage(req, res, db, caller) {
     const schoolYearId = activeYears.get(recipient.schoolId);
     if (!schoolYearId) throw coordinationHttpError(409, "school-year-missing", "Une école ne possède aucune année scolaire active.");
     const messageId = stableId("coord-msg", caller.uid, idempotencyKey, recipient.id); messageIds.push(messageId);
-    batch.set(db.doc(`messages/${messageId}`), { id: messageId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, senderId: caller.uid, senderName: displayName(caller.profile, caller.role), senderRole: caller.role, recipientIds: [recipient.id], participantIds: [caller.uid, recipient.id], recipientParentId: "school", subject, body: messageBody, createdAt: now, idempotencyKeyHash: stableId("key", caller.uid, idempotencyKey) });
+    batch.set(db.doc(`messages/${messageId}`), { id: messageId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, senderId: caller.uid, senderName: displayName(caller.profile, caller.role), senderRole: caller.role, recipientIds: [recipient.id], participantIds: audience ? [recipient.id] : [caller.uid, recipient.id], recipientLabel: personLabel(recipient, recipient.role), ...(audience ? { groupId: requestId } : {}), recipientParentId: "school", subject, body: messageBody, createdAt: now, idempotencyKeyHash: stableId("key", caller.uid, idempotencyKey) });
     const notificationId = stableId("notif", messageId, recipient.id);
-    batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [recipient.role === "admin" ? "school_admin" : recipient.role], messageId, type: "message", title: `Nouveau message de ${displayName(caller.profile, caller.role)} (${SENDER_ROLE_LABELS[caller.role]})`, body: subject, createdAt: now, read: false });
+    batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [recipient.role === "admin" ? "school_admin" : recipient.role], messageId, type: "message", title: `Nouveau message de ${personLabel(caller.profile, caller.role)}`, body: subject, createdAt: now, read: false });
   }
   const auditRef = db.doc(`auditLogs/${stableId("coord-audit", caller.uid, idempotencyKey)}`);
+  if (audience) {
+    // Lot 25 : une seule copie dans la messagerie de l'expéditeur : « À : 412 parents ».
+    const copySchoolId = selectedSchoolId || recipients[0].schoolId;
+    const copyId = stableId("coord-copy", caller.uid, idempotencyKey);
+    batch.set(db.doc(`messages/${copyId}`), { id: copyId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: copySchoolId, schoolYearId: activeYears.get(copySchoolId), senderId: caller.uid, senderName: displayName(caller.profile, caller.role), senderRole: caller.role, recipientIds: [], participantIds: [caller.uid], senderCopy: true, groupId: requestId, recipientLabel: `${recipientsLabel(recipients)}${selectedSchoolId ? "" : " (toutes les écoles)"}`, recipientCount: recipients.length, recipientParentId: "school", subject, body: messageBody, createdAt: now });
+  }
   batches.push(batch);
   // Les messages ont des identifiants stables : une reprise après coupure réécrit les mêmes documents, sans doublon.
   for (let index = 0; index < batches.length; index += 5) await Promise.all(batches.slice(index, index + 5).map((item) => item.commit()));

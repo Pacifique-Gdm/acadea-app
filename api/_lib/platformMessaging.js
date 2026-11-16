@@ -9,7 +9,7 @@ export const PLATFORM_RECIPIENT_ROLES = new Set(["coordination_admin", "sub_coor
 const COORDINATION_ROLES = new Set(["coordination_admin", "sub_coordination_admin"]);
 const SCHOOL_STAFF_ROLES = new Set(["school_admin", "secretary", "cashier", "discipline_director", "study_director", "teacher"]);
 export const SENDER_ROLE_LABELS = Object.freeze({
-  super_admin: "Super administrateur", coordination_admin: "Coordinateur", sub_coordination_admin: "Sous-coordinateur",
+  super_admin: "Équipe ACADÉA", coordination_admin: "Coordinateur", sub_coordination_admin: "Sous-coordinateur",
   school_admin: "Administrateur", secretary: "Secrétaire", cashier: "Caissier", discipline_director: "Directeur de discipline",
   study_director: "Directeur des études", teacher: "Enseignant", parent: "Parent",
 });
@@ -22,6 +22,8 @@ export const stableId = (prefix, ...parts) => `${prefix}-${createHash("sha256").
 
 /** Nom affiché de l'expéditeur : jamais un identifiant technique. */
 export function displayName(profile, fallbackRole) {
+  // Lot 25 : le Super administrateur apparaît toujours comme « Équipe ACADÉA ».
+  if (role(fallbackRole ?? profile?.role) === "super_admin") return "Équipe ACADÉA";
   const name = text(profile?.displayName ?? profile?.name ?? profile?.fullName, 160);
   return name || SENDER_ROLE_LABELS[role(fallbackRole)] || "Utilisateur";
 }
@@ -32,6 +34,20 @@ export async function requireActiveSuperAdmin(db, decoded) {
   const profile = snapshot.exists ? snapshot.data() : undefined;
   if (!profile || profile.role !== "super_admin" || !active(profile)) fail(403, "not-authorized", "Profil Super administrateur inactif.");
   return { uid: decoded.uid, role: "super_admin", profile };
+}
+
+/** « Marie Kabila (Caissier) », ou « l'Équipe ACADÉA » / « Équipe ACADÉA ». */
+export function personLabel(profile, roleKey, article = false) {
+  if (role(roleKey) === "super_admin") return article ? "l'Équipe ACADÉA" : "Équipe ACADÉA";
+  return `${displayName(profile, roleKey)} (${SENDER_ROLE_LABELS[role(roleKey)] ?? "Personnel"})`;
+}
+
+/** « À : … » d'un message envoyé : un à trois noms avec rôle, sinon le nombre de destinataires. */
+export function recipientsLabel(recipients) {
+  if (recipients.length <= 3) return recipients.map((item) => personLabel(item, item.role)).join(", ");
+  const roles = [...new Set(recipients.map((item) => role(item.role)))];
+  const plural = { parent: "parents", teacher: "enseignants", cashier: "caissiers", secretary: "secrétaires", school_admin: "administrateurs", discipline_director: "directeurs de discipline", study_director: "directeurs des études" };
+  return roles.length === 1 && plural[roles[0]] ? `${recipients.length} ${plural[roles[0]]}` : `${recipients.length} destinataires`;
 }
 
 async function activeSchoolYear(db, schoolId) {
@@ -51,19 +67,22 @@ export async function listPlatformRecipients(db) {
 /** Document de message + notification, dans la portée qui permet au destinataire de les lire. */
 async function platformDocuments(db, { sender, recipient, subject, body, idempotencyKey, replyToMessageId, now }) {
   const messageId = stableId("plat-msg", sender.uid, idempotencyKey, recipient.id);
-  const schoolScope = recipient.schoolId && role(recipient.role) !== "super_admin" ? { schoolId: recipient.schoolId, schoolYearId: await activeSchoolYear(db, recipient.schoolId) } : {};
+  // Lot 25 : une réponse d'école au Super administrateur garde l'école de l'expéditeur, pour figurer dans SA messagerie.
+  const scopeSchoolId = role(recipient.role) !== "super_admin" ? recipient.schoolId : sender.schoolId;
+  const schoolScope = scopeSchoolId ? { schoolId: scopeSchoolId, schoolYearId: await activeSchoolYear(db, scopeSchoolId) } : {};
   if (schoolScope.schoolId && !schoolScope.schoolYearId) fail(409, "school-year-missing", "L'école du destinataire n'a pas d'année scolaire active.");
   const senderScope = sender.schoolId ? { senderSchoolId: sender.schoolId } : sender.coordinationId ? { coordinationId: sender.coordinationId } : {};
   const message = {
     id: messageId, platformMessage: true, senderId: sender.uid, senderName: displayName(sender.profile, sender.role), senderRole: sender.role,
     recipientIds: [recipient.id], participantIds: [sender.uid, recipient.id], recipientParentId: "school", subject, body, createdAt: now,
+    recipientLabel: personLabel(recipient, recipient.role),
     ...schoolScope, ...senderScope, ...(recipient.coordinationId && !schoolScope.schoolId ? { coordinationId: recipient.coordinationId } : {}),
     ...(replyToMessageId ? { replyToMessageId } : {}),
   };
   const notificationId = stableId("plat-notif", messageId, recipient.id);
   const notification = {
     id: notificationId, platformMessage: true, recipientUserId: recipient.id, audienceRoles: [role(recipient.role)], messageId, type: "message",
-    title: `${replyToMessageId ? "Réponse" : "Nouveau message"} de ${message.senderName} (${SENDER_ROLE_LABELS[sender.role]})`, body: subject, createdAt: now, read: false,
+    title: `${replyToMessageId ? "Réponse" : "Nouveau message"} de ${personLabel(sender.profile, sender.role, true)}`, body: subject, createdAt: now, read: false,
     ...schoolScope,
   };
   return { message, notification };
@@ -157,6 +176,7 @@ export async function sendCoordinationReply(db, caller, input) {
     id: messageId, coordinationId: original.coordinationId, ...(original.subCoordinationId ? { subCoordinationId: original.subCoordinationId } : {}),
     schoolId: caller.schoolId, schoolYearId, senderId: caller.uid, senderName, senderRole: role(caller.role),
     recipientIds: [target.id], participantIds: [caller.uid, target.id], recipientParentId: "school", subject, body, createdAt: now, replyToMessageId: original.id,
+    recipientLabel: personLabel(target, target.role),
   };
   const notificationId = stableId("notif", messageId, target.id);
   const batch = db.batch();

@@ -3,7 +3,7 @@ import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
-import { replyRoute, resolveReplyTarget, SENDER_ROLE_LABELS, sendCoordinationReply, sendPlatformReply } from "./_lib/platformMessaging.js";
+import { personLabel, recipientsLabel, replyRoute, resolveReplyTarget, sendCoordinationReply, sendPlatformReply } from "./_lib/platformMessaging.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -138,6 +138,7 @@ export function createSchoolMessageDocument({ messageId, caller, schoolYearId, r
     senderId: caller.uid,
     ...messagingSenderIdentity(caller),
     recipientIds: recipients.map((recipient) => recipient.id),
+    recipientLabel: recipientsLabel(recipients),
     participantIds,
     recipientParentId: "school",
     threadId: conversationId,
@@ -205,7 +206,7 @@ export default async function handler(req, res) {
     batch.set(db.doc(`conversations/${conversationId}`), conversation);
     recipients.forEach((recipient) => {
       const notificationId = stableId("notif", messageId, recipient.id);
-      batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: `Nouveau message de ${savedMessage.senderName} (${SENDER_ROLE_LABELS[savedMessage.senderRole] ?? "Personnel"})`, body: subject, createdAt, read: false });
+      batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: `Nouveau message de ${personLabel({ name: savedMessage.senderName }, savedMessage.senderRole)}`, body: subject, createdAt, read: false });
     });
     await batch.commit();
     await Promise.allSettled(temporaryPaths.map((path) => bucket.file(path).delete({ ignoreNotFound: true })));

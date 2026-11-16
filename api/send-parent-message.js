@@ -1,4 +1,5 @@
 import { randomId as uid } from "./_lib/randomId.js";
+import { recipientsLabel } from "./_lib/platformMessaging.js";
 import { FieldValue } from "firebase-admin/firestore";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
@@ -268,6 +269,7 @@ export default async function handler(req, res) {
         senderId: caller.uid,
         senderName: String(parent.fullName ?? caller.name ?? "").trim() || "Parent",
         senderRole: "parent",
+        recipientLabel: recipientsLabel(recipients),
         recipientParentId: "school",
         threadParentId: caller.parentId,
         threadId,

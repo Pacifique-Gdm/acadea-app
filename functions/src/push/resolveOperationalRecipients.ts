@@ -28,7 +28,9 @@ export function isOperationalNotification(value: Record<string, unknown>): value
 }
 
 function activeForYear(user: SchoolUserRecord, schoolId: string, yearId: string) {
-  return user.status !== "inactive" && user.schoolId === schoolId && (!user.activeSchoolYearId || user.activeSchoolYearId === yearId);
+  // Lot 25 : l'année affichée par le compte n'est pas une condition (elle peut dater d'une année passée).
+  void yearId;
+  return user.status !== "inactive" && user.schoolId === schoolId;
 }
 
 async function withTokens(users: SchoolUserRecord[], repository: OperationalRepository) {
@@ -54,7 +56,7 @@ async function resolveParent(notification: OperationalNotificationRecord, reposi
     repository.getStudent(notification.studentId), repository.getParent(notification.parentId), repository.findParentUsers(notification.parentId, notification.schoolId),
   ]);
   if (!student || student.id !== notification.studentId || student.schoolId !== notification.schoolId || student.schoolYearId !== notification.schoolYearId) return null;
-  if (!parent || parent.id !== notification.parentId || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId || !parentOwnsStudent(parent, student)) return null;
+  if (!parent || parent.id !== notification.parentId || parent.status === "inactive" || parent.schoolId !== notification.schoolId || !parentOwnsStudent(parent, student)) return null;
   return users.filter((user) => user.role === "parent" && user.parentId === parent.id && activeForYear(user, notification.schoolId, notification.schoolYearId));
 }
 
@@ -104,7 +106,7 @@ export async function resolveOperationalRecipients(notification: OperationalNoti
     if (parentIds.length === 0) return null;
     for (const parentId of parentIds) {
       const parent = await repository.getParent(parentId);
-      if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId || parent.schoolYearId !== notification.schoolYearId) continue;
+      if (!parent || parent.status === "inactive" || parent.schoolId !== notification.schoolId) continue;
       const studentIds = parent.studentIds ?? [];
       const students = await Promise.all(studentIds.map((id) => repository.getStudent(id)));
       if (!students.some((student) => student && student.schoolId === notification.schoolId && student.schoolYearId === notification.schoolYearId && parentCanSeeAnnouncement(announcement, parent, student))) continue;

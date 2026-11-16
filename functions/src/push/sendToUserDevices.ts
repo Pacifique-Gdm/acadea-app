@@ -1,4 +1,5 @@
 import type { Firestore } from "firebase-admin/firestore";
+import { loadPushContext, pushText } from "./pushTexts.js";
 import type { Messaging } from "firebase-admin/messaging";
 import { deactivateInvalidToken, isInvalidTokenError } from "./cleanupInvalidTokens.js";
 import type { PaymentRecordedNotification, ResolvedPaymentRecipient } from "./types.js";
@@ -11,15 +12,13 @@ export async function sendPaymentRecordedToDevices(
 ) {
   let successCount = 0;
   let failureCount = 0;
+  const text = pushText("payment_recorded", await loadPushContext(database, notification.schoolId, notification.studentId));
   for (const recipient of recipients) {
     for (let offset = 0; offset < recipient.tokens.length; offset += 500) {
       const tokenRecords = recipient.tokens.slice(offset, offset + 500);
       const response = await messaging.sendEachForMulticast({
         tokens: tokenRecords.map((item) => item.token as string),
-        notification: {
-          title: "Paiement enregistré",
-          body: "Un nouveau paiement est disponible dans votre espace financier Acadéa.",
-        },
+        notification: text,
         data: {
           module: "payments",
           event: "payment_recorded",

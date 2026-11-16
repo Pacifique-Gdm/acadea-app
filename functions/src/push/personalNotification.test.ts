@@ -45,7 +45,7 @@ const seed = () => ({
   "users/coord/pushTokens/phone": { userId: "coord", token: "token-coord", active: true },
   "users/gone": { role: "teacher", schoolId: "school-a", status: "inactive" },
   "users/gone/pushTokens/phone": { userId: "gone", token: "token-gone", active: true },
-  "messages/m1": { senderName: "Marie Kabila", senderRole: "secretary" },
+  "messages/m1": { senderName: "Marie Kabila", senderRole: "secretary", subject: "Réunion des parents" },
   "messages/m2": { senderName: "Coordinateur Fictif", senderRole: "coordination_admin", replyToMessageId: "m0" },
   "notifications/n-unread": { recipientUserId: "parent-a", read: false },
 });
@@ -60,7 +60,7 @@ describe("lot 24 : push personnels", () => {
     expect(await handlePersonalNotification("n1", message, db as never, fcm as never)).toMatchObject({ status: "completed", successCount: 2 });
     const payload = fcm.sendEachForMulticast.mock.calls[0]![0] as unknown as { tokens: string[]; notification: { title: string; body: string }; data: Record<string, string>; webpush: { headers: Record<string, string> } };
     expect(payload.tokens.sort()).toEqual(["token-phone", "token-tablet"]);
-    expect(payload.notification).toEqual({ title: "Nouveau message de Marie Kabila (Secrétaire)", body: "Ouvrez Acadéa pour lire le message." });
+    expect(payload.notification).toEqual({ title: "Nouveau message — Marie Kabila", body: "Objet : Réunion des parents" });
     expect(payload.data).toMatchObject({ module: "personal", event: "message_received", destination: "/dashboard", messageId: "m1", badge: "1" });
     expect(Number(payload.webpush.headers.TTL)).toBeGreaterThanOrEqual(7 * 24 * 3600);
   });
@@ -89,7 +89,7 @@ describe("lot 24 : push personnels", () => {
   it("la Coordination reçoit la réponse d'une école qu'elle supervise", async () => {
     const db = memoryDatabase(seed()), fcm = messaging();
     await handlePersonalNotification("n5", { type: "message", recipientUserId: "coord", schoolId: "school-a", coordinationId: "c1", messageId: "m2" }, db as never, fcm as never);
-    expect((fcm.sendEachForMulticast.mock.calls[0]![0] as unknown as { notification: { title: string } }).notification.title).toBe("Réponse de Coordinateur Fictif (Coordinateur)");
+    expect((fcm.sendEachForMulticast.mock.calls[0]![0] as unknown as { notification: { title: string } }).notification.title).toBe("Nouveau message — Coordinateur Fictif");
     expect(recipientAllowed({ id: "coord", role: "coordination_admin", coordinationId: "c2" }, { schoolId: "school-a", coordinationId: "c1" })).toBe(false);
   });
 
@@ -102,5 +102,11 @@ describe("lot 24 : push personnels", () => {
     for (const event of ["payment_corrected", "payment_cancelled", "grades_published"] as const) expect(JSON.stringify(personalText(event))).not.toMatch(/\d|USD|FC|motif/i);
     // Plus de double envoi : l'ancienne fonction ignore les notifications adressées à une personne.
     expect(isMessageNotification({ type: "message", recipientRole: "school", schoolId: "s", schoolYearId: "y", messageId: "m", recipientUserId: "u" })).toBe(false);
+  });
+});
+
+describe("lot 25 : Équipe ACADÉA", () => {
+  it("un message du Super administrateur s'annonce « Nouveau message — Équipe ACADÉA »", () => {
+    expect(personalText("message_received", { senderName: "Équipe ACADÉA", senderRole: "super_admin" }).title).toBe("Nouveau message — Équipe ACADÉA");
   });
 });

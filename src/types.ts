@@ -459,6 +459,11 @@ export interface Message {
   senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "coordination_admin" | "sub_coordination_admin" | "super_admin";
   /** Lot 23 : message du Super administrateur ou réponse à celui-ci. */
   platformMessage?: boolean;
+  /** Lot 25 : « À : … » affiché chez l'expéditeur (nom et rôle, ou « 412 parents »). */
+  recipientLabel?: string;
+  /** Lot 25 : copie unique d'un envoi groupé dans la messagerie de l'expéditeur. */
+  senderCopy?: boolean;
+  groupId?: string;
   replyToMessageId?: string;
   participantIds?: string[];
   recipientIds?: string[];

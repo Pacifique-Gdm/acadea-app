@@ -109,7 +109,7 @@ self.addEventListener("push", (event) => {
     self.registration.showNotification(notification.title || "Paiement enregistré", {
       body: notification.body || "Un paiement a été enregistré.",
       icon: "/icons/icon-192.png",
-      badge: "/favicon.png",
+      badge: "/icons/notification-badge.png",
       tag: data.module === "personal" ? `personal-${data.notificationId}` : isMessage ? `message-${data.notificationId}` : `payment-recorded-${data.notificationId || "unknown"}`,
       data,
     }),

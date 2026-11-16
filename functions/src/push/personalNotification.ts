@@ -1,4 +1,5 @@
 import type { Firestore } from "firebase-admin/firestore";
+import { loadPushContext, messagePushText, pushText, type PushContext } from "./pushTexts.js";
 import type { Messaging } from "firebase-admin/messaging";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
@@ -12,11 +13,6 @@ import { deactivateInvalidToken, isInvalidTokenError } from "./cleanupInvalidTok
  * annulation de paiement, notes publiées. Les paiements enregistrés, absences,
  * sanctions et annonces restent envoyés par leurs fonctions existantes.
  * Les textes visibles sur l'écran verrouillé ne contiennent ni montant ni motif. */
-const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Super administrateur", coordination_admin: "Coordinateur", sub_coordination_admin: "Sous-coordinateur",
-  school_admin: "Administrateur", admin: "Administrateur", secretary: "Secrétaire", cashier: "Caissier",
-  discipline_director: "Directeur de discipline", study_director: "Directeur des études", teacher: "Enseignant", parent: "Parent",
-};
 // Quatre semaines : le téléphone reçoit la notification dès qu'il retrouve la connexion.
 const TTL_SECONDS = 28 * 24 * 60 * 60;
 
@@ -46,16 +42,10 @@ export function recipientAllowed(user: UserRecord | null, value: NotificationVal
   return false;
 }
 
-export function personalText(event: PersonalEvent, sender?: { senderName?: unknown; senderRole?: unknown } | null, replyTo?: unknown) {
-  if (event === "message_received") {
-    const name = typeof sender?.senderName === "string" && sender.senderName.trim() ? sender.senderName.trim() : "";
-    const role = typeof sender?.senderRole === "string" ? ROLE_LABELS[sender.senderRole] ?? "" : "";
-    const who = name ? `${name}${role ? ` (${role})` : ""}` : role || "Acadéa";
-    return { title: `${replyTo ? "Réponse" : "Nouveau message"} de ${who}`, body: "Ouvrez Acadéa pour lire le message." };
-  }
-  if (event === "payment_corrected") return { title: "Paiement modifié", body: "Une modification de paiement est disponible dans Acadéa." };
-  if (event === "payment_cancelled") return { title: "Paiement annulé", body: "Une annulation de paiement est disponible dans Acadéa." };
-  return { title: "Notes publiées", body: "De nouvelles cotes sont disponibles dans Acadéa." };
+/** Lot 25 : textes communs (pushTexts.ts) — école et prénom, ni montant ni motif. */
+export function personalText(event: PersonalEvent, message?: { senderName?: unknown; senderRole?: unknown; subject?: unknown } | null, context: PushContext = {}) {
+  if (event === "message_received") return messagePushText(message);
+  return pushText(event, context);
 }
 
 export async function handlePersonalNotification(notificationId: string, value: NotificationValue, database: Firestore = getFirestore(), messaging: Messaging = getMessaging()) {
@@ -91,7 +81,8 @@ export async function handlePersonalNotification(notificationId: string, value: 
       return { status: "completed" as const, successCount: 0, failureCount: 0 };
     }
     const message = event === "message_received" ? (await database.doc(`messages/${value.messageId as string}`).get()).data() : undefined;
-    const text = personalText(event, message, message?.replyToMessageId);
+    const context = event === "message_received" ? {} : await loadPushContext(database, value.schoolId, value.studentId);
+    const text = personalText(event, message, context);
     const unread = (await database.collection("notifications").where("recipientUserId", "==", userId).where("read", "==", false).count().get()).data().count;
     let successCount = 0, failureCount = 0;
     for (let offset = 0; offset < tokens.length; offset += 500) {

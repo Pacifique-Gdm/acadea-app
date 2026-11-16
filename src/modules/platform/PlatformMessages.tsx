@@ -8,6 +8,18 @@ import type { AppNotification, AppUser, Message, School } from "../../types";
 
 const roleLabels: Record<PlatformRecipient["role"], string> = { coordination_admin: "Coordinations", sub_coordination_admin: "Sous-coordinations", school_admin: "Administrateurs d'école" };
 
+/** Lot 25 : nombre de notifications non lues du Super administrateur (cloche de l'en-tête). */
+export function usePlatformUnreadCount(userId: string) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!firebaseReady || !db || !userId) return undefined;
+    const database = db as unknown as Firestore;
+    return onSnapshot(query(collection(database, "notifications"), where("recipientUserId", "==", userId), where("read", "==", false), limit(100)),
+      (snapshot) => setCount(snapshot.size), () => setCount(0));
+  }, [userId]);
+  return count;
+}
+
 /** Lot 23 : messagerie du Super administrateur (coordinations, sous-coordinations,
  * administrateurs d'école) et réception de leurs réponses, en temps réel. */
 export function PlatformMessages({ user, schools }: { user: AppUser; schools: School[] }) {
