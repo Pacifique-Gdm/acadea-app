@@ -81,7 +81,7 @@ declare module "firebase/auth" {
 
 declare module "firebase/firestore" {
   interface DocumentReference { readonly __documentReference: true }
-  interface DocumentSnapshot { id: string; exists(): boolean; data(): Record<string, unknown>; metadata: { fromCache: boolean } }
+  interface DocumentSnapshot { id: string; exists(): boolean; data(): Record<string, unknown>; metadata: { fromCache: boolean; hasPendingWrites?: boolean } }
   export function getFirestore(app?: unknown): unknown;
   export function connectFirestoreEmulator(db: unknown, host: string, port: number): void;
   export function doc(db: unknown, collectionName: string, id: string): DocumentReference;
@@ -97,9 +97,10 @@ declare module "firebase/firestore" {
     commit(): Promise<void>;
   };
   export function getDoc(ref: unknown): Promise<{ id: string; exists(): boolean; data(): Record<string, unknown> }>;
-  export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }>; metadata?: { fromCache: boolean } }>;
+  export function getDocs(ref: unknown): Promise<{ size: number; docs: Array<{ id: string; ref: unknown; data(): Record<string, unknown> }>; metadata?: { fromCache: boolean; hasPendingWrites?: boolean } }>;
   export function onSnapshot(ref: DocumentReference, next: (snapshot: DocumentSnapshot) => void, error?: (error: Error) => void): () => void;
   export function onSnapshot(ref: unknown, next: (snapshot: { docs: Array<{ id: string; data(): Record<string, unknown> }> }) => void, error?: (error: Error) => void): () => void;
+  export function onSnapshot(ref: unknown, options: { includeMetadataChanges: boolean }, next: (snapshot: { docs: Array<{ id: string; data(): Record<string, unknown> }>; metadata: { fromCache: boolean; hasPendingWrites: boolean } }) => void, error?: (error: Error) => void): () => void;
   export function runTransaction<T>(db: unknown, operation: (transaction: {
     get(ref: unknown): Promise<{ exists(): boolean; data(): Record<string, unknown> | undefined }>;
     set(ref: unknown, data: unknown, options?: { merge?: boolean }): void;

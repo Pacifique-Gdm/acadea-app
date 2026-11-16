@@ -18,6 +18,25 @@ type PersistFirestorePatchOptions = {
   /** État avant la modification : seules les fiches réellement modifiées sont écrites. */
   previous?: Partial<AppData>;
 };
+export type SecondarySchoolSection = "messages" | "valves" | "attendance" | "auditLogs";
+export type SecondarySchoolResult = (section: SecondarySchoolSection, error: FirestoreDataError | null) => void;
+
+async function readSecondarySchoolData(
+  section: SecondarySchoolSection,
+  read: () => Promise<FirestoreYearData>,
+  report: SecondarySchoolResult,
+): Promise<FirestoreYearData> {
+  try {
+    const data = await read();
+    report(section, null);
+    return data;
+  } catch (error) {
+    report(section, error instanceof FirestoreDataError ? error : describeFirestoreError(section, error));
+    // A failed read must not replace data we already have with an empty array.
+    return {};
+  }
+}
+
 export type FirestoreYearData = Partial<Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "expenses" | "cashInflows" | "messages" | "valves" | "attendance" | "attendanceSettings" | "auditLogs">>;
 export type DisciplineYearData = Pick<AppData, "students" | "parents" | "messages" | "notifications" | "disciplineSanctions" | "attendance" | "attendanceSettings" | "valves">;
 export type ParentPortalData = Pick<AppData, "feeTypes" | "students" | "parents" | "payments" | "messages" | "valves">;
@@ -86,7 +105,7 @@ function emptyFirestoreData(): AppData {
 export function withFirestoreTimeout<T>(operation: Promise<T>, context: string) {
   return new Promise<T>((resolve, reject) => {
     const timer = globalThis.setTimeout(() => {
-      reject(Object.assign(new Error(`Chargement Firestore trop long : ${context}.`), { code: "client-timeout" }));
+      reject(Object.assign(new Error(`Chargement Firestore trop long : ${context}.`), { code: "client-timeout", durationMs: 15000 }));
     }, 15000);
     operation.then(
       (value) => {
@@ -104,12 +123,14 @@ export function withFirestoreTimeout<T>(operation: Promise<T>, context: string) 
 export class FirestoreDataError extends Error {
   readonly code: string;
   readonly collectionPath: string;
+  readonly durationMs?: number;
 
   constructor(collectionPath: string, error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     super(`Chargement Firestore impossible pour ${collectionPath} : ${message}`);
     this.name = "FirestoreDataError";
     this.collectionPath = collectionPath;
+    if (typeof error === "object" && error !== null && "durationMs" in error && typeof error.durationMs === "number") this.durationMs = error.durationMs;
     this.code = typeof error === "object" && error !== null && "code" in error ? String(error.code)
       : message.startsWith("Chargement Firestore trop long") ? "deadline-exceeded" : "unknown";
   }
@@ -123,16 +144,97 @@ export function getYearRefreshScope(role: AppUser["role"]) {
   return role === "secretary" ? "secretary" : "school";
 }
 
-async function loadCollection<T>(collectionName: string, filters: [string, unknown][], serverOnly = false) {
+async function loadCollection<T>(collectionName: string, filters: [string, unknown][], serverOnly = false, deadline = true) {
   if (!db) return [];
 
   const constraints = filters.map(([field, value]) => where(field, "==", value));
   const collectionQuery = query(collection(db, collectionName), ...constraints);
-  const snapshot = await withFirestoreTimeout(getDocs(collectionQuery), collectionName).catch((error) => {
+  const operation = getDocs(collectionQuery);
+  const snapshot = await (deadline ? withFirestoreTimeout(operation, collectionName) : operation).catch((error) => {
     throw describeFirestoreError(collectionName, error);
   });
-  if (serverOnly && snapshot.metadata?.fromCache) throw describeFirestoreError(collectionName, { code: "unavailable", message: "Réponse du cache local uniquement." });
+  if (serverOnly && (snapshot.metadata?.fromCache || snapshot.metadata?.hasPendingWrites)) throw describeFirestoreError(collectionName, { code: "unavailable", message: "Réponse non confirmée par le serveur." });
   return snapshot.docs.map((item) => normalizeSchoolDomainDocument(collectionName, { id: item.id, ...item.data() })) as T[];
+}
+
+export type SchoolRefreshSection = "financial" | SecondarySchoolSection;
+export type SchoolRefreshResult = {
+  section: SchoolRefreshSection;
+  data?: FirestoreYearData;
+  error?: FirestoreDataError;
+  durationMs: number;
+};
+
+/** A deadline reports uncertainty; it must NOT discard a later server response.
+ * No retries or writes here. stop() invalidates callbacks on logout/year change.
+ * Each group settles independently so messages cannot hold financial PDFs hostage.
+ */
+export function startSchoolRefresh(user: AppUser, schoolYearId: string, report: (result: SchoolRefreshResult) => void) {
+  if (!canUseFirestoreData() || !user.schoolId || !schoolYearId || !["school_admin", "cashier"].includes(user.role)) {
+    throw new Error("Périmètre d’actualisation scolaire indisponible.");
+  }
+  let active = true;
+  const cancellations: Array<() => void> = [];
+  const school: [string, unknown][] = [["schoolId", user.schoolId]];
+  const annual: [string, unknown][] = [...school, ["schoolYearId", schoolYearId]];
+  const group = (section: SchoolRefreshSection, entries: Array<{ name: string; key: keyof FirestoreYearData; filters: [string, unknown][] }>) => {
+    const started = Date.now();
+    const pending = new Set(entries.map((entry, index) => `${entry.name}:${index}`));
+    let settle!: () => void;
+    const done = new Promise<void>(resolve => { settle = resolve; });
+    const timer = globalThis.setTimeout(() => {
+      if (!active) return;
+      const names = [...new Set([...pending].map(key => key.split(":")[0]))].join(",");
+      report({ section, durationMs: Date.now() - started, error: describeFirestoreError(names || section,
+        { code: "client-timeout", durationMs: Date.now() - started, message: "Confirmation serveur en attente." }) });
+      settle();
+    }, 15000);
+    cancellations.push(() => { globalThis.clearTimeout(timer); settle(); });
+    Promise.all(entries.map(async (entry, index) => {
+      try {
+        const rows = await loadCollection<{ id: string }>(entry.name, entry.filters, true, false);
+        return { key: entry.key, rows };
+      } finally { pending.delete(`${entry.name}:${index}`); }
+    })).then(results => {
+      if (!active) return;
+      const data: FirestoreYearData = {};
+      for (const { key, rows } of results) {
+        // Annual payments and collected arrears can contain the same document.
+        data[key] = [...new Map([...(data[key] ?? []), ...rows].map(row => [row.id, row])).values()] as never;
+      }
+      report({ section, data, durationMs: Date.now() - started });
+    }, error => {
+      if (active) report({ section, error: error instanceof FirestoreDataError ? error : describeFirestoreError(section, error), durationMs: Date.now() - started });
+    }).finally(() => { globalThis.clearTimeout(timer); settle(); });
+    return done;
+  };
+  const groups = [group("financial", [
+    ...(["students", "feeTypes", "payments", "expenses", "cashInflows"] as const).map(key => ({ key, name: key, filters: annual })),
+    { key: "parents", name: "parents", filters: school },
+    { key: "payments", name: "payments", filters: [...school, ["collectionSchoolYearId", schoolYearId]] },
+  ])];
+  // Messages need array/in constraints, unlike the equality-only collections.
+  const started = Date.now();
+  let settleMessages!: () => void;
+  groups.push(new Promise<void>(resolve => { settleMessages = resolve; }));
+  const messagesTimer = globalThis.setTimeout(() => {
+    if (active) report({ section: "messages", durationMs: Date.now() - started,
+      error: describeFirestoreError("messages", { code: "client-timeout", durationMs: Date.now() - started }) });
+    settleMessages();
+  }, 15000);
+  cancellations.push(() => { globalThis.clearTimeout(messagesTimer); settleMessages(); });
+  loadSchoolMessages(user, user.schoolId, schoolYearId, true, false).then(messages => {
+    if (active) report({ section: "messages", data: { messages }, durationMs: Date.now() - started });
+  }, error => {
+    if (active) report({ section: "messages", error, durationMs: Date.now() - started });
+  }).finally(() => { globalThis.clearTimeout(messagesTimer); settleMessages(); });
+  groups.push(group("valves", [{ key: "valves", name: "valves", filters: annual }]));
+  groups.push(group("auditLogs", [{ key: "auditLogs", name: "auditLogs", filters: user.role === "cashier" ? [...school, ["actorId", user.id]] : school }]));
+  if (user.role === "school_admin") groups.push(group("attendance", [
+    { key: "attendance", name: "attendance", filters: annual },
+    { key: "attendanceSettings", name: "attendanceSettings", filters: annual },
+  ]));
+  return { done: Promise.all(groups).then(() => undefined), stop: () => { active = false; cancellations.forEach(cancel => cancel()); } };
 }
 
 async function loadPaymentsForYear(schoolId: string, schoolYearId: string, serverOnly = false) {
@@ -235,18 +337,19 @@ export async function loadFirestoreBootstrapData(user: AppUser): Promise<Firesto
   return { users: [user], schools, schoolYears };
 }
 
-async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId: string, serverOnly = false) {
+async function loadSchoolMessages(user: AppUser, schoolId: string, schoolYearId: string, serverOnly = false, deadline = true) {
   if (!db) return [];
   const base = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
   const legacyRecipients = schoolMessageLegacyRecipients(user.role);
   const queries = [
-    withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("participantIds", "array-contains", user.id))), "messages"),
+    getDocs(query(collection(db, "messages"), ...base, where("participantIds", "array-contains", user.id))),
   ];
   if (legacyRecipients) {
-    queries.push(withFirestoreTimeout(getDocs(query(collection(db, "messages"), ...base, where("schoolRecipient", "in", legacyRecipients))), "messages"));
+    queries.push(getDocs(query(collection(db, "messages"), ...base, where("schoolRecipient", "in", legacyRecipients))));
   }
-  const snapshots = await Promise.all(queries).catch((error) => { throw describeFirestoreError("messages", error); });
-  if (serverOnly && snapshots.some((snapshot) => snapshot.metadata?.fromCache)) throw describeFirestoreError("messages", { code: "unavailable", message: "Réponse du cache local uniquement." });
+  const operation = Promise.all(queries);
+  const snapshots = await (deadline ? withFirestoreTimeout(operation, "messages") : operation).catch((error) => { throw describeFirestoreError("messages", error); });
+  if (serverOnly && snapshots.some((snapshot) => snapshot.metadata?.fromCache || snapshot.metadata?.hasPendingWrites)) throw describeFirestoreError("messages", { code: "unavailable", message: "Réponse non confirmée par le serveur." });
   return Array.from(new Map(snapshots.flatMap((snapshot) => snapshot.docs).map((item) => [item.id, { id: item.id, ...item.data() } as AppData["messages"][number]])).values());
 }
 
@@ -261,7 +364,7 @@ export async function loadFirestoreData(
   user?: AppUser,
   schoolYearId?: string,
   bootstrapData?: FirestoreBootstrapData,
-  options: { omitRealtimeManagedCollections?: boolean } = {},
+  options: { omitRealtimeManagedCollections?: boolean; onSecondaryResult?: SecondarySchoolResult } = {},
 ) {
   if (!canUseFirestoreData() || !db) return null;
 
@@ -360,11 +463,29 @@ export async function loadFirestoreData(
       maybeLoad("payments", () => targetSchoolYearId ? loadPaymentsForYear(user.schoolId!, targetSchoolYearId) : loadCollection<AppData["payments"][number]>("payments", annualFilter)),
       maybeLoad("expenses", () => loadCollection<AppData["expenses"][number]>("expenses", annualFilter)),
       maybeLoad("cashInflows", () => loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter)),
-      loadSchoolMessages(user, user.schoolId, schoolYearId as string),
+      options.onSecondaryResult
+        ? readSecondarySchoolData("messages", async () => ({ messages: await loadSchoolMessages(user, user.schoolId!, targetSchoolYearId ?? "", true) }), options.onSecondaryResult)
+        : loadSchoolMessages(user, user.schoolId, schoolYearId as string).then(messages => ({ messages })),
       maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", annualFilter)),
     ]);
-    [scopedData.feeTypes, scopedData.students, scopedData.parents, scopedData.payments, scopedData.expenses, scopedData.cashInflows, scopedData.messages, scopedData.valves] = commonLoads;
-    if (user.role === "school_admin") {
+    const [fees, students, parents, payments, expenses, cashInflows, messages, valves] = commonLoads;
+    Object.assign(scopedData, { feeTypes: fees, students, parents, payments, expenses, cashInflows, valves }, messages);
+    if (options.onSecondaryResult && (user.role === "school_admin" || user.role === "cashier")) {
+      const filters: [string, unknown][] = user.role === "school_admin" ? schoolFilter : [...schoolFilter, ["actorId", user.id]];
+      const [audit, presence] = await Promise.all([
+        readSecondarySchoolData("auditLogs", async () => ({
+          auditLogs: await loadCollection<AppData["auditLogs"][number]>("auditLogs", filters, true),
+        }), options.onSecondaryResult),
+        user.role === "school_admin" ? readSecondarySchoolData("attendance", async () => {
+          const [attendance, attendanceSettings] = await Promise.all([
+            loadCollection<AppData["attendance"][number]>("attendance", annualFilter, true),
+            loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", annualFilter, true),
+          ]);
+          return { attendance, attendanceSettings };
+        }, options.onSecondaryResult) : Promise.resolve({}),
+      ]);
+      Object.assign(scopedData, audit, presence);
+    } else if (user.role === "school_admin") {
       [scopedData.auditLogs, scopedData.attendance, scopedData.attendanceSettings] = await Promise.all([
         loadCollection<AppData["auditLogs"][number]>("auditLogs", schoolFilter),
         loadAttendanceCollection(annualFilter),
@@ -451,7 +572,7 @@ export async function loadParentPortalData(user: AppUser) {
   return parentData;
 }
 
-export async function loadFirestoreYearData(user: AppUser, schoolYearId: string) {
+export async function loadFirestoreYearData(user: AppUser, schoolYearId: string, reportSecondary?: SecondarySchoolResult) {
   if (!canUseFirestoreData() || !db) return null;
   if (!user.schoolId) {
     throw new Error("Chargement Firestore impossible : schoolId manquant dans les Custom Claims.");
@@ -480,22 +601,30 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string)
     return { students, parents, feeTypes, payments };
   }
 
-  // Independent, school/year-scoped reads must not add their latency together.
-  // Apply only after every required collection has confirmed a server response.
-  const [students, feeTypes, payments, expenses, cashInflows, messages, valves, attendance, attendanceSettings] = await Promise.all([
+  const secondary = (section: SecondarySchoolSection, read: () => Promise<FirestoreYearData>) =>
+    reportSecondary ? readSecondarySchoolData(section, read, reportSecondary) : read();
+  const [students, feeTypes, payments, expenses, cashInflows, messages, valves, attendance, audit] = await Promise.all([
     loadCollection<AppData["students"][number]>("students", annualFilter, true),
     loadCollection<AppData["feeTypes"][number]>("feeTypes", annualFilter, true),
     loadPaymentsForYear(user.schoolId, schoolYearId, true),
     loadCollection<AppData["expenses"][number]>("expenses", annualFilter, true),
     loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter, true),
-    loadSchoolMessages(user, user.schoolId, schoolYearId, true),
-    loadCollection<AppData["valves"][number]>("valves", annualFilter, true),
-    loadCollection<AppData["attendance"][number]>("attendance", annualFilter, true),
-    loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", annualFilter, true),
+    secondary("messages", async () => ({ messages: await loadSchoolMessages(user, user.schoolId!, schoolYearId, true) })),
+    secondary("valves", async () => ({ valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter, true) })),
+    secondary("attendance", async () => {
+      const [attendance, attendanceSettings] = await Promise.all([
+        loadCollection<AppData["attendance"][number]>("attendance", annualFilter, true),
+        loadCollection<AppData["attendanceSettings"][number]>("attendanceSettings", annualFilter, true),
+      ]);
+      return { attendance, attendanceSettings };
+    }),
+    reportSecondary && (user.role === "school_admin" || user.role === "cashier") ? secondary("auditLogs", async () => ({
+      auditLogs: await loadCollection<AppData["auditLogs"][number]>(
+        "auditLogs", user.role === "school_admin" ? [["schoolId", user.schoolId]] : [["schoolId", user.schoolId], ["actorId", user.id]], true,
+      ),
+    })) : Promise.resolve({}),
   ]);
-  const yearData: FirestoreYearData = { students, feeTypes, payments, expenses, cashInflows, messages, valves, attendance, attendanceSettings };
-
-  return yearData;
+  return { students, feeTypes, payments, expenses, cashInflows, ...messages, ...valves, ...attendance, ...audit };
 }
 
 export async function loadPlatformSettings() {

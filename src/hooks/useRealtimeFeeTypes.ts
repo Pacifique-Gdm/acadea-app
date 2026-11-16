@@ -19,23 +19,25 @@ export function reconcileRealtimeFeeTypes(current: FeeType[], incoming: FeeType[
   return [...outsideScope, ...scoped.values()];
 }
 
-export function subscribeToRealtimeFeeTypes(database: Firestore, user: AppUser, schoolId: string, schoolYearId: string, onFees: (fees: FeeType[]) => void) {
+export function subscribeToRealtimeFeeTypes(database: Firestore, user: AppUser, schoolId: string, schoolYearId: string, onFees: (fees: FeeType[]) => void, onError?: (error: Error) => void) {
   if (!canSubscribeToRealtimeFeeTypes(user, schoolId, schoolYearId)) return undefined;
   return onSnapshot(
     query(collection(database, "feeTypes"), where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)),
-    (snapshot) => onFees(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as FeeType)),
-    (error) => console.warn("Écoute en temps réel des types de frais indisponible.", error),
+    { includeMetadataChanges: true },
+    (snapshot) => { if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) onFees(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as FeeType)); },
+    (error) => { console.warn("Écoute en temps réel des types de frais indisponible.", error); onError?.(error); },
   );
 }
 
-export function useRealtimeFeeTypes({ user, schoolId, schoolYearId, onFees }: {
+export function useRealtimeFeeTypes({ user, schoolId, schoolYearId, onFees, onError }: {
   user: AppUser | null;
   schoolId: string;
   schoolYearId: string;
   onFees: (fees: FeeType[]) => void;
+  onError?: (error: Error) => void;
 }) {
   useEffect(() => {
     if (!firebaseReady || !db || !user || !canSubscribeToRealtimeFeeTypes(user, schoolId, schoolYearId)) return undefined;
-    return subscribeToRealtimeFeeTypes(db as unknown as Firestore, user, schoolId, schoolYearId, onFees);
-  }, [onFees, schoolId, schoolYearId, user]);
+    return subscribeToRealtimeFeeTypes(db as unknown as Firestore, user, schoolId, schoolYearId, onFees, onError);
+  }, [onFees, onError, schoolId, schoolYearId, user]);
 }

@@ -24,13 +24,16 @@ export function refreshErrorMessage(error: unknown) {
 }
 
 export function logRefreshError(params: { module: string; error: unknown }) {
-  if (!import.meta.env.DEV && import.meta.env.VITE_APP_ENV !== "staging") return;
-  const collectionPath = typeof params.error === "object" && params.error !== null && "collectionPath" in params.error ? String(params.error.collectionPath) : "unknown";
-  console.error("[Acadéa refresh]", {
+  const details = typeof params.error === "object" && params.error !== null ? params.error : {};
+  const collection = "collectionPath" in details ? String(details.collectionPath).split("/")[0] : "";
+  const durationMs = "durationMs" in details && typeof details.durationMs === "number" ? details.durationMs : undefined;
+  const code = firebaseErrorCode(params.error);
+  console.warn("[Acadéa refresh]", {
     module: params.module,
     action: "refresh",
-    collectionPath,
-    errorCode: firebaseErrorCode(params.error),
+    collection: /^[a-zA-Z][a-zA-Z0-9]*$/.test(collection) ? collection : "unknown",
+    errorCode: /^[a-z-]+$/.test(code) ? code : "unknown",
+    durationMs,
     timestamp: new Date().toISOString(),
   });
 }

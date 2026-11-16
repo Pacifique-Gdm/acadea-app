@@ -56,6 +56,8 @@ type ControlModuleProps = {
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
   createId: (prefix: string) => string;
+  refreshing?: boolean;
+  refreshError?: string;
 };
 
 const CONTROL_PAGE_SIZE = 50;
@@ -68,6 +70,8 @@ export function ControlModule({
   year,
   updateData,
   createId,
+  refreshing = false,
+  refreshError = "",
 }: ControlModuleProps) {
   const [studentId, setStudentId] = useState("");
   const [supportPayer, setSupportPayer] = useState("");
@@ -1001,7 +1005,7 @@ export function ControlModule({
   }
 
   async function printFilteredStudents() {
-    if (pdfExportingRef.current) return;
+    if (pdfExportingRef.current || refreshing || refreshError) return;
     pdfExportingRef.current = true;
     setPdfExporting(true); setPdfExportError("");
     try { await generateFilteredStudentsPdf(); }
@@ -1075,6 +1079,7 @@ export function ControlModule({
   }
 
   async function createStudentHistoryPdf(action: "view" | "print") {
+    if (refreshing || refreshError) return;
     if (!selectedHistoryStudent) return;
     setHistoryPdfError("");
     setHistoryPdfLoading(true);
@@ -1268,7 +1273,7 @@ export function ControlModule({
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap justify-center gap-2 sm:justify-start">
-            <button onClick={() => void createStudentHistoryPdf("print")} className="primary-button justify-center" type="button" disabled={historyPdfLoading}>
+            <button onClick={() => void createStudentHistoryPdf("print")} className="primary-button justify-center" type="button" disabled={historyPdfLoading || refreshing || Boolean(refreshError)}>
               <Download className="h-4 w-4" /> {historyPdfLoading ? "Préparation du PDF…" : "Imprimer PDF"}
             </button>
           </div>
@@ -1408,7 +1413,7 @@ export function ControlModule({
               </select>
               <PaidAmountDropdown value={amountComparator} onChange={setAmountComparator} options={amountOptions} className="lg:flex-1 lg:basis-0" />
               <MoneyInput value={amountThreshold} onChange={setAmountThreshold} className="input min-w-0 w-full lg:flex-1 lg:basis-0" placeholder="Filtre" ariaLabel="Filtre" />
-              <button onClick={() => void printFilteredStudents()} disabled={pdfExporting || amountSearching || Boolean(filterArrearsError)} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
+              <button onClick={() => void printFilteredStudents()} disabled={pdfExporting || amountSearching || Boolean(filterArrearsError) || refreshing || Boolean(refreshError)} className="pdf-export-button h-10 min-w-0 px-2 lg:flex-1 lg:basis-0" type="button">
                 <Download className="h-4 w-4" /> {pdfExporting ? "En cours..." : "Exporter PDF"}
               </button>
               <label className="flex h-10 min-w-0 w-full items-center gap-2 rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0">

@@ -40,12 +40,25 @@ describe("types de frais en temps réel", () => {
   it("conserve les données existantes en cas d'erreur", () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     let fail: ((error: Error) => void) | undefined;
-    mocks.onSnapshot.mockImplementation((_query, _next, error) => { fail = error; return vi.fn(); });
+    mocks.onSnapshot.mockImplementation((_query, _options, _next, error) => { fail = error; return vi.fn(); });
     const onFees = vi.fn();
     subscribeToRealtimeFeeTypes({} as never, user("cashier"), "school-a", "year-a", onFees);
     fail?.(new Error("network"));
     expect(onFees).not.toHaveBeenCalled();
     expect(warning).toHaveBeenCalledOnce();
     warning.mockRestore();
+  });
+
+  it("attend la confirmation serveur, même si seule la métadonnée change", () => {
+    mocks.onSnapshot.mockReturnValue(vi.fn());
+    const onFees = vi.fn();
+    subscribeToRealtimeFeeTypes({} as never, user("cashier"), "school-a", "year-a", onFees);
+    expect(mocks.onSnapshot.mock.calls[0][1]).toEqual({ includeMetadataChanges: true });
+    const receive = mocks.onSnapshot.mock.calls[0][2];
+    receive({ docs: [], metadata: { fromCache: true, hasPendingWrites: false } });
+    receive({ docs: [], metadata: { fromCache: false, hasPendingWrites: true } });
+    expect(onFees).not.toHaveBeenCalled();
+    receive({ docs: [], metadata: { fromCache: false, hasPendingWrites: false } });
+    expect(onFees).toHaveBeenCalledExactlyOnceWith([]);
   });
 });

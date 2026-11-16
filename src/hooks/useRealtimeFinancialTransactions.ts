@@ -41,27 +41,33 @@ export function useRealtimeFinancialTransactions({
       where("schoolId", "==", schoolId),
       where("schoolYearId", "==", schoolYearId),
     );
-    let annualPayments: Payment[] = [];
-    let collectedArrears: Payment[] = [];
-    const emitPayments = () => onPayments([...new Map([...annualPayments, ...collectedArrears].map((item) => [item.id, item])).values()]);
+    let annualPayments: Payment[] | undefined;
+    let collectedArrears: Payment[] | undefined;
+    const emitPayments = () => {
+      if (annualPayments && collectedArrears) onPayments([...new Map([...annualPayments, ...collectedArrears].map((item) => [item.id, item])).values()]);
+    };
     const unsubscribePayments = onSnapshot(
       annualQuery("payments"),
-      (snapshot) => { annualPayments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Payment); emitPayments(); },
+      { includeMetadataChanges: true },
+      (snapshot) => { if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return; annualPayments = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Payment); emitPayments(); },
       (error) => onError?.(error),
     );
     const unsubscribeCollectedArrears = onSnapshot(
       query(collection(db, "payments"), where("schoolId", "==", schoolId), where("collectionSchoolYearId", "==", schoolYearId)),
-      (snapshot) => { collectedArrears = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Payment); emitPayments(); },
+      { includeMetadataChanges: true },
+      (snapshot) => { if (snapshot.metadata.fromCache || snapshot.metadata.hasPendingWrites) return; collectedArrears = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Payment); emitPayments(); },
       (error) => onError?.(error),
     );
     const unsubscribeExpenses = onSnapshot(
       annualQuery("expenses"),
-      (snapshot) => onExpenses(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Expense)),
+      { includeMetadataChanges: true },
+      (snapshot) => { if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) onExpenses(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Expense)); },
       (error) => onError?.(error),
     );
     const unsubscribeCashInflows = onSnapshot(
       annualQuery("cashInflows"),
-      (snapshot) => onCashInflows(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as CashInflow)),
+      { includeMetadataChanges: true },
+      (snapshot) => { if (!snapshot.metadata.fromCache && !snapshot.metadata.hasPendingWrites) onCashInflows(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as CashInflow)); },
       (error) => onError?.(error),
     );
     return () => {

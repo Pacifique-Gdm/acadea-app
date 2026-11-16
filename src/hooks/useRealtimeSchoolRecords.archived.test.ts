@@ -7,7 +7,11 @@ vi.mock("firebase/firestore", () => ({
   collection: (_db: unknown, name: string) => name,
   where: (field: string, op: string, value: unknown) => ({ field, op, value }),
   query: (...args: unknown[]) => args,
-  onSnapshot: (query: unknown, next: (snapshot: unknown) => void, error: (error: Error) => void) => { harness.listeners.push({ query, next, error }); return harness.unsubscribe; },
+  onSnapshot: (query: unknown, optionsOrNext: unknown, nextOrError: unknown, maybeError?: unknown) => {
+    const next = (typeof optionsOrNext === "function" ? optionsOrNext : nextOrError) as (snapshot: unknown) => void;
+    const error = (typeof optionsOrNext === "function" ? nextOrError : maybeError) as (error: Error) => void;
+    harness.listeners.push({ query, next, error }); return harness.unsubscribe;
+  },
 }));
 describe("changement d'année — callbacks historiques tardifs", () => {
   it("recrée les requêtes sur chaque année sélectionnée et ignore tous les anciens snapshots", () => {
@@ -25,7 +29,7 @@ describe("changement d'année — callbacks historiques tardifs", () => {
       onData.mockClear();
       for (const listener of previous) listener.next({ docs: [] });
       expect(onData).not.toHaveBeenCalled();
-      studentListener.next({ docs: [{ id: schoolYearId, data: () => ({ schoolId: "s", schoolYearId }) }] });
+      studentListener.next({ docs: [{ id: schoolYearId, data: () => ({ schoolId: "s", schoolYearId }) }], metadata: { fromCache: false, hasPendingWrites: false } });
       expect(onData).toHaveBeenCalledWith(expect.objectContaining({ students: [{ id: schoolYearId, schoolId: "s", schoolYearId }] }));
       harness.cleanup?.();
     }
@@ -35,7 +39,7 @@ describe("changement d'année — callbacks historiques tardifs", () => {
     harness.listeners = []; harness.unsubscribe.mockClear();
     const onData = vi.fn(), onError = vi.fn();
     useRealtimeSchoolRecords({ user: { id: "admin", role: "school_admin", schoolId: "s", name: "Test", email: "test@example.invalid" }, schoolId: "s", schoolYearId: "old", onData, onError });
-    harness.listeners[0].next({ docs: [{ id: "old-student", data: () => ({ schoolId: "s", schoolYearId: "old" }) }] });
+    harness.listeners[0].next({ docs: [{ id: "old-student", data: () => ({ schoolId: "s", schoolYearId: "old" }) }], metadata: { fromCache: false, hasPendingWrites: false } });
     expect(onData).toHaveBeenCalledOnce();
     harness.cleanup?.();
     onData.mockClear();

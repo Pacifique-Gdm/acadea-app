@@ -26,9 +26,11 @@ type ReportsModuleProps = {
   yearData: ReportsYearData;
   school: School;
   year: SchoolYear;
+  refreshing?: boolean;
+  refreshError?: string;
 };
 
-export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
+export function ReportsModule({ yearData, school, year, refreshing = false, refreshError = "" }: ReportsModuleProps) {
   const resolvedExpenses = useResolvedExpenseCurrencies(yearData.expenses);
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
@@ -83,11 +85,12 @@ export function ReportsModule({ yearData, school, year }: ReportsModuleProps) {
               ))}
             </select>
           </label>
-          <button disabled={hasUnknownCurrency} onClick={() => exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments, cashInflows)} className="primary-button self-end">
+          <button disabled={hasUnknownCurrency || refreshing || Boolean(refreshError)} onClick={() => { if (!refreshing && !refreshError) exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments, cashInflows); }} className="primary-button self-end">
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
         {hasUnknownCurrency && <p className="mt-3 rounded bg-red-50 p-3 text-sm font-semibold text-red-700">Rapport et export bloqués : des opérations historiques sans devise exigent une réconciliation.</p>}
+        {(refreshing || refreshError) && <p role="status" className="mt-3 rounded bg-amber-50 p-3 text-sm">{refreshing ? "Vérification des données financières auprès du serveur…" : refreshError} Les chiffres affichés sont conservés ; export suspendu jusqu’à confirmation.</p>}
         {usesSectionFilter && (
           <p className="mt-3 rounded bg-amber-50 p-3 text-sm font-semibold text-amber-700">
             Les dépenses et autres entrées de caisse présentées sont globales pour l'école, car elles ne sont pas rattachées à une section.
