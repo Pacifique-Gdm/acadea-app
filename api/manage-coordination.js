@@ -361,7 +361,8 @@ export default async function handler(req, res) {
       if (!student.parentId) return sendJson(res, 200, { parent: null });
       const parentSnapshot = await db.doc(`parents/${student.parentId}`).get();
       const parent = parentSnapshot.exists ? parentSnapshot.data() : undefined;
-      if (!parent || parent.schoolId !== student.schoolId || parent.schoolYearId !== student.schoolYearId) return sendJson(res, 200, { parent: null });
+      // Lot 26b : fiche parent commune à l'école ; seul le rattachement à l'élève compte.
+      if (!parent || parent.schoolId !== student.schoolId) return sendJson(res, 200, { parent: null });
       return sendJson(res, 200, { parent: { id: parentSnapshot.id, schoolId: parent.schoolId, schoolYearId: parent.schoolYearId, userId: parent.userId ?? "", fullName: parent.fullName ?? "", phone: parent.phone ?? "", email: parent.email ?? "", address: parent.address ?? "", studentIds: Array.isArray(parent.studentIds) ? parent.studentIds.filter((id) => id === studentId) : [], status: parent.status === "inactive" ? "inactive" : "active" } });
     }
     if (action === "read-personnel-profile") {

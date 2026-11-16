@@ -76,6 +76,16 @@ describe("publication réelle sur l'émulateur Firestore", () => {
     await expect(executeGradePublication({ db, caller: parent, body: { action: "grades-parent-read", ...scope, studentId: "student", slot: "period_1" } })).rejects.toMatchObject({ status: 403 });
   }, 30000);
 
+  it("lot 26b : un parent dont la fiche date d'une année passée reçoit et consulte les cotes de son enfant inscrit cette année", async () => {
+    await db.doc("parents/parent").update({ schoolYearId: "old-year" });
+    expect(await executeGradePublication({ db, caller: director, body: publish })).toMatchObject({ ok: true, publishedCount: 1 });
+    expect((await db.collection("notifications").get()).size).toBe(1);
+    const listing = await executeGradePublication({ db, caller: parent, body: { action: "grades-parent-list", ...scope } });
+    expect(JSON.stringify(listing)).toContain("student");
+    const result = await executeGradePublication({ db, caller: parent, body: { action: "grades-parent-read", ...scope, studentId: "student", slot: "period_1" } });
+    expect(result.result.result).toMatchObject({ percentage: 60, rank: 1 });
+  }, 30000);
+
   it("bloque l'année archivée sans toucher aux résultats existants", async () => {
     await db.doc("schoolYears/year").update({ status: "archived" });
     await expect(executeGradePublication({ db, caller: director, body: publish })).rejects.toMatchObject({ status: 403 });

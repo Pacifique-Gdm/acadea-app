@@ -67,7 +67,8 @@ export function selectPaymentWarningRecipients({
   const matchingFees = feeTypes.filter((fee) => fee.schoolId === schoolId && fee.schoolYearId === schoolYearId && fee.name === feeName);
   const scopedParents = new Map(
     parents
-      .filter((parent) => parent.schoolId === schoolId && parent.schoolYearId === schoolYearId && parent.status === "active")
+      // Lot 26b : fiche parent commune à l'école ; l'année est vérifiée sur l'élève ci-dessous.
+      .filter((parent) => parent.schoolId === schoolId && parent.status === "active")
       .map((parent) => [parent.id, parent]),
   );
   const recipients = new Map<string, { parent: ParentProfile; students: Student[] }>();

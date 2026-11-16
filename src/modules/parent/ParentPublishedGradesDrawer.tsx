@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createOwnPayrollCache } from "../../components/personnel/ownPayrollCache";
 import { AdminDrawer } from "../../components/ui/AdminDrawer";
 import type { School, SchoolYear } from "../../types";
 import { userFacingError } from "../../utils/userFacingError";
@@ -6,6 +7,9 @@ import { gradingSlotLabels, type EditableGradingSlot } from "../teacher/teacherG
 import { listParentPublishedGrades, readParentPublishedGrade, type PublishedChild, type PublishedIndividualResult } from "../teacher/gradePublicationService";
 
 const percent = new Intl.NumberFormat("fr", { maximumFractionDigits: 2 });
+// Lot 26b : le serveur des cotes peut mettre ~4 s à se réveiller ; la liste est préparée dès l'affichage du Menu.
+const loadPublishedChildren = createOwnPayrollCache((key: string) => { const [schoolId, yearId] = key.split("|"); return listParentPublishedGrades(schoolId, yearId); });
+export function prefetchParentPublishedGrades(schoolId: string, yearId: string) { void loadPublishedChildren(`${schoolId}|${yearId}`).catch(() => undefined); }
 
 export function ParentPublishedGradesDrawer({ school, year, onClose, initialStudentId, initialSlot }: {
   school: School; year: SchoolYear; onClose: () => void; initialStudentId?: string; initialSlot?: EditableGradingSlot;
@@ -15,10 +19,11 @@ export function ParentPublishedGradesDrawer({ school, year, onClose, initialStud
   const [loading, setLoading] = useState(true);
   const [reading, setReading] = useState(false);
   const [error, setError] = useState("");
+  const firstLoad = useRef(true);
   const refresh = useCallback(async () => {
-    try { setChildren((await listParentPublishedGrades(school.id, year.id)).children); setError(""); }
+    try { setChildren((await loadPublishedChildren(`${school.id}|${year.id}`, !firstLoad.current)).children); setError(""); }
     catch (cause) { setError(userFacingError(cause, "Chargement impossible.")); }
-    finally { setLoading(false); }
+    finally { setLoading(false); firstLoad.current = false; }
   }, [school.id, year.id]);
   useEffect(() => {
     void refresh();

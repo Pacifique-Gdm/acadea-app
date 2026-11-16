@@ -29,7 +29,7 @@ import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 import { AdministrativeRecipientSelector } from "../messages/AdministrativeRecipientSelector";
 import { filterRecipientsByDirectoryKind, resolveAdministrativeRecipientIds, type AdministrativeRecipientMode, type RecipientDirectoryKind } from "../messages/administrativeRecipientSelection";
 import { LibraryDrawer } from "../library/LibraryDrawer";
-import { ParentPublishedGradesDrawer } from "./ParentPublishedGradesDrawer";
+import { ParentPublishedGradesDrawer, prefetchParentPublishedGrades } from "./ParentPublishedGradesDrawer";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { StudentPhoto } from "../../components/students/StudentPhoto";
 
@@ -208,6 +208,9 @@ export function ParentPortal({
       .finally(() => { if (!cancelled) setMessageRecipientsLoading(false); });
     return () => { cancelled = true; };
   }, [activeParentTab, user.id]);
+
+  // Lot 26b : « Cotes de mes enfants » préparé dès l'affichage du Menu.
+  useEffect(() => { if (activeParentTab === "menu") prefetchParentPublishedGrades(school.id, year.id); }, [activeParentTab, school.id, year.id]);
 
   useEffect(() => {
     if (!parentMedicalOpen) return undefined;
