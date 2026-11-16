@@ -38,3 +38,18 @@ export const IOS_BLOCKED_STEPS = [
   "Activez « Autoriser les notifications ».",
   "Revenez dans Acadéa et touchez « Activer ».",
 ];
+
+/** Lot 26 : le réglage « Notifications » du Menu disparaît quand elles sont actives sur cet appareil
+ * (et pendant la vérification, pour éviter un clignotement) ; il revient dès qu'elles ne le sont plus. */
+export function pushSettingsVisible(status: string) {
+  return status !== "enabled" && status !== "loading";
+}
+
+/** Lot 26 : même logique pour le bandeau, qui respecte en plus « Plus tard » et les cas sans notification possible. */
+export function pushPromptVisible(status: string, device: PushDevice, snoozeDue: boolean) {
+  if (!snoozeDue || status === "loading" || status === "enabled" || status === "unauthorized" || status === "not_configured") return false;
+  return status !== "unsupported" || needsIosInstall(device);
+}
+
+/** Lot 26 : intervalle de revérification automatique (autorisation retirée, jeton invalide supprimé par le serveur…). */
+export const PUSH_STATUS_RECHECK_MS = 60 * 1000;
