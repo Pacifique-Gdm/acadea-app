@@ -26,6 +26,8 @@ const schoolRolesByRecipient: Record<MessageRecipient, string[]> = {
 
 export function isMessageNotification(value: Record<string, unknown>): value is Omit<MessageNotificationRecord, "id"> {
   if (value.module === "discipline" || typeof value.disciplineSanctionId === "string") return false;
+  // Lot 24 : une notification adressée à une personne précise est envoyée par onPersonalNotificationCreated (jamais deux fois).
+  if (typeof value.recipientUserId === "string" && value.recipientUserId) return false;
   if (
     value.type !== "message" ||
     (value.recipientRole !== "parent" && value.recipientRole !== "school") ||

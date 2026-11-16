@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { syncAppBadge } from "../../utils/appBadge";
+import { PushNotificationPrompt } from "../notifications/PushNotificationPrompt";
 import { Bell, RefreshCw } from "lucide-react";
 import { MessageDrawerContent } from "../messages/MessageDrawerContent";
 import { MessagingDrawerShell } from "../messages/MessagingDrawerShell";
@@ -107,6 +109,8 @@ export function Header({
   }, [notificationHistory.items, realtimeMessages.messages, realtimeSignature]);
   const displayedUnreadNotifications = user.role === "discipline_director" ? (notificationHistory.unreadCount ?? 0) : (notificationHistory.unreadCount ?? unreadNotifications);
   const markPaginatedNotificationsRead = notificationHistory.markAllRead;
+  // Lot 24 : badge de l'icône de l'application = notifications non lues (si le téléphone le permet).
+  useEffect(() => { syncAppBadge(displayedUnreadNotifications); }, [displayedUnreadNotifications]);
 
   useEffect(() => {
     if (user.role !== "discipline_director" && notificationsOpen && unreadNotifications === 0 && notificationHistory.unreadCount === 0) {
@@ -141,6 +145,7 @@ export function Header({
   );
 
   return (
+    <>
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -215,5 +220,7 @@ export function Header({
         </MessagingDrawerShell>
       )}
     </header>
+    <PushNotificationPrompt user={user} />
+    </>
   );
 }

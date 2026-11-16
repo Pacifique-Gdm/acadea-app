@@ -82,7 +82,16 @@ function allowedPushData(payload) {
   if (data.module === "attendance" && (data.event === "student_absent" || data.event === "student_late") && data.notificationId && data.attendanceId && data.studentId && data.parentId) return data;
   if (data.module === "discipline" && data.event === "discipline_incident_created" && data.notificationId && data.disciplineSanctionId && data.studentId && data.parentId) return data;
   if (data.module === "announcements" && data.event === "announcement_published" && data.notificationId && data.announcementId) return data;
+  // Lot 24 : notifications personnelles (messages de tous les rôles, corrections et annulations de paiement, notes).
+  if (data.module === "personal" && ["message_received", "payment_corrected", "payment_cancelled", "grades_published"].includes(data.event) && data.notificationId) return data;
   return null;
+}
+
+/** Badge de l'icône de l'application (nombre de notifications non lues), quand le téléphone le permet. */
+function updateAppBadge(data) {
+  const count = Number(data?.badge);
+  if (!Number.isFinite(count) || !self.navigator?.setAppBadge) return Promise.resolve();
+  return (count > 0 ? self.navigator.setAppBadge(count) : self.navigator.clearAppBadge()).catch(() => undefined);
 }
 
 self.addEventListener("push", (event) => {
@@ -96,15 +105,16 @@ self.addEventListener("push", (event) => {
   if (!data) return;
   const notification = payload.notification ?? {};
   const isMessage = data.module === "messages";
-  event.waitUntil(
+  event.waitUntil(Promise.all([
     self.registration.showNotification(notification.title || "Paiement enregistré", {
       body: notification.body || "Un paiement a été enregistré.",
       icon: "/icons/icon-192.png",
       badge: "/favicon.png",
-      tag: isMessage ? `message-${data.notificationId}` : `payment-recorded-${data.notificationId || "unknown"}`,
+      tag: data.module === "personal" ? `personal-${data.notificationId}` : isMessage ? `message-${data.notificationId}` : `payment-recorded-${data.notificationId || "unknown"}`,
       data,
     }),
-  );
+    updateAppBadge(data),
+  ]));
 });
 
 self.addEventListener("notificationclick", (event) => {
@@ -112,9 +122,12 @@ self.addEventListener("notificationclick", (event) => {
   if (!data) return;
   event.notification.close();
   const destinationUrl = new URL("/dashboard", self.location.origin);
-  if (data.module === "messages") {
+  if (data.module === "messages" || (data.module === "personal" && data.event === "message_received" && data.messageId)) {
     destinationUrl.searchParams.set("push", "message");
     destinationUrl.searchParams.set("messageId", data.messageId);
+  } else if (data.module === "personal") {
+    destinationUrl.searchParams.set("push", data.event === "grades_published" ? "grades" : "payment");
+    destinationUrl.searchParams.set("notificationId", data.notificationId);
   } else if (data.module === "attendance") {
     destinationUrl.searchParams.set("push", "attendance");
     destinationUrl.searchParams.set("attendanceId", data.attendanceId);

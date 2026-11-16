@@ -1,4 +1,5 @@
 ﻿import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { PushNotificationSettings } from "./components/notifications/PushNotificationPrompt";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { auth } from "./firebase";
 import { randomId } from "./utils/randomId";
@@ -1365,7 +1366,7 @@ export default function App() {
             canAttachFiles
           /></NestedScreen>
         )}
-        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></NestedScreen></div>}
+        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></NestedScreen><PushNotificationSettings user={user} /></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1514,6 +1515,7 @@ export default function App() {
         )}
         {!standaloneAdminRoute && activeTab === "menu" && (
           <div className="grid gap-6">
+            <PushNotificationSettings user={user} />
             {secondaryRefreshIssues.valves && <p className="text-sm text-amber-800" role="status">Valves non actualisées. {secondaryRefreshIssues.valves}</p>}
             {secondaryRefreshIssues.attendance && <p className="text-sm text-amber-800" role="status">Présences non actualisées. {secondaryRefreshIssues.attendance}</p>}
             {canReadPublishedTimetable(user) && <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />}<MenuModule

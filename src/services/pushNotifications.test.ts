@@ -111,8 +111,10 @@ describe("état silencieux des notifications de paiement", () => {
     await expect(getPushNotificationStatus(parentUser)).resolves.toBe("available");
   });
 
+  // Lot 24 (décision du propriétaire) : tous les rôles actifs peuvent recevoir des notifications ;
+  // seul un compte désactivé (ou une autre session) reste refusé.
   it("refuse une session non autorisée", async () => {
-    await expect(getPushNotificationStatus({ ...parentUser, role: "cashier" })).resolves.toBe("unauthorized");
+    await expect(getPushNotificationStatus({ ...parentUser, role: "cashier", status: "inactive" })).resolves.toBe("unauthorized");
   });
 
   it("détecte un appareil déjà enregistré avec son token courant", async () => {
@@ -200,7 +202,7 @@ describe("désactivation des notifications Acadéa", () => {
 
   it("refuse un utilisateur non autorisé sans supprimer de token", async () => {
     storage.set("acadea:push-device-id", "device-existing");
-    await expect(disablePushNotifications({ ...parentUser, role: "cashier" })).resolves.toEqual({ status: "not-authorized" });
+    await expect(disablePushNotifications({ ...parentUser, role: "cashier", status: "inactive" })).resolves.toEqual({ status: "not-authorized" });
     expect(firestoreMocks.deleteDoc).not.toHaveBeenCalled();
     expect(messagingMocks.deleteToken).not.toHaveBeenCalled();
   });
