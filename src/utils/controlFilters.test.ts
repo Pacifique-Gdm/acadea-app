@@ -122,10 +122,10 @@ describe("filtres du Contrôle", () => {
     expect(source).toContain("useDeferredValue(amountThreshold)");
     expect(source).toContain("deferredAmountThreshold !== amountThreshold || filterArrearsLoading");
     expect(source).toContain('{amountSearching && <p role="status">Recherche...</p>}');
-    expect(source).toContain("if (pdfExportingRef.current) return;");
+    expect(source).toContain("if (pdfExportingRef.current || refreshing || refreshError) return;");
     expect(source).toContain("try { await generateFilteredStudentsPdf(); }");
     expect(source).toContain("finally { pdfExportingRef.current = false; setPdfExporting(false); }");
-    expect(source).toContain("disabled={pdfExporting || amountSearching || Boolean(filterArrearsError)}");
+    expect(source).toContain("disabled={pdfExporting || amountSearching || Boolean(filterArrearsError) || refreshing || Boolean(refreshError)}");
   });
 
   it("réinitialise le timer du message de confirmation et le nettoie", () => {
