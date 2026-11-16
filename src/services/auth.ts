@@ -126,6 +126,9 @@ export async function signOutUser() {
   assertFirebaseAuthReady();
 
   const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
+  // Lot 24 : le jeton push de cet appareil est retiré avant la déconnexion (jamais bloquant).
+  const uid = (auth as { currentUser?: { uid?: string } } | undefined)?.currentUser?.uid;
+  if (uid) await import("./pushNotifications").then((module) => module.forgetDevicePushToken(uid)).catch(() => undefined);
   await authModule.signOut(auth);
 }
 

@@ -739,12 +739,31 @@ async function mutateExisting(transaction, db, caller, body, hash, now, kind, op
   let correction;
   if (isPayment && current.supportDecisionId) throw new FinancialApiError(409, "failed-precondition", "La correction d’un paiement tiers nécessite une réconciliation contrôlée.");
   if (operation === "delete") {
+    // Lot 24 : le parent concerné est prévenu de l'annulation (lecture faite avant toute écriture).
+    let cancelRecipientUserId = "";
+    const cancelParentId = isPayment ? text(current.parentId, 120) : "";
+    if (cancelParentId) {
+      const linked = await transaction.get(db.collection("users").where("parentId", "==", cancelParentId));
+      const eligible = linked.docs.filter((document) => document.data()?.schoolId === caller.schoolId && document.data()?.role === "parent" && document.data()?.status !== "inactive" && document.data()?.active !== false
+        && (!Array.isArray(document.data()?.studentIds) || document.data().studentIds.includes(current.studentId)));
+      if (eligible.length === 1) cancelRecipientUserId = eligible[0].id;
+    }
     const writeAllocation = isPayment ? await prepareFeeAllocationReceipt({ db, transaction, caller,
       payment: null, previous: { ...current, id: transactionId }, requestId: hash, now })
       : await prepareFeeAllocationExpense({ db, transaction, caller, expense: null, previous: { ...current, id: transactionId }, requestId: hash, now });
     await cashImpact((isPayment ? -1 : 1) * recordedMinor(current.amount));
     writeAllocation();
     transaction.delete(documentRef);
+    if (cancelRecipientUserId) {
+      const cancelNotificationId = `notif_fin_cancel_${hash.slice(0, 24)}`;
+      transaction.create(db.doc(`notifications/${cancelNotificationId}`), {
+        id: cancelNotificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: cancelRecipientUserId, studentId: current.studentId ?? null,
+        recipientRole: "parent", type: "financial_correction", module: "payments", event: "payment_cancelled", destination: "/dashboard",
+        title: "Annulation d'un paiement", body: `Un paiement${current.receiptNumber ? ` (reçu ${current.receiptNumber})` : ""} a été annulé le ${now.slice(0, 10)} par ${actorName}.
+Raison : ${reason}`,
+        createdAt: now, read: false,
+      });
+    }
     result = { deletedId: transactionId, kind };
     // Trace probante de toute suppression : montant, devise, reçu, élève et frais conservés.
     correction = isPayment

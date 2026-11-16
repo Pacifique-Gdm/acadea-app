@@ -48,8 +48,23 @@ function tokenDocument(userId: string, deviceId: string) {
   return doc(db as unknown as Firestore, "users", userId, "pushTokens", deviceId);
 }
 
+/** Lot 24 : tous les rôles actifs peuvent recevoir des notifications sur leurs appareils. */
 function isAuthorizedParent(user: AppUser) {
-  return user.role === "parent" && user.status !== "inactive" && Boolean(user.schoolId) && Boolean(user.parentId) && currentFirebaseUid() === user.id;
+  return user.status !== "inactive" && (user as { active?: boolean }).active !== false && currentFirebaseUid() === user.id
+    && (user.role !== "parent" || (Boolean(user.schoolId) && Boolean(user.parentId)));
+}
+
+/** Retire le jeton de CET appareil (déconnexion) : plus aucune notification n'y arrivera. */
+export async function forgetDevicePushToken(userId: string) {
+  if (!db || !userId || typeof window === "undefined") return;
+  const deviceId = window.localStorage.getItem(DEVICE_ID_KEY);
+  if (!deviceId) return;
+  stopPushForegroundListener();
+  await deleteDoc(tokenDocument(userId, deviceId)).catch(() => undefined);
+  if (app) {
+    const messagingModule = await import("firebase/messaging");
+    if (await messagingModule.isSupported().catch(() => false)) await messagingModule.deleteToken(messagingModule.getMessaging(app)).catch(() => false);
+  }
 }
 
 export async function getPushNotificationStatus(user: AppUser): Promise<PushNotificationStatus> {
@@ -117,9 +132,11 @@ async function registerPushNotifications(user: AppUser, requestPermission: boole
   stopForegroundListener = messagingModule.onMessage(messaging, (payload) => {
     const data = payload.data as Record<string, unknown> | undefined;
     if (!data) return;
-    const isMessage = data.module === "messages";
+    const isPersonal = data.module === "personal";
+    const isMessage = data.module === "messages" || (isPersonal && data.event === "message_received");
     const isPayment = data.module === "payments";
-    const destination = isMessage ? resolveMessagePushDestination(user, data) : isPayment ? resolvePaymentRecordedDestination(user, data) : resolveOperationalPushDestination(user, data);
+    const destination = isPersonal ? `/dashboard?push=${data.event === "message_received" ? `message&messageId=${encodeURIComponent(String(data.messageId ?? ""))}` : data.event === "grades_published" ? "grades" : "payment"}`
+      : isMessage ? resolveMessagePushDestination(user, data) : isPayment ? resolvePaymentRecordedDestination(user, data) : resolveOperationalPushDestination(user, data);
     if (!destination) return;
     const foregroundNotification = new Notification(payload.notification?.title || (isMessage ? "Nouveau message Acadéa" : "Paiement enregistré"), {
       body: payload.notification?.body || (isMessage ? "Un nouveau message est disponible dans Acadéa." : "Un nouveau paiement est disponible dans votre espace financier Acadéa."),

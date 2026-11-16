@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { PushNotificationPrompt } from "../../components/notifications/PushNotificationPrompt";
+import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import { KeptTab } from "../../components/layout/KeptTab";
 import { PlatformMessages } from "./PlatformMessages";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
@@ -1217,6 +1219,7 @@ export function PlatformModule({
           </div>
           </div>
         </header>
+        <PushNotificationPrompt user={user} />
 
         <main className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8">
           {platformLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLoadError}</p>}
@@ -1302,6 +1305,7 @@ export function PlatformModule({
 
           <KeptTab id="menu" active={platformView} visited={visitedViews}>
             <section className="grid min-w-0 gap-4">
+              <PushNotificationSettings user={user} />
               <div className="grid min-w-0 gap-3">
                 <button
                   onClick={() => setPlatformMenuDrawer("create-coordination")}

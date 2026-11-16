@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { syncAppBadge } from "../../utils/appBadge";
+import { PushNotificationPrompt } from "../../components/notifications/PushNotificationPrompt";
+import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import { collection, doc, documentId, onSnapshot, query, where, type Firestore } from "@firebase/firestore";
 import { Banknote, Bell, Building2, GraduationCap, LayoutDashboard, Menu, MessageSquare, RefreshCw } from "lucide-react";
 import { db } from "../../firebase";
@@ -119,6 +122,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   const supervisionScopeRef = useRef(supervisionScope);
   supervisionScopeRef.current = supervisionScope;
   const inbox = useCoordinationInbox(user, activeSchools, refreshToken);
+  useEffect(() => { syncAppBadge(inbox.unreadCount); }, [inbox.unreadCount]);
 
   const loadSupervision = useCallback(async () => {
     if (!supervisionScope) { setSupervisionModel(emptySupervisionModel); setLoadedSupervisionScope(""); return; }
@@ -224,6 +228,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       </div>
       {(refreshError || inbox.error) && <p role="alert" className="mx-auto mt-2 max-w-6xl px-4 text-xs font-semibold text-red-600">{refreshError || inbox.error}</p>}
     </header>
+    <PushNotificationPrompt user={user} />
     <section data-testid="coordination-content" className="mx-auto grid max-w-6xl gap-4 px-4 py-5">
       {tab !== "dashboard" && tab !== "control" && tab !== "students" && <div className="rounded border border-blue-100 bg-blue-50 p-4 text-sm"><b>École</b><select className="input mt-2 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => setSelectedSchoolId(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({activeSchools.length})</option>{activeSchools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></div>}
       {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
@@ -235,6 +240,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
         <CoordinationControl user={user} coordination={coordination} schools={controlSchools} selectedSchoolId={controlSchoolId} onSchoolChange={setSelectedSchoolId} refreshToken={controlToken} active={tab === "control"}/>
       </KeptTab>}
       <KeptTab id="messages" active={tab} visited={visitedTabs}><CoordinationMessage schools={activeSchools} schoolId={messagesSchoolId} refreshToken={messagesToken}/></KeptTab>
+      {tab === "menu" && <PushNotificationSettings user={user} />}
       {tab === "menu" && coordination && (
         <CoordinationMenu
           coordination={coordination}

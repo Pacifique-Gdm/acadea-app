@@ -5,6 +5,7 @@ initializeApp();
 export { onPaymentRecordedNotificationCreated } from "./push/paymentRecorded.js";
 export { onMessageNotificationCreated } from "./push/messageNotification.js";
 export { onOperationalNotificationCreated } from "./push/operationalNotification.js";
+export { onPersonalNotificationCreated } from "./push/personalNotification.js";
 export { secretaryAiRecordDecision, secretaryAiWritingAssistant } from "./ai/writingAssistant.js";
 export { studyAiAssistant } from "./ai/studyAssistant.js";
 export { platformAiResetMonthlyUsage, platformAiUpdateSettings } from "./ai/schoolAiAdmin.js";
