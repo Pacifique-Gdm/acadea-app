@@ -4,6 +4,7 @@ import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { Firestore } from '@google-cloud/firestore';
 import { GoogleAuth, OAuth2Client } from 'google-auth-library';
+import { stagingOAuthProvider } from './stagingOAuth.mjs';
 
 export const projectId = 'acadea-staging';
 export const manifestPath = 'diagnostics/social-finance-staging/manifest.json';
@@ -24,12 +25,13 @@ export function services() {
   // Admin Auth reads this official setting when using end-user OAuth tokens.
   // Pin quota attribution to Staging, exactly like the Firestore OAuth client.
   process.env.GOOGLE_CLOUD_QUOTA_PROJECT = projectId;
-  const app = initializeApp({ projectId, credential: { getAccessToken: async () => ({ access_token: process.env.ACADEA_STAGING_ACCESS_TOKEN, expires_in: 1800 }) } }, `social-${randomUUID()}`);
+  const getToken = stagingOAuthProvider();
+  const app = initializeApp({ projectId, credential: { getAccessToken: async () => ({ access_token: (await getToken()).access_token, expires_in: 90 }) } }, `social-${randomUUID()}`);
   // Firebase Admin Auth accepts a short-lived credential; its Firestore wrapper
   // only accepts ADC/certificates. Use the official Google Cloud client with
   // the same OAuth identity, without persisting credentials or changing IAM.
-  const authClient = new OAuth2Client({ quotaProjectId: projectId });
-  authClient.setCredentials({ access_token: process.env.ACADEA_STAGING_ACCESS_TOKEN });
+  const authClient = new OAuth2Client({ quotaProjectId: projectId, eagerRefreshThresholdMillis: 30000 });
+  authClient.refreshHandler = getToken;
   const db = new Firestore({ projectId, preferRest: true, auth: new GoogleAuth({ projectId, authClient }) });
   return { db, auth: getAuth(app), close: async () => { await db.terminate(); await deleteApp(app); } };
 }

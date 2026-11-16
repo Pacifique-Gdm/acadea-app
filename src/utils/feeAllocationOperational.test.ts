@@ -6,7 +6,8 @@ import type { AllocationWorkspace } from "../services/feeAllocation";
 const id = "a".repeat(32);
 function workspace(): AllocationWorkspace {
   return { school: { id: "school", name: "Fictif", activeSchoolYearId: "year" }, year: { id: "year", schoolId: "school", name: "2026", status: "active", startsAt: null, endsAt: null },
-    currency: "USD", canConfigure: true, operational: false, fees: [{ id: "fee", name: "Minerval", className: "1ère", classOptionKey: null, amount: 100 }],
+    currency: "USD", canConfigure: true, operational: false, forecast: { status: 'complete', revision: null, calculatedAt: '2026-11-15', studentCount: 10,
+      rows: [{ feeTypeId: 'fee', className: '1ère', classOptionKey: null, rubricId: id, rubricName: 'Fonctionnement', amountMinor: 100000, studentsCount: 10 }] }, fees: [{ id: "fee", name: "Minerval", className: "1ère", classOptionKey: null, amount: 100 }],
     configs: [{ id: "config", schoolId: "school", schoolYearId: "year", feeTypeId: "fee", className: "1ère", currency: "USD", draftRevision: 1,
       draft: { rubrics: [{ id, name: "Fonctionnement", mode: "percent", basisPoints: 10000 }], feeAmountMinor: 10000, updatedAt: "2026-01-01", updatedBy: "admin" } }],
     ledger: { testOnly: true, status: "ACTIVE", cutoffAt: "2026-01-01", rubrics: [{ id, name: "Fonctionnement" }], balances: [{ rubricId: id, openingMinor: 1000, receivedMinor: 5000, spentMinor: 2000, reservedMinor: 0, availableMinor: 4000 }],

@@ -212,6 +212,7 @@ export async function saveManualStudent(student: Student, intent: "create" | "up
   }
   if (!payload?.student || payload.student.id !== student.id) throw new Error("Réponse d’enregistrement de l’élève incomplète.");
   if (clientRequestId) pendingCreationRequests.delete(key);
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('acadea:financial-projection-changed'));
   return payload.student;
 }
 

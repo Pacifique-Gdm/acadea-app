@@ -38,14 +38,16 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
     const state = (await tx.get(stateRef)).data();
     const result = { operational: false, testOnly: scope.testOnly, action: body.action };
     if (body.action === "publish-configuration") {
-      if (["ACTIVE", "PAUSED"].includes(state?.status)) fail("Publication interdite après activation sans nouveau rapprochement.");
+      const live = ["ACTIVE", "PAUSED"].includes(state?.status)
+        ? await readOperationalAllocation({ db, transaction: tx, schoolId, schoolYearId: yearId, currency, now }) : null;
       if (!id(body.versionId)) fail("Version invalide.", "invalid-argument", 400);
       const versionRef = db.doc(`feeAllocationVersions/${body.versionId}`), version = (await tx.get(versionRef)).data();
       if (!version || version.schoolId !== schoolId || version.schoolYearId !== yearId || version.currency !== currency || version.status !== "prepared") fail("Version préparée introuvable.");
       const configRef = db.doc(`feeAllocationConfigs/${version.configId}`), config = (await tx.get(configRef)).data();
       const fee = (await tx.get(db.doc(`feeTypes/${version.feeTypeId}`))).data();
-      if (!config || config.schoolId !== schoolId || config.feeTypeId !== version.feeTypeId || config.draftRevision !== version.version
+      if (!config || config.schoolId !== schoolId || config.schoolYearId !== yearId || config.currency !== currency || config.feeTypeId !== version.feeTypeId || config.draftRevision !== version.version
         || !fee || fee.schoolId !== schoolId || fee.schoolYearId !== yearId || toMoneyMinor(fee.amount) !== version.feeAmountMinor
+        || fee.currency && fee.currency !== currency
         || fee.className !== version.className || (fee.classOptionKey ?? null) !== (version.classOptionKey ?? null)) fail("Tarif ou brouillon modifié depuis préparation.");
       const checked = validateFeeAllocationRubrics(version.rubrics, version.feeAmountMinor);
       // Firestore canonicalizes map key order; compare typed fields, not JSON order.
@@ -55,11 +57,25 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
           || Object.keys(version.shares[index]).some(key => !["rubricId", "amountMinor"].includes(key)))) fail("Répartition préparée incohérente.");
       const oldRef = config.currentVersionId ? db.doc(`feeAllocationVersions/${config.currentVersionId}`) : null;
       if (oldRef) await tx.get(oldRef);
-      tx.update(versionRef, { status: "published", effectiveFrom: now, publishedBy: caller.uid });
+      const guardRef = db.doc(`feeAllocationFeeGuards/${version.feeTypeId}`);
+      const guard = (await tx.get(guardRef)).data();
+      if (live && (oldRef || guard)) fail("Un frais déjà réparti ne peut pas être remplacé après activation.");
+      const rubrics = new Map((live?.rubrics ?? []).map(r => [r.id, r]));
+      for (const rubric of checked.rubrics) {
+        if (rubrics.has(rubric.id) && rubrics.get(rubric.id).name !== rubric.name) fail("Le nom d'une rubrique existante ne peut pas être remplacé.");
+        rubrics.set(rubric.id, { id: rubric.id, name: rubric.name });
+      }
+      if (live && rubrics.size > 40) fail("Le maximum de 40 rubriques par établissement et année est atteint.");
+      tx.update(versionRef, { status: "published", effectiveFrom: now, publishedBy: caller.uid,
+        ...(live ? { publicationMode: "new-fee-after-activation", openingId: live.openingId } : {}) });
       tx.update(configRef, { currentVersionId: version.id });
+      // No opening, balance or historical movement is rewritten. Updating the
+      // state also serializes simultaneous publications and in-flight receipts.
+      if (live) tx.update(stateRef, { rubrics: [...rubrics.values()], updatedAt: now });
       tx.set(evidenceRevisionRef(db, schoolId, yearId), { schoolId, schoolYearId: yearId, revision: fingerprint });
+      tx.set(db.doc(`feeAllocationForecastSignals/${hash([schoolId, yearId])}`), { schoolId, schoolYearId: yearId, revision: fingerprint });
       if (oldRef) tx.update(oldRef, { status: "superseded" });
-      tx.set(db.doc(`feeAllocationFeeGuards/${version.feeTypeId}`), { schoolId, schoolYearId: yearId, configId: config.id, versionId: version.id });
+      tx.set(guardRef, { schoolId, schoolYearId: yearId, configId: config.id, versionId: version.id });
       result.versionId = version.id;
     } else if (["prepare-opening", "approve-opening", "activate"].includes(body.action)) {
       if (["ACTIVE", "PAUSED"].includes(state?.status)) fail("Périmètre déjà activé.");

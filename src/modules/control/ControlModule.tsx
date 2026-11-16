@@ -71,8 +71,8 @@ export function ControlModule({
   const [studentId, setStudentId] = useState("");
   const [supportPayer, setSupportPayer] = useState("");
   const [paymentStudentQuery, setPaymentStudentQuery] = useState("");
-  const [feeTypeId, setFeeTypeId] = useState(yearData.feeTypes[0]?.id ?? "");
-  const [amount, setAmount] = useState("100");
+  const [feeTypeId, setFeeTypeId] = useState("");
+  const [amount, setAmount] = useState("");
   const [paymentNote, setPaymentNote] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
@@ -223,7 +223,7 @@ export function ControlModule({
       setCashierControlFeedbackDrawer(null);
       // Une nouvelle entrée peut déjà être en cours : ne pas perdre son contenu
       // ni sa clé d'idempotence à l'expiration du succès de l'entrée précédente.
-      if (feedbackDrawer !== "inflow") setCashierControlDrawer((current) => (current === feedbackDrawer ? null : current));
+      if (feedbackDrawer === "expense") setCashierControlDrawer((current) => (current === feedbackDrawer ? null : current));
     }, 3000);
     return () => window.clearTimeout(timer);
   }, [cashierControlFeedback, cashierControlFeedbackDrawer]);
@@ -507,6 +507,7 @@ export function ControlModule({
 
   function resetStudentDependentPaymentState() {
     paymentStudentRequestRef.current += 1;
+    setSupportPayer("");
     setFeeTypeId("");
     setPaymentArrears([]);
     setArrearsError("");
@@ -596,9 +597,11 @@ export function ControlModule({
           setArrearsError("Paiement enregistré. Actualisez les arriérés avant un autre règlement.");
         }
       }
-      paymentAttemptRef.current = null;
-      setAmount("");
-      setPaymentNote("");
+      // Only a confirmed receipt clears the entry. Keep an uncertain request
+      // and its idempotency key intact in the catch path.
+      resetStudentDependentPaymentState();
+      setStudentId("");
+      setPaymentStudentQuery("");
       if (user.role === "cashier") {
         setCashierControlFeedback("Paiement enregistré avec succès.");
         setCashierControlFeedbackDrawer("payment");

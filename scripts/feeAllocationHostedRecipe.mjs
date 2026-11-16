@@ -13,6 +13,7 @@ import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
 import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
 import { runHostedAllocationVolume } from './feeAllocationHostedVolume.mjs';
 import { runHostedAllocationPanel } from './feeAllocationHostedPanel.mjs';
+import { runAnnualAllocationHosted } from './feeAllocationAnnualHosted.mjs';
 import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
 // A mutation is followed by authenticated workspace + activation reads. Match
 // the hosted response budget, not Playwright's unrelated five-second default.
@@ -22,8 +23,10 @@ const origin = 'https://acadea-staging.vercel.app', expectedSha = process.env.AC
 const panelOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'panel-only';
 const volumeOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'volume' || panelOnly;
 const panelRecipe = process.env.ACADEA_ALLOCATION_RECIPE === 'panel' || panelOnly;
-assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe, 'Parcours de recette inconnu');
-const output = `diagnostics/fee-allocation-hosted/${expectedSha}${volumeOnly ? `-volume-${Date.now()}` : ''}`;
+const annualOnly = process.env.ACADEA_ALLOCATION_RECIPE === 'annual-only';
+const browserOptions = { headless: true, ...(process.env.ACADEA_HOSTED_BROWSER_CHANNEL === 'chrome' ? { channel: 'chrome' } : {}) };
+assert.ok(!process.env.ACADEA_ALLOCATION_RECIPE || volumeOnly || panelRecipe || annualOnly, 'Parcours de recette inconnu');
+const output = `diagnostics/fee-allocation-hosted/${expectedSha}-${annualOnly ? 'annual' : volumeOnly ? 'volume' : 'full'}-${Date.now()}`;
 const manifestPath = 'diagnostics/fee-allocation-hosted/manifest.json';
 assert.equal(process.env.GOOGLE_CLOUD_PROJECT, 'acadea-staging');
 assert.equal(process.env.GOOGLE_CLOUD_QUOTA_PROJECT, 'acadea-staging');
@@ -71,14 +74,17 @@ const tag = `e2e-allocation-${randomUUID().replaceAll('-', '')}`;
 const school = `${tag}-a`, foreign = `${tag}-b`, year = `${tag}-year`, fee = `${tag}-fee`, student = `${tag}-student`;
 const inactiveSchool = `${tag}-inactive`, inactiveYear = `${tag}-inactive-year`;
 const volumeSchool = `${tag}-volume`, volumeYear = `${tag}-volume-year`;
+const annualSchool = `${tag}-annual`, annualYear = `${tag}-annual-year`;
 const coord = `${tag}-coord`, sub = `${tag}-sub`;
 const roles = ['school_admin', 'cashier', 'coordination_admin', 'sub_coordination_admin', 'teacher'];
 const users = roles.map(role => ({ role, uid: `${tag}-${role}`, email: `${tag}-${role}@example.invalid` }));
 users.push(...[['cdf-admin', 'school_admin'], ['cdf-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: foreign })));
 users.push(...[['inactive-admin', 'school_admin'], ['inactive-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: inactiveSchool })));
 users.push(...[['volume-admin', 'school_admin'], ['volume-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: volumeSchool })));
+users.push(...[['annual-admin', 'school_admin'], ['annual-cashier', 'cashier']].map(([key, role]) => ({ key, role, uid: `${tag}-${key}`, email: `${tag}-${key}@example.invalid`, schoolId: annualSchool })));
 if (volumeOnly) users.splice(0, users.length, ...users.filter(u => u.schoolId === volumeSchool));
-const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: volumeOnly ? [volumeSchool] : [school, foreign, inactiveSchool, volumeSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
+if (annualOnly) users.splice(0, users.length, ...users.filter(u => u.schoolId === annualSchool));
+const manifest = { projectId: 'acadea-staging', tag, sha: expectedSha, schools: annualOnly ? [annualSchool] : volumeOnly ? [volumeSchool] : [school, foreign, inactiveSchool, volumeSchool, annualSchool], users, paths: [], retired: false, createdAt: new Date().toISOString() };
 const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
 save(); // Durable identity-only inventory before the first write. No password/token.
 const password = `Fictif-${randomUUID()}${randomUUID()}`;
@@ -129,6 +135,15 @@ async function reconcile(role = 'school_admin') {
 }
 async function retire() {
   assert.equal(manifest.projectId, 'acadea-staging'); assert.match(tag, /^e2e-allocation-[a-f0-9]{32}$/);
+  // put() inventories before any write; Auth provisioning follows that first
+  // write. An empty inventory therefore proves the browser preflight failed
+  // before provisioning, and does not require remote cleanup permissions.
+  if (manifest.paths.length === 0) {
+    manifest.retired = true; manifest.fixtureCreationStarted = false;
+    manifest.closedAt = new Date().toISOString(); save();
+    record('Clôture locale : précontrôle interrompu avant tout provisionnement, aucune ressource créée');
+    return;
+  }
   for (const u of users) {
     let account; try { account = await s.auth.getUser(u.uid); } catch (e) { if (e.code === 'auth/user-not-found') continue; throw e; }
     assert.equal(account.email, u.email);
@@ -149,7 +164,8 @@ async function retire() {
       body: JSON.stringify({ action: 'fee-allocation.get-workspace', schoolId: u.schoolId ?? school }), signal: AbortSignal.timeout(30000) });
     assert.ok([401, 403].includes(response.status), 'Compte fictif encore autorisé après neutralisation');
   }
-  const retained = {};
+  const retained = { feeAllocationForecastSignals: [] };
+  for (const sid of manifest.schools) retained.feeAllocationForecastSignals.push(...(await s.db.collection('feeAllocationForecastSignals').where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
   for (const collection of ['payments', 'expenses', 'personnelPayments', 'feeAllocationStates', 'feeAllocationConfigs', 'feeAllocationVersions', 'feeAllocationOpeningAudits', 'feeAllocationBalances', 'feeAllocationMovements', 'feeAllocationRequests', 'feeAllocationAnchors', 'financialIdempotency', 'financialCounters', 'financialCashLocks', 'auditLogs', 'socialSupportDecisions', 'socialSupportRequests', 'socialSupportAudit', 'socialSupportFeeLocks', 'feeAllocationReconciliationRuns', 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions']) {
     retained[collection] = [];
     for (const sid of manifest.schools) retained[collection].push(...(await s.db.collection(collection).where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
@@ -174,16 +190,26 @@ async function retire() {
   record('Clôture : comptes désactivés, sessions révoquées, écoles neutralisées, registre fictif inventorié sans suppression');
 }
 try {
+  // Verify the actual browser transport before provisioning any remote fixture.
+  // A successful Node HTTP preflight alone is not a browser availability proof.
+  browser = await chromium.launch(browserOptions);
+  const navigationProbe = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const login = await navigationProbe.newPage();
+    await login.goto(origin + '/login', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await expect(login.getByPlaceholder('email@ecole.com')).toBeVisible({ timeout: 60000 });
+    record('Transport Chromium et formulaire officiel disponibles avant création des fixtures');
+  } finally { await navigationProbe.close(); }
   const createdAt = new Date().toISOString(), expiresAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
   await put('feeAllocationTestScopes', tag, { projectId: 'acadea-staging', schoolIds: manifest.schools, status: 'active', createdAt, expiresAt });
-  const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : sid === volumeSchool ? volumeYear : inactiveYear;
-  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD'], [volumeSchool, 'USD']]) {
+  const fixtureYear = sid => sid === school ? year : sid === foreign ? `${tag}-foreign-year` : sid === volumeSchool ? volumeYear : sid === annualSchool ? annualYear : inactiveYear;
+  for (const [sid, currency] of [[school, 'USD'], [foreign, 'CDF'], [inactiveSchool, 'USD'], [volumeSchool, 'USD'], [annualSchool, 'USD']]) {
     if (!manifest.schools.includes(sid)) continue;
     await put('schools', sid, { name: `Répartition fictive ${currency}`, status: 'active', active: true, currency, activeSchoolYearId: fixtureYear(sid),
       schoolType: 'Primaire uniquement', educationLevels: ['Primaire'], schoolOptions: [], subscriptionStatus: 'active', subscriptionPlan: 'premium', ...(sid === school ? { activeCoordinationId: coord } : {}) });
     await put('schoolYears', fixtureYear(sid), { schoolId: sid, status: 'active', currency, name: '2026-2027', startsAt: '2026-09-01', endsAt: '2027-07-31' });
   }
-  if (!volumeOnly) {
+  if (!volumeOnly && !annualOnly) {
   await put('coordinations', coord, { name: 'Coordination fictive répartition', status: 'active', principalCoordinatorUserId: users[2].uid, referenceSchoolYear: '2026-2027' });
   await put('subCoordinations', sub, { name: 'Sous-coordination fictive', status: 'active', active: true, coordinationId: coord, coordinatorUserId: users[3].uid });
   await put('coordinationSchools', `${coord}__${school}`, { schoolId: school, coordinationId: coord, active: true });
@@ -196,7 +222,7 @@ try {
     const response = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.STAGING_FIREBASE_API_KEY}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: u.email, password, returnSecureToken: true }) });
     assert.equal(response.status, 200, 'Authentification Firebase officielle refusée'); tokens.set(u.key ?? u.role, `Bearer ${(await response.json()).idToken}`);
   }
-  if (!volumeOnly) {
+  if (!volumeOnly && !annualOnly) {
   const inactiveFee = `${tag}-inactive-fee`, inactiveStudent = `${tag}-inactive-student`;
   await put('classes', `${tag}-inactive-class`, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: '1ère Primaire', section: 'Primaire', active: true });
   await put('feeTypes', inactiveFee, { schoolId: inactiveSchool, schoolYearId: inactiveYear, name: 'Frais fictif inactif', className: '1ère Primaire', amount: 100, createdAt });
@@ -359,44 +385,54 @@ try {
   const cdfExpense = { action: 'create-expense', schoolYearId: cdfYear, amount: 10, category: 'Fournitures', description: 'Dépense fictive historique', beneficiary: 'Fictif', paymentMethod: 'Espèces', clientRequestId: requestId() };
   await api('cdf-cashier', cdfExpense);
   assert.equal((await s.db.collection('feeAllocationMovements').where('schoolId', '==', foreign).get()).size, 0);
-  browser = await chromium.launch({ headless: true });
+  browser ??= await chromium.launch(browserOptions);
   const activationContext = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
   try {
     const page = await activationContext.newPage(); page.setDefaultTimeout(60000);
     const u = users.find(u => u.key === 'cdf-admin');
-    await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+    await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
     await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Activation par établissement' });
     const transportFailures = [];
+    let mutationResponseGate = Promise.resolve();
     await page.route('**/api/manage-financial-transaction', guardedRoute(async route => {
       const action = route.request().postDataJSON()?.action;
       if (!['publish-configuration', 'start-reconciliation', 'prepare-opening', 'approve-opening', 'activate', 'pause', 'resume'].some(a => action === `fee-allocation.${a}`)) return route.continue();
       const response = await route.fetch({ maxRetries: 1 });
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await mutationResponseGate;
       await route.fulfill({ response });
     }, transportFailures));
     // Wait for the actual authenticated mutation, not Playwright's five-second
     // assertion default. A slow confirmed reply is not a server rejection.
     async function activationClick(label, action) {
+      const control = panel.getByRole('button', { name: label, exact: true });
+      await expect(control).toBeVisible();
+      await expect(control).toBeEnabled();
+      const before = await control.boundingBox();
+      assert.ok(before, 'Bouton d’activation visible requis avant sa mesure');
+      let releaseResponse;
+      mutationResponseGate = new Promise(resolve => { releaseResponse = resolve; });
       const responsePromise = page.waitForResponse(response => {
         if (!response.url().endsWith('/api/manage-financial-transaction') || response.request().method() !== 'POST') return false;
         try { return response.request().postDataJSON()?.action === `fee-allocation.${action}`; } catch { return false; }
       }, { timeout: 45000 });
       void responsePromise.catch(() => {}); // Awaited below; never leak a raw event error.
-      const control = panel.getByRole('button', { name: label, exact: true });
-      const before = await control.boundingBox();
+      try {
       await control.click();
       const waiting = panel.getByRole('button', { name: 'Chargement...', exact: true });
       await expect(waiting).toBeDisabled();
       const during = await waiting.boundingBox();
+      assert.ok(during, 'Bouton de chargement visible requis pendant la requête');
       assert.equal(before.width, during.width); assert.equal(before.height, during.height);
+      releaseResponse();
       const response = await responsePromise;
       assert.equal(transportFailures.length, 0, 'Transport hébergé interrompu');
       const reply = await response.json();
       assert.equal(response.status(), 200, `Activation ${action}: HTTP ${response.status()}, code ${reply.code ?? 'inconnu'}`);
       assert.equal(reply.operational, false, 'Contrat de confirmation invalide');
+      } finally { releaseResponse(); }
     }
     await activationClick('Publier la répartition', 'publish-configuration');
     await expect(panel.getByRole('button', { name: 'Publier la répartition', exact: true })).toHaveCount(0, { timeout: 45000 });
@@ -416,9 +452,11 @@ try {
     await activationClick('Activer la répartition', 'activate');
     await expect(panel.getByRole('heading', { name: 'Active', exact: true })).toBeVisible({ timeout: 45000 });
     await page.screenshot({ path: `${output}/activation-administrateur-cdf.png`, fullPage: true });
-    await panel.getByRole('button', { name: 'Mettre en pause', exact: true }).click();
-    await panel.getByLabel('Motif audité', { exact: true }).fill('Pause fictive de contrôle du panneau');
-    await activationClick('Confirmer la pause', 'pause');
+    await expect(panel.getByRole('button', { name: 'Mettre en pause', exact: true })).toHaveCount(0);
+    // Emergency backend pause remains audited. The daily panel no longer offers it.
+    await allocation('pause', { reason: 'Pause fictive de contrôle du panneau' }, 'cdf-admin');
+    await page.getByRole('button', { name: 'Fermer Répartition des frais', exact: true }).click();
+    await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
     await expect(panel.getByRole('heading', { name: 'En pause', exact: true })).toBeVisible();
     await panel.getByRole('button', { name: 'Reprendre la répartition', exact: true }).click();
     await panel.getByLabel('Motif audité', { exact: true }).fill('Reprise fictive de contrôle du panneau');
@@ -453,7 +491,7 @@ try {
     offlineContext = await chromium.launchPersistentContext(profile, { headless: true, serviceWorkers: 'allow', viewport: { width: 1440, height: 1000 } });
     let page = await offlineContext.newPage(); page.setDefaultTimeout(30000);
     await page.addInitScript(() => window.addEventListener('acadea:offline-context-ready', () => { window.acadeaOfflineContextReady = true; }));
-    await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(users[1].email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+    await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(users[1].email); await page.getByPlaceholder('Votre mot de passe').fill(password);
     await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Menu', exact: true }).last()).toBeVisible({ timeout: 60000 });
     await expect.poll(() => page.evaluate(() => Boolean(navigator.serviceWorker.controller && window.acadeaOfflineContextReady)), { timeout: 90000 }).toBe(true);
@@ -531,16 +569,16 @@ try {
     const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
     try {
       const page = await context.newPage(); page.setDefaultTimeout(30000);
-      await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+      await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
       await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
       await expect(page.getByRole('button', { name: 'Menu', exact: true }).last()).toBeVisible({ timeout: 60000 });
       await page.getByRole('button', { name: 'Menu', exact: true }).last().click(); await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
       const drawer = page.getByRole('dialog', { name: 'Répartition des frais', exact: true });
       await expect(drawer.getByRole('button', { name: 'Exporter PDF', exact: true })).toBeEnabled({ timeout: 60000 });
       await expect(drawer.locator('tbody tr')).toHaveCount(21);
-      await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(0);
+      await expect(drawer.getByRole('button', { name: '+ Ajouter', exact: true })).toHaveCount(u.role === 'school_admin' ? 1 : 0);
       const toolbar = drawer.getByRole('region', { name: 'Commandes de répartition' });
-      await expect(toolbar.locator('button, select')).toHaveCount(3);
+      await expect(toolbar.locator('button, select')).toHaveCount(u.role === 'school_admin' ? 4 : 3);
       assert.ok((await drawer.getByLabel('Valeur correspondante', { exact: true }).locator('option').allTextContents()).every(text => !text.includes('Répartition fictive USD')));
       await page.screenshot({ path: `${output}/${u.role}-desktop.png`, fullPage: true });
       let expectedReceived = 581, expectedFilter;
@@ -614,7 +652,7 @@ try {
       const context = await browser.newContext({ serviceWorkers: 'block' });
       try {
         const page = await context.newPage(); page.setDefaultTimeout(60000);
-        await page.goto(origin + '/login'); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
+        await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' }); await page.getByPlaceholder('email@ecole.com').fill(u.email); await page.getByPlaceholder('Votre mot de passe').fill(password);
         await page.getByRole('button', { name: 'Se connecter', exact: true }).click();
         await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
         await page.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
@@ -632,8 +670,13 @@ try {
   }
   }
   browser ??= await chromium.launch({ headless: true });
-  if (!results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
+  if (!annualOnly && !results.some(result => result.result === 'FAIL')) await (panelRecipe ? runHostedAllocationPanel : runHostedAllocationVolume)({ db: s.db, tag, schoolId: volumeSchool, yearId: volumeYear,
     put, api, allocation, manifest, save, output, browser, user: users.find(u => u.key === 'volume-cashier'), adminUser: users.find(u => u.key === 'volume-admin'), password, origin, record });
+  if (!volumeOnly && !results.some(result => result.result === 'FAIL')) {
+    pdfOcr ??= await createWorker('fra', 1, { langPath: fileURLToPath(new URL('../node_modules/@tesseract.js-data/fra/4.0.0_best_int', import.meta.url)), cacheMethod: 'none', logger: () => {} });
+    await runAnnualAllocationHosted({ db: s.db, tag, schoolId: annualSchool, yearId: annualYear,
+      put, api, allocation, manifest, save, output, browser, adminUser: users.find(u => u.key === 'annual-admin'), password, origin, record, tokens, pdfOcr });
+  }
 } catch (error) {
   results.push({ name: 'Recette interrompue', result: 'FAIL', detail: safeError(error) }); process.exitCode = 1;
   checkpoint();

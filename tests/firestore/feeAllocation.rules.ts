@@ -35,7 +35,7 @@ describe("répartition des frais : collections exclusivement serveur", () => {
     }
   });
   it("refuse aux clients les brouillons, versions, états, soldes et mouvements", async () => {
-    for (const name of ["feeAllocationStates", "feeAllocationConfigs", "feeAllocationVersions", "feeAllocationFeeGuards", "feeAllocationRequests", "feeAllocationOpeningAudits", "feeAllocationAnchors", "feeAllocationMovements", "feeAllocationBalances", "feeAllocationReconciliationRuns", 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions']) {
+    for (const name of ["feeAllocationStates", "feeAllocationConfigs", "feeAllocationVersions", "feeAllocationFeeGuards", "feeAllocationRequests", "feeAllocationOpeningAudits", "feeAllocationAnchors", "feeAllocationMovements", "feeAllocationBalances", "feeAllocationReconciliationRuns", 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions', 'feeAllocationForecastSignals']) {
       await assertFails(setDoc(doc(admin(), name, "forged"), { schoolId: "allocation-school", status: "ACTIVE" }));
       await assertFails(getDoc(doc(admin(), name, "forged")));
     }

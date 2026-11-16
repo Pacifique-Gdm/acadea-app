@@ -114,7 +114,9 @@ async function mutateDraft({ db, caller, body, prepare }) {
     if (config && (config.schoolId !== schoolId || config.schoolYearId !== yearId || config.feeTypeId !== body.feeTypeId)) denied();
     const stateRef = db.doc(`feeAllocationStates/${sha([schoolId, yearId, currency])}`);
     const stateSnapshot = await transaction.get(stateRef);
-    if (stateSnapshot.exists && ["ACTIVE", "PAUSED"].includes(stateSnapshot.data()?.status)) assertFeeAllocationActivationBlocked();
+    if (["ACTIVE", "PAUSED"].includes(stateSnapshot.data()?.status) && config?.currentVersionId) {
+      conflict("Ce frais est déjà réparti : sa configuration en service ne peut pas être remplacée.");
+    }
     let result;
     let auditType;
     const now = new Date().toISOString();
@@ -152,6 +154,7 @@ async function mutateDraft({ db, caller, body, prepare }) {
       actor: caller, schoolId, schoolYearId: yearId, resourceType: "feeAllocation", resourceId: configId,
       metadata: { feeTypeId: body.feeTypeId, revision: body.expectedRevision, operational: false } }));
     transaction.set(evidenceRevisionRef(db, schoolId, yearId), { schoolId, schoolYearId: yearId, revision: fingerprint });
+    transaction.set(db.doc(`feeAllocationForecastSignals/${sha([schoolId, yearId])}`), { schoolId, schoolYearId: yearId, revision: fingerprint });
     transaction.create(receiptRef, { schoolId, schoolYearId: yearId, userId: caller.uid, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });

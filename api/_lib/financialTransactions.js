@@ -128,7 +128,7 @@ async function assertContext(transaction, db, caller, requestedYearId, readOnly 
   return { schoolYearId, year: yearSnapshot.data(), school: schoolSnapshot.data(), profile, currency, actorName: text(profile.name, 160) || text(caller.email, 160) || "Utilisateur Acadéa" };
 }
 
-function feeAppliesToHistoricalStudent(fee, student) {
+export function feeAppliesToHistoricalStudent(fee, student) {
   if (typeof fee.classOptionKey === "string" && fee.classOptionKey) {
     const option = typeof student.option === "string" ? student.option.trim() : "";
     const target = option && String(student.className).includes("Humanité")

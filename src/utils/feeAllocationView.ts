@@ -1,4 +1,3 @@
-import { validateFeeAllocationRubrics } from "../../api/_lib/feeAllocationMath.js";
 import type { AllocationWorkspace } from "../services/feeAllocation";
 import type { FeeAllocationConfig, FeeAllocationRubric } from "../types/feeAllocation";
 
@@ -39,35 +38,41 @@ export function projectAllocations(workspaces: AllocationWorkspace[], filter: Al
   const period = filter.kind === "period" ? allocationPeriod(filter.value, filter.from, filter.to, now) : null;
   return workspaces.flatMap((workspace) => {
     if (workspace.ledger) return projectOperational(workspace, filter, period);
-    return workspace.configs.flatMap((config) => {
-    if (!config.draft) return [];
-    const fee = workspace.fees.find((item) => item.id === config.feeTypeId);
-    if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(config.schoolId, config.feeTypeId)) return [];
-    if (filter.kind === "class" && filter.value && filter.value !== allocationClassKey(config.schoolId, config.classOptionKey || config.className)) return [];
-    const updated = config.draft.updatedAt.slice(0, 10);
-    if (period && ((period.from && updated < period.from) || (period.to && updated > period.to))) return [];
-    const validated = validateFeeAllocationRubrics(config.draft.rubrics, config.draft.feeAmountMinor);
-    const stale = !fee || Math.round(fee.amount * 100) !== config.draft.feeAmountMinor
-      || fee.className !== config.className || (fee.classOptionKey ?? "") !== (config.classOptionKey ?? "") || config.currency !== workspace.currency;
-    return validated.shares.map((share) => {
-      const rubric = validated.rubrics.find((item) => item.id === share.rubricId);
-      return { key: `${config.id}/${share.rubricId}`, schoolId: config.schoolId, schoolName: workspace.school.name,
-        yearName: workspace.year.name, feeName: fee?.name ?? `Frais historique ${config.feeTypeId}`,
-        classLabel: allocationClassLabel(config.classOptionKey || config.className), currency: config.currency,
-        rubricName: rubric?.name ?? "Non affecté", rubric, amountMinor: share.amountMinor,
-        percent: share.amountMinor / config.draft!.feeAmountMinor * 100, config, stale };
-    });
-    });
+    return projectAnnual(workspace, filter);
   });
+}
+
+function projectAnnual(workspace: AllocationWorkspace, filter: AllocationFilter): AllocationRow[] {
+  if (workspace.forecast?.status !== 'complete') throw new Error('Prévu annuel non confirmé : aucun total partiel ne peut être affiché.');
+  const rows = new Map<string, AllocationRow>();
+  for (const item of workspace.forecast.rows) {
+    if (filter.kind === 'fee' && filter.value && filter.value !== allocationFeeKey(workspace.school.id, item.feeTypeId)) continue;
+    if (filter.kind === 'class' && filter.value && filter.value !== allocationClassKey(workspace.school.id, item.classOptionKey || item.className)) continue;
+    // A period constrains receipts, never the annual net obligation.
+    const existing = rows.get(item.rubricId);
+    if (existing) { existing.amountMinor += item.amountMinor; existing.feeName = 'Frais du périmètre'; existing.classLabel = 'Classes du périmètre'; }
+    else {
+      const config = workspace.configs.find(c => c.feeTypeId === item.feeTypeId) ?? { id: '', schoolId: workspace.school.id, schoolYearId: workspace.year.id,
+        feeTypeId: item.feeTypeId, className: item.className, currency: workspace.currency, draftRevision: 0 };
+      rows.set(item.rubricId, { key: `${workspace.school.id}/${workspace.year.id}/${item.rubricId}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
+        yearName: workspace.year.name, feeName: workspace.fees.find(f => f.id === item.feeTypeId)?.name ?? 'Libellé du frais indisponible',
+        classLabel: allocationClassLabel(item.classOptionKey || item.className), currency: workspace.currency, rubricName: item.rubricName,
+        rubric: config.draft?.rubrics.find(r => r.id === item.rubricId), amountMinor: item.amountMinor, percent: 0, config, stale: false });
+    }
+    if (!Number.isSafeInteger(rows.get(item.rubricId)!.amountMinor)) throw new Error('Prévu annuel hors limites.');
+  }
+  return [...rows.values()];
 }
 
 function projectOperational(workspace: AllocationWorkspace, filter: AllocationFilter, period: { from: string; to: string } | null): AllocationRow[] {
   const ledger = workspace.ledger!;
   if (!workspace.configs.length) throw new Error("Configuration active manquante.");
-  const base = projectAllocations([{ ...workspace, ledger: null }], filter.kind === "period" ? { ...filter, value: "year" } : filter);
+  const base = projectAnnual(workspace, filter);
   const expected = new Map<string, number>();
-  base.forEach(row => expected.set(row.rubric?.id ?? "UNALLOCATED", (expected.get(row.rubric?.id ?? "UNALLOCATED") ?? 0) + row.amountMinor));
-  return ledger.rubrics.map(rubric => {
+  base.forEach(row => expected.set(row.key.split('/').at(-1)!, row.amountMinor));
+  const rubrics = new Map(ledger.rubrics.map(r => [r.id, r]));
+  base.forEach(r => rubrics.set(r.key.split('/').at(-1)!, { id: r.key.split('/').at(-1)!, name: r.rubricName }));
+  return [...rubrics.values()].map(rubric => {
     let receivedMinor = 0, spentMinor = 0, availableMinor = 0, openingMinor = 0, arrearsMinor = 0;
     let cumulativeReceivedMinor = 0, cumulativeSpentMinor = 0;
     for (const m of ledger.movements) {

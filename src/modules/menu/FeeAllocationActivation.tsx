@@ -11,7 +11,7 @@ const parseAmount = (value: string) => {
 };
 
 /** The UI never invents an opening allocation or treats an uncertain reply as success. */
-export function FeeAllocationActivation({ workspace, onChanged, onConfigure }: { workspace: AllocationWorkspace; onChanged: () => void; onConfigure: () => void }) {
+export function FeeAllocationActivation({ workspace, onChanged }: { workspace: AllocationWorkspace; onChanged: () => void }) {
   const [view, setView] = useState<AllocationActivationView | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [confirmation, setConfirmation] = useState(""), [cash, setCash] = useState("");
@@ -127,7 +127,7 @@ export function FeeAllocationActivation({ workspace, onChanged, onConfigure }: {
     {view && <>
       {run && <p role="status" className="text-sm">{run.scanned} écritures examinées · {run.blockedCount ? payrollOnly ? '1 paiement de personnel à vérifier' : run.blockedCount + ' écriture(s) à vérifier' : 'aucune écriture signalée'}. {run.stale ? 'Les écritures ont changé : vérification à actualiser.' : run.status === 'COMPLETE' ? 'Vérification terminée.' : run.status === 'RUNNING' ? 'Vérification en cours.' : run.reason}</p>}
       {view.status === 'EN_PREPARATION' ? <>
-        {!workspace.configs.length ? <button className="primary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={onConfigure}>Configurer une répartition</button>
+        {!workspace.configs.length ? <p className="text-sm">Utilisez « + Ajouter » pour préparer la première répartition.</p>
           : prepared ? primary('publish-configuration', 'Publier la répartition', () => void mutate('publish-configuration', { versionId: prepared.id }))
           : draft ? primary('prepare-version', 'Préparer une version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision }))
           : !run || run.stale ? primary('start-reconciliation', 'Vérifier le solde de départ', () => void mutate('start-reconciliation', {}))
@@ -143,7 +143,7 @@ export function FeeAllocationActivation({ workspace, onChanged, onConfigure }: {
         {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
         {!!run?.pageCount && <Action busy={busy && actionBusy === 'evidence'} disabled={fieldsLocked} className="secondary-button justify-self-start" onClick={() => { setEvidenceOpen(v => !v); if (!evidenceOpen && blockedOnly) void refresh(0, false, 'evidence'); }}>{evidenceOpen ? 'Masquer les pièces' : 'Voir les pièces vérifiées'}</Action>}
         {evidenceOpen && <div className="grid gap-2 rounded border p-3 text-sm" aria-label="Pièces examinées"><p>Vérifier une ancienne écriture ne l’affecte pas à une rubrique et n’approuve pas le solde.</p>
-          {rows.map(row => <article key={row.collection + '/' + row.id} className="rounded border p-2"><p className="font-semibold">{label(row)}</p><p>{row.reason ?? 'Pièce vérifiée'}</p>{row.reason && <button className="secondary-button mt-2" type="button" disabled={fieldsLocked} onClick={() => void findProofs(row)}>Justifier</button>}<details><summary>Référence technique</summary><p className="break-all">{row.collection}/{row.id}</p></details></article>)}
+          {rows.map(row => <article key={row.collection + '/' + row.id} className="rounded border p-2"><p className="font-semibold">{label(row)}</p><p>{row.reason ?? 'Pièce vérifiée'}</p>{row.reason && <button className="secondary-button mt-2" type="button" disabled={fieldsLocked} onClick={() => void findProofs(row)}>Justifier</button>}</article>)}
           {!rows.length && <p>Aucune pièce {blockedOnly ? 'à vérifier ' : ''}dans cette page.</p>}
           <div className="flex flex-wrap gap-2">{!blockedOnly && (view.evidencePage?.page ?? 0) > 0 && <Action busy={busy && actionBusy === 'previous'} disabled={fieldsLocked} onClick={() => void refresh(view.evidencePage!.page - 1, false, 'previous')}>Pièces précédentes</Action>}{view.evidencePage?.hasNext && <Action busy={busy && actionBusy === 'next'} disabled={fieldsLocked} onClick={() => void refresh(view.evidencePage!.page + 1, blockedOnly, 'next')}>Pièces suivantes</Action>}</div>
         </div>}
@@ -162,7 +162,12 @@ export function FeeAllocationActivation({ workspace, onChanged, onConfigure }: {
           <label>Saisissez exactement « {phrase} »<input className="input" value={confirmation} onChange={e => setConfirmation(e.target.value)} aria-label="Confirmation du rapprochement" autoComplete="off"/></label>
           {opening?.status === 'approved' && !opening.approvedByCurrentUser && <p role="alert">Seul l’administrateur qui a approuvé peut confirmer l’activation.</p>}
         </fieldset>}
-      </> : <><button className="secondary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setPauseForm(v => !v)}>{view.status === 'ACTIVE' ? 'Mettre en pause' : 'Reprendre la répartition'}</button>{pauseForm && <fieldset className="grid gap-2" disabled={fieldsLocked}><p className="text-sm">Une pause conserve le registre et refuse les opérations concernées, sans retour au circuit historique.</p><label>Motif audité<textarea className="input" value={reason} maxLength={500} onChange={e => setReason(e.target.value)}/></label><Action busy={busy && actionBusy === (view.status === 'ACTIVE' ? 'pause' : 'resume')} disabled={reason.trim().length < 5} onClick={() => void mutate(view.status === 'ACTIVE' ? 'pause' : 'resume', { reason })}>{view.status === 'ACTIVE' ? 'Confirmer la pause' : 'Confirmer la reprise'}</Action></fieldset>}</>}
+      </> : <>
+        {prepared ? primary('publish-configuration', 'Publier le nouveau frais', () => void mutate('publish-configuration', { versionId: prepared.id }))
+          : draft ? primary('prepare-version', 'Préparer la nouvelle version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision })) : null}
+        {(prepared || draft) && <p className="text-sm">La publication explicite concernera uniquement les nouveaux encaissements confirmés ensuite. Les anciens paiements et le solde de départ restent inchangés.</p>}
+        {view.status === 'PAUSED' && <><button className="secondary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setPauseForm(v => !v)}>Reprendre la répartition</button>{pauseForm && <fieldset className="grid gap-2" disabled={fieldsLocked}><label>Motif audité<textarea className="input" value={reason} maxLength={500} onChange={e => setReason(e.target.value)}/></label><Action busy={busy && actionBusy === 'resume'} disabled={reason.trim().length < 5} onClick={() => void mutate('resume', { reason })}>Confirmer la reprise</Action></fieldset>}</>}
+      </>}
     </>}
   </section>;
 }

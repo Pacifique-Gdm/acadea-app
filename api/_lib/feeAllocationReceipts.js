@@ -93,17 +93,30 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     || (year.currency ?? school.currency) !== source.currency) fail("Références de recette non autorisées.");
   if (!Number.isFinite(Date.parse(source.createdAt))) fail("Date de l'encaissement non vérifiée.");
   if (previous && payment && ["id", "schoolId", "schoolYearId", "collectionSchoolYearId", "studentId", "feeTypeId", "currency", "createdAt", "supportDecisionId"].some(k => payment[k] !== previous[k])) fail("Réaffectation de référence interdite ; rapprochement nécessaire.");
-  const anchorId = feeAllocationAnchorId(source);
+  const sourceRef = db.doc(`feeAllocationRequests/payment_${hash([source.schoolId, source.id])}`);
+  const sourceSnap = await transaction.get(sourceRef);
+  const priorSource = sourceSnap.data();
+  let currentVersion = null;
+  if (!previous && operational && source.schoolYearId === collectionYear) {
+    const config = (await transaction.get(db.doc(`feeAllocationConfigs/${feeAllocationConfigId(source.schoolId, collectionYear, source.feeTypeId)}`))).data();
+    if (config && (config.schoolId !== source.schoolId || config.schoolYearId !== collectionYear || config.feeTypeId !== source.feeTypeId)) fail("Configuration étrangère.");
+    if (config?.currentVersionId) currentVersion = (await transaction.get(db.doc(`feeAllocationVersions/${config.currentVersionId}`))).data();
+  }
+  const extension = currentVersion?.publicationMode === "new-fee-after-activation";
+  // New receipts after explicit publication get their own versioned cumulative
+  // anchor. Previously confirmed receipts keep their initial (even unallocated)
+  // anchor for corrections and idempotent replay.
+  const anchorId = previous && priorSource ? priorSource.anchorId : extension
+    ? hash([feeAllocationAnchorId(source), currentVersion.id]) : feeAllocationAnchorId(source);
+  if (!identifier(anchorId)) fail("Ancre financière invalide.");
   const anchorRef = db.doc(`feeAllocationAnchors/${anchorId}`);
   const totalRef = db.doc(`feeAllocationRequests/obligation_${anchorId}`);
-  const sourceRef = db.doc(`feeAllocationRequests/payment_${hash([source.schoolId, source.id])}`);
   const movementId = `receipt_${hash([source.schoolId, source.id, requestId])}`;
   const movementRef = db.doc(`feeAllocationMovements/${movementId}`);
-  const [anchorSnap, totalSnap, sourceSnap, movementSnap] = await Promise.all([
-    transaction.get(anchorRef), transaction.get(totalRef), transaction.get(sourceRef), transaction.get(movementRef),
+  const [anchorSnap, totalSnap, movementSnap] = await Promise.all([
+    transaction.get(anchorRef), transaction.get(totalRef), transaction.get(movementRef),
   ]);
   if (movementSnap.exists) fail("Mouvement déjà présent sans reçu financier cohérent.");
-  const priorSource = sourceSnap.data();
   if (previous && !priorSource) {
     if (!operational && previous.createdAt < state.cutoffAt) return noop; // active openings cannot silently be invalidated
     fail("Encaissement sans trace de ventilation : rapprochement nécessaire.");
@@ -146,12 +159,17 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
         && (approvedBinding || operational.approvedReceiptVersions.some(v => v.feeTypeId === source.feeTypeId && v.versionId === version.id))
         && Date.parse(version.effectiveFrom) <= Date.parse(operational.cutoffAt)
         && Date.parse(source.createdAt) >= Date.parse(operational.cutoffAt);
-      if (approvedAtOpening) {
+      const approvedNewFee = operational && version.publicationMode === "new-fee-after-activation"
+        && version.openingId === operational.openingId && version.status === "published"
+        && source.schoolYearId === collectionYear && version.publishedBy
+        && Date.parse(version.effectiveFrom) >= Date.parse(operational.cutoffAt)
+        && Date.parse(source.createdAt) >= Date.parse(version.effectiveFrom);
+      if (approvedAtOpening || approvedNewFee) {
         // Explicit administrative approval applies only to money subsequently
         // collected in this year. Historical receipts stay solely in the opening;
         // no earlier debt/receipt is rewritten and no previous-year config guessed.
         anchor.approvalOpeningId = operational.openingId;
-        anchor.allocationBasis = "approved-post-cutoff-receipts";
+        anchor.allocationBasis = approvedNewFee ? "explicit-new-fee-publication" : "approved-post-cutoff-receipts";
       } else {
         // Without an approved opening binding, a current pointer is safe only
         // for a proven new obligation. Never guess an old obligation's version.

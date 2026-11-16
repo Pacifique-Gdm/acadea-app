@@ -17,7 +17,7 @@ export async function runHostedAllocationPanel({ db, tag, schoolId, yearId, put,
   const pageErrors = [];
   page.on('pageerror', error => pageErrors.push(redactRecipeError(error, [password])));
   try {
-    await page.goto(origin + '/login');
+    await page.goto(origin + '/login', { waitUntil: 'domcontentloaded' });
     await page.getByPlaceholder('email@ecole.com').fill(adminUser.email);
     await page.getByPlaceholder('Votre mot de passe').fill(password);
     await page.getByRole('button', { name: 'Se connecter', exact: true }).click();

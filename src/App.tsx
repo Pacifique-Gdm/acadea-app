@@ -238,6 +238,10 @@ export default function App() {
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [pwaInstalled, setPwaInstalled] = useState(() => isStandaloneDisplayMode());
   const billingControls = useBillingControls(Boolean(user));
+  // Bootstrap/year loading replaces the initial data object. Start the annual
+  // listeners only after that replacement, otherwise an early snapshot can
+  // be erased and never re-emitted when no document changes (empty cashier).
+  const realtimeYearId = dataLoading ? "" : selectedYearId;
   const applyRealtimeValves = useCallback((valves: AppData["valves"], scope: { schoolId: string; schoolYearId: string }) => {
     setData((current) => ({
       ...current,
@@ -247,7 +251,7 @@ export default function App() {
   useRealtimeValves({
     user,
     schoolId: user?.schoolId ?? "",
-    schoolYearId: selectedYearId,
+    schoolYearId: realtimeYearId,
     onValves: applyRealtimeValves,
   });
   const applyRealtimeFeeTypes = useCallback((fees: AppData["feeTypes"]) => {
@@ -260,7 +264,7 @@ export default function App() {
   useRealtimeFeeTypes({
     user,
     schoolId: user?.schoolId ?? "",
-    schoolYearId: selectedYearId,
+    schoolYearId: realtimeYearId,
     onFees: applyRealtimeFeeTypes,
   });
   const applyRealtimePayments = useCallback((payments: AppData["payments"]) => {
@@ -293,7 +297,7 @@ export default function App() {
   useRealtimeFinancialTransactions({
     enabled: user?.role === "school_admin" || user?.role === "cashier",
     schoolId: user?.schoolId ?? "",
-    schoolYearId: selectedYearId,
+    schoolYearId: realtimeYearId,
     onPayments: applyRealtimePayments,
     onExpenses: applyRealtimeExpenses,
     onCashInflows: applyRealtimeCashInflows,
@@ -308,7 +312,7 @@ export default function App() {
   useRealtimeSchoolRecords({
     user,
     schoolId: user?.schoolId ?? "",
-    schoolYearId: selectedYearId,
+    schoolYearId: realtimeYearId,
     // L'écoute globale reste active sur l'onglet Élèves : la couper puis la
     // rouvrir retéléchargeait toutes les fiches à chaque sortie de l'onglet.
     includeStudents: true,

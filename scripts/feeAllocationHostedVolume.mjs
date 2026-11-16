@@ -59,7 +59,7 @@ export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put
       if (!response.url().endsWith('/api/manage-financial-transaction')) return;
       try { proofCalls.push({ action: response.request().postDataJSON()?.action, status: response.status() }); } catch { /* No credentials or bodies captured. */ }
     });
-    await tab.goto(`${origin}/login`); await tab.getByPlaceholder('email@ecole.com').fill(adminUser.email);
+    await tab.goto(`${origin}/login`, { waitUntil: 'domcontentloaded' }); await tab.getByPlaceholder('email@ecole.com').fill(adminUser.email);
     await tab.getByPlaceholder('Votre mot de passe').fill(password); await tab.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await tab.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await tab.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
@@ -154,7 +154,7 @@ export async function runHostedAllocationVolume({ db, tag, schoolId, yearId, put
   const context = await browser.newContext({ serviceWorkers: 'block', viewport: { width: 1440, height: 1000 } });
   try {
     const tab = await context.newPage(); tab.setDefaultTimeout(60000);
-    await tab.goto(`${origin}/login`); await tab.getByPlaceholder('email@ecole.com').fill(user.email);
+    await tab.goto(`${origin}/login`, { waitUntil: 'domcontentloaded' }); await tab.getByPlaceholder('email@ecole.com').fill(user.email);
     await tab.getByPlaceholder('Votre mot de passe').fill(password); await tab.getByRole('button', { name: 'Se connecter', exact: true }).click();
     await tab.getByRole('button', { name: 'Menu', exact: true }).last().click();
     await tab.getByRole('button', { name: 'Répartition des frais', exact: true }).click();
