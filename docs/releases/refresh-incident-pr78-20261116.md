@@ -1,4 +1,4 @@
-# PR #78 — incident d’actualisation, 16 novembre 2026
+# PR #78 — bilan de recette et livraison, 16 novembre 2026
 
 ## Périmètre et faits Production
 
