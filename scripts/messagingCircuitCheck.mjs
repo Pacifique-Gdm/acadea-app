@@ -172,12 +172,23 @@ async function main() {
     try { users.push(await login(config, account)); } catch (error) { console.log(`Compte ${account.key} : connexion impossible (${error.code ?? "erreur"}).`); }
   }
   console.log(`Connectés : ${users.map((user) => `${ROLE_LABELS[user.role] ?? user.role} (${user.schoolName || "plateforme"})`).join(", ")}`);
-  // École de référence : celle qui a le plus de rôles de test.
-  const counts = new Map(); users.filter((user) => user.schoolId).forEach((user) => counts.set(user.schoolId, (counts.get(user.schoolId) ?? 0) + 1));
-  const schoolId = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+  // Écoles réellement supervisées par chaque compte de Coordination / Sous-coordination
+  // (lecture de sa propre liste de destinataires) : jamais d'appariement au hasard.
+  const coverage = new Map();
+  for (const user of users.filter((item) => ["coordination_admin", "sub_coordination_admin"].includes(item.role))) {
+    try { coverage.set(user.uid, new Set((await api(user, "/api/coordination-message-recipients", "GET")).recipients.map((item) => item.schoolId))); }
+    catch { coverage.set(user.uid, new Set()); }
+  }
+  // École de référence : le plus de rôles de test, puis Coordination ET Sous-coordination qui la supervisent.
+  const schools = [...new Set(users.map((user) => user.schoolId).filter(Boolean))];
+  const score = (id) => users.filter((user) => user.schoolId === id).length
+    + (users.some((user) => user.role === "coordination_admin" && coverage.get(user.uid)?.has(id)) ? 5 : 0)
+    + (users.some((user) => user.role === "sub_coordination_admin" && coverage.get(user.uid)?.has(id)) ? 5 : 0);
+  const schoolId = schools.sort((a, b) => score(b) - score(a))[0];
   const byRole = new Map();
   for (const user of users) {
     if (user.schoolId && user.schoolId !== schoolId) continue;
+    if (["coordination_admin", "sub_coordination_admin"].includes(user.role) && !coverage.get(user.uid)?.has(schoolId)) continue;
     if (!byRole.has(user.role)) byRole.set(user.role, user);
   }
   const observer = users.find((user) => user.schoolId && user.schoolId !== schoolId);
@@ -190,9 +201,13 @@ async function main() {
     const recipients = targets.map((to) => byRole.get(to)).filter(Boolean);
     targets.filter((to) => !byRole.has(to)).forEach((to) => results.push({ from, to, missing: `compte ${ROLE_LABELS[to]} absent de .env.local` }));
     if (!recipients.length) continue;
-    const rows = await checkSend(sender, recipients, `${ROLE_LABELS[from]} vers ${recipients.length} rôle(s)`, observer);
-    for (const recipient of recipients) results.push({ from, to: recipient.role, aller: rows.get(recipient.uid), sender, recipient });
-    await sleep(2500);
+    // Petits groupes : un destinataire refusé ne masque jamais les autres chemins.
+    const groups = [recipients.filter((item) => item.schoolId), ...recipients.filter((item) => !item.schoolId).map((item) => [item])].filter((group) => group.length);
+    for (const group of groups) {
+      const rows = await checkSend(sender, group, `${ROLE_LABELS[from]} vers ${group.map((item) => ROLE_LABELS[item.role]).join(", ")}`, observer);
+      for (const recipient of group) results.push({ from, to: recipient.role, aller: rows.get(recipient.uid), sender, recipient });
+      await sleep(2500);
+    }
   }
   // Retour : chaque destinataire répond à l'expéditeur (le parent répond en un seul message, quota de 3 par 12 h).
   const parentReplies = results.filter((row) => row.to === "parent" && row.aller?.arrive === "oui" && replyAllowed(row.from, row.to));
@@ -211,7 +226,7 @@ async function main() {
   for (const row of results.filter((item) => item.to === "parent" && !item.retour && item.aller)) row.retour = { arrive: "—", entete: "—", badge: "—", lu: "—", cause: replyAllowed(row.from, row.to) ? "aller en échec" : "réponse non autorisée (décision)" };
 
   const cell = (part, key) => part ? part[key] : "—";
-  const lines = [`# Vérification du circuit des messages — ${new Date().toISOString()}`, "", `Application : ${BASE} · école de référence : ${byRole.values().next().value?.schoolName ?? "?"} · isolation contrôlée avec : ${observer ? `${ROLE_LABELS[observer.role]} (${observer.schoolName})` : "aucun compte d'une autre école"}`, "",
+  const lines = [`# Vérification du circuit des messages — ${new Date().toISOString()}`, "", `Application : ${BASE} · école de référence : ${users.find((user) => user.schoolId === schoolId)?.schoolName ?? "?"} · isolation contrôlée avec : ${observer ? `${ROLE_LABELS[observer.role]} (${observer.schoolName})` : "aucun compte d'une autre école"}`, "",
     "| Chemin | Arrive | En-tête | Badge immédiat | Badge disparaît | Retour arrive | Retour en-tête | Retour badge | Cause |", "|---|---|---|---|---|---|---|---|---|"];
   for (const row of results) {
     const cause = row.missing ?? [row.aller?.cause, row.retour?.cause && row.retour.cause !== "réponse non prévue" ? `retour : ${row.retour.cause}` : ""].filter(Boolean).join(" ; ");
