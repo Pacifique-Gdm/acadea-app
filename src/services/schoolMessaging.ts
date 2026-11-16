@@ -29,3 +29,28 @@ export async function sendSchoolMessage(input: { schoolYearId: string; recipient
   if (!payload.message || typeof payload.message === "string") throw new Error("Réponse serveur invalide.");
   return payload.message;
 }
+
+/** Lot 23 : réponse à un message de la Coordination (personnel de l'école, pas les parents)
+ * ou du Super administrateur (administrateurs). Contrôle complet côté serveur. */
+export async function sendMessageReply(input: { replyToMessageId: string; body: string; subject?: string; schoolYearId?: string; idempotencyKey: string }): Promise<Message> {
+  const response = await authenticatedRequest("/api/send-school-message", { method: "POST", headers: { "Content-Type": "application/json", "X-Idempotency-Key": input.idempotencyKey }, body: JSON.stringify(input) });
+  const payload = await response.json().catch(() => ({})) as { message?: Message | string; error?: string };
+  if (!response.ok) throw Object.assign(new Error(typeof payload.message === "string" ? payload.message : "Réponse non envoyée. Veuillez réessayer."), { code: payload.error, status: response.status });
+  if (!payload.message || typeof payload.message === "string") throw new Error("Réponse serveur invalide.");
+  return payload.message;
+}
+
+/** Lot 23 : messagerie du Super administrateur (même point d'entrée, limite de 12 fonctions Vercel). */
+export type PlatformRecipient = { uid: string; name: string; role: "coordination_admin" | "sub_coordination_admin" | "school_admin"; schoolId: string | null; coordinationId: string | null };
+export async function loadPlatformRecipients(): Promise<PlatformRecipient[]> {
+  const response = await authenticatedRequest("/api/message-recipients", { method: "GET" });
+  const payload = await response.json().catch(() => ({})) as { recipients?: PlatformRecipient[]; message?: string };
+  if (!response.ok) throw new Error(payload.message ?? "Destinataires indisponibles.");
+  return Array.isArray(payload.recipients) ? payload.recipients : [];
+}
+export async function sendPlatformMessage(input: { recipientIds: string[]; subject: string; body: string; idempotencyKey: string }) {
+  const response = await authenticatedRequest("/api/message-recipients", { method: "POST", headers: { "Content-Type": "application/json", "X-Idempotency-Key": input.idempotencyKey }, body: JSON.stringify({ action: "send", ...input }) });
+  const payload = await response.json().catch(() => ({})) as { messageIds?: string[]; message?: string };
+  if (!response.ok) throw new Error(payload.message ?? "Message non envoyé.");
+  return payload;
+}

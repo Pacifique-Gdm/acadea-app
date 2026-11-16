@@ -266,6 +266,8 @@ export default async function handler(req, res) {
         schoolId: caller.schoolId,
         schoolYearId,
         senderId: caller.uid,
+        senderName: String(parent.fullName ?? caller.name ?? "").trim() || "Parent",
+        senderRole: "parent",
         recipientParentId: "school",
         threadParentId: caller.parentId,
         threadId,

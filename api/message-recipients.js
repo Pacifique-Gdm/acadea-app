@@ -1,5 +1,7 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { listAllowedMessageRecipients, requireMessagingCaller } from "./_lib/messageRecipients.js";
+import { verifyActorIdToken } from "./_lib/activeUser.js";
+import { listPlatformRecipients, requireActiveSuperAdmin, sendPlatformMessage } from "./_lib/platformMessaging.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 function sendJson(res, statusCode, body) {
@@ -9,12 +11,27 @@ function sendJson(res, statusCode, body) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "GET") return sendJson(res, 405, { error: "method-not-allowed", message: "Methode non autorisee." });
+  if (req.method !== "GET" && req.method !== "POST") return sendJson(res, 405, { error: "method-not-allowed", message: "Methode non autorisee." });
   try {
     const authorization = req.headers.authorization ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) throw Object.assign(new Error("Authentification requise."), { statusCode: 401, code: "not-authenticated" });
     const { auth, db } = initAdmin();
+    const decoded = await verifyActorIdToken(auth, token);
+    if (decoded.role === "super_admin") {
+      // Lot 23 : messagerie du Super administrateur (coordinations, sous-coordinations, administrateurs d'école).
+      const admin = await requireActiveSuperAdmin(db, decoded);
+      if (req.method === "GET") {
+        await enforceApiRateLimit({ db, actorId: admin.uid, schoolId: "platform", action: "platform.message.recipients", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+        return sendJson(res, 200, { recipients: await listPlatformRecipients(db) });
+      }
+      const body = req.body && typeof req.body === "object" ? req.body : JSON.parse(typeof req.body === "string" ? req.body : "{}");
+      const idempotencyKey = typeof req.headers["x-idempotency-key"] === "string" ? req.headers["x-idempotency-key"] : "";
+      if (body.action !== "send") throw Object.assign(new Error("Action invalide."), { statusCode: 400, code: "invalid-action" });
+      await enforceApiRateLimit({ db, actorId: admin.uid, schoolId: "platform", action: "platform.message.send", idempotencyKey, ...API_RATE_LIMITS.SCHOOL_MESSAGE });
+      return sendJson(res, 200, await sendPlatformMessage(db, admin, { ...body, idempotencyKey }));
+    }
+    if (req.method !== "GET") return sendJson(res, 405, { error: "method-not-allowed", message: "Methode non autorisee." });
     const caller = await requireMessagingCaller(auth, db, token);
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: "school.message.recipients", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
     const schoolYearId = typeof req.query?.schoolYearId === "string" ? req.query.schoolYearId.trim() : "";

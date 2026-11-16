@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { collection, limit, onSnapshot, orderBy, query, where, type Firestore } from "@firebase/firestore";
+import { collection, doc, limit, onSnapshot, orderBy, query, updateDoc, where, type Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import { markNotificationsReadTargeted } from "../services/notificationsPagination";
 import type { AppNotification, AppUser, Message, School } from "../types";
@@ -14,6 +14,8 @@ export function useCoordinationInbox(user: AppUser, schools: School[], refreshTo
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState("");
+  const [platformNotifications, setPlatformNotifications] = useState<AppNotification[]>([]);
+  const [platformMessages, setPlatformMessages] = useState<Message[]>([]);
   const scope = useMemo(
     () => schools.filter((school) => school.activeSchoolYearId).map((school) => ({ schoolId: school.id, schoolYearId: school.activeSchoolYearId })).sort((a, b) => a.schoolId.localeCompare(b.schoolId)),
     [schools],
@@ -59,15 +61,33 @@ export function useCoordinationInbox(user: AppUser, schools: School[], refreshTo
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [refreshToken, scope, scopeKey, user.id]);
 
-  const markAllRead = useCallback(async () => {
-    const unreadScopes = new Map(notifications.filter((item) => !item.read).map((item) => [`${item.schoolId}\u0000${item.schoolYearId}`, { schoolId: item.schoolId, schoolYearId: item.schoolYearId }]));
-    await Promise.all(Array.from(unreadScopes.values()).map(({ schoolId, schoolYearId }) => markNotificationsReadTargeted(user, schoolId, schoolYearId)));
-  }, [notifications, user]);
+  // Lot 23 : messages du Super administrateur (sans école), écoutés en temps réel.
+  useEffect(() => {
+    setPlatformNotifications([]); setPlatformMessages([]);
+    if (!firebaseReady || !db) return undefined;
+    const database = db as unknown as Firestore;
+    const unsubscribes = [
+      onSnapshot(query(collection(database, "notifications"), where("recipientUserId", "==", user.id), where("platformMessage", "==", true), limit(50)),
+        (snapshot) => setPlatformNotifications(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppNotification)), () => setError("Impossible d'actualiser les notifications en temps réel.")),
+      onSnapshot(query(collection(database, "messages"), where("participantIds", "array-contains", user.id), where("platformMessage", "==", true), limit(50)),
+        (snapshot) => setPlatformMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Message)), () => setError("Impossible d'actualiser les messages en temps réel.")),
+    ];
+    return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
+  }, [refreshToken, user.id]);
 
+  const markAllRead = useCallback(async () => {
+    const database = db as unknown as Firestore | undefined;
+    if (database) await Promise.all(platformNotifications.filter((item) => !item.read).map((item) => updateDoc(doc(database, "notifications", item.id), { read: true })));
+    const unreadScopes = new Map(notifications.filter((item) => !item.read && item.schoolId).map((item) => [`${item.schoolId}\u0000${item.schoolYearId}`, { schoolId: item.schoolId, schoolYearId: item.schoolYearId }]));
+    await Promise.all(Array.from(unreadScopes.values()).map(({ schoolId, schoolYearId }) => markNotificationsReadTargeted(user, schoolId, schoolYearId)));
+  }, [notifications, platformNotifications, user]);
+
+  const allNotifications = useMemo(() => mergeById(new Map([["ecoles", notifications], ["plateforme", platformNotifications]])), [notifications, platformNotifications]);
+  const allMessages = useMemo(() => mergeById(new Map([["ecoles", messages], ["plateforme", platformMessages]])), [messages, platformMessages]);
   return {
-    notifications,
-    messages,
-    unreadCount: notifications.filter((item) => !item.read).length,
+    notifications: allNotifications,
+    messages: allMessages,
+    unreadCount: allNotifications.filter((item) => !item.read).length,
     error,
     markAllRead,
   };

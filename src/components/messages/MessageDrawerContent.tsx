@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { AppData, AppNotification, AppUser, AuditLog, Message, ParentProfile, School, Student } from "../../types";
 import { administrativeSenderDetails } from "../../utils/administrativeSender";
+import { MessageReplyBox } from "./MessageReplyBox";
 import { MessageAttachments } from "./MessageAttachments";
 
 type MessageDrawerYearData = {
@@ -100,10 +101,11 @@ export function MessageDrawerContent({
     }
     const sender = data.users.find((item) => item.id === message.senderId) ?? yearData.users.find((item) => item.id === message.senderId);
     const senderParent = sender?.parentId ? yearData.parents.find((item) => item.id === sender.parentId) : getParentForMessage(message);
-    if (sender?.role === "parent" || (!sender && senderParent && message.recipientParentId === "school")) {
+    if (message.senderRole === "parent" || sender?.role === "parent" || (!sender && senderParent && message.recipientParentId === "school")) {
       return {
         type: "parent" as const,
-        name: senderParent?.fullName ?? sender?.name ?? "Parent",
+        // Lot 23 : le nom enregistré dans le message passe d'abord (tous les rôles ne chargent pas les parents).
+        name: message.senderName?.trim() || senderParent?.fullName || sender?.name || "Parent",
         role: "Parent",
         children: parentChildren(senderParent),
       };
@@ -260,6 +262,7 @@ export function MessageDrawerContent({
         </p>
         <p className={`mt-1 whitespace-pre-wrap break-words text-sm leading-6 ${senderIsParent ? "text-slate-100" : "text-slate-600"}`}>{message.body}</p>
         <MessageAttachments message={message} inverse={senderIsParent} />
+        <MessageReplyBox message={message} user={user} schoolYearId={message.schoolYearId} />
         <p className={`mt-2 text-xs ${senderIsParent ? "text-slate-300" : "text-slate-500"}`}>{formatFeedDate(message.createdAt)}</p>
       </article>
     );

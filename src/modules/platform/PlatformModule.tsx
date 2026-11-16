@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { KeptTab } from "../../components/layout/KeptTab";
+import { PlatformMessages } from "./PlatformMessages";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
 import type { ReactNode } from "react";
-import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
+import { ArrowUpDown, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, MessageSquare, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
 import { PlatformStatusDistributionCard } from "../../components/platform/PlatformStatusDistributionCard";
@@ -84,7 +85,7 @@ export function PlatformModule({
   roleLabels: Record<AppUser["role"], string>;
   schoolTabLabel: (tab: "overview" | "info" | "admins" | "history") => string;
 }) {
-  type PlatformView = "dashboard" | "students" | "coordinations" | "menu";
+  type PlatformView = "dashboard" | "students" | "coordinations" | "messages" | "menu";
   type SchoolDetailTab = "overview" | "info" | "admins" | "history";
   type SchoolSort = "az" | "recent" | "users";
   const removedSchoolOptions = new Set<string>();
@@ -1085,6 +1086,7 @@ export function PlatformModule({
     { id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
     { id: "students" as const, label: "Écoles", icon: Building2 },
     { id: "coordinations" as const, label: "Coordinations", icon: UsersRound },
+    { id: "messages" as const, label: "Messages", icon: MessageSquare },
     { id: "menu" as const, label: "Menu", icon: MenuIcon },
   ];
 
@@ -1292,6 +1294,10 @@ export function PlatformModule({
 
           <KeptTab id="coordinations" active={platformView} visited={visitedViews}>
             <CoordinationManagement schools={visibleSchools} coordinations={coordinations} coordinationError={coordinationLoadError} onSchoolUpdated={(school) => updateData({ schools: data.schools.map((item) => item.id === school.id ? school : item) }, { persist: false })} />
+          </KeptTab>
+
+          <KeptTab id="messages" active={platformView} visited={visitedViews}>
+            <PlatformMessages user={user} schools={visibleSchools} />
           </KeptTab>
 
           <KeptTab id="menu" active={platformView} visited={visitedViews}>
