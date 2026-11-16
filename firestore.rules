@@ -1673,6 +1673,9 @@ service cloud.firestore {
 
     match /messages/{messageId} {
       allow read: if superAdmin()
+        // Lot 23 : messages du Super administrateur et réponses, lisibles par leurs seuls participants.
+        || (signedIn() && resource.data.get("platformMessage", false) == true
+          && request.auth.uid in resource.data.participantIds)
         || (coordinatorSchool(resource.data.schoolId)
           && request.auth.uid in resource.data.participantIds)
         || (schoolAdmin() && sameTenantResource()
@@ -1769,6 +1772,8 @@ service cloud.firestore {
 
     match /notifications/{notificationId} {
       allow read: if superAdmin()
+        || (signedIn() && resource.data.get("platformMessage", false) == true
+          && resource.data.recipientUserId == request.auth.uid)
         || (coordinatorSchool(resource.data.schoolId)
           && resource.data.recipientUserId == request.auth.uid)
         || (role() in ["school_admin", "cashier"] && sameTenantResource()
@@ -1801,7 +1806,10 @@ service cloud.firestore {
         && (!("type" in resource.data && resource.data.type == "financial_correction")
           || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"])
             && "recipientUserId" in resource.data && resource.data.recipientUserId == request.auth.uid))
-        && ((role() in ["school_admin", "cashier"]
+        // Lot 23 : notification du Super administrateur (ou réponse) — seul son destinataire la marque « lue ».
+        && ((resource.data.get("platformMessage", false) == true && signedIn()
+          && resource.data.recipientUserId == request.auth.uid)
+        || (role() in ["school_admin", "cashier"]
           && activeTenantYearUpdate()
           && (resource.data.type != "message"
             || !("recipientUserId" in resource.data)

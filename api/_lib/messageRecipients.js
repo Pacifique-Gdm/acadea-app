@@ -20,8 +20,10 @@ export function normalizedMessagingRole(value) {
 export function messagingSenderIdentity(caller) {
   const profile = caller?.profile ?? {};
   const senderName = String(profile.displayName ?? profile.name ?? profile.fullName ?? "").trim();
+  const labels = { school_admin: "Administrateur", cashier: "Caissier", secretary: "Secrétaire", discipline_director: "Directeur de discipline", study_director: "Directeur des études", teacher: "Enseignant", parent: "Parent" };
   return {
-    senderName: senderName || "Utilisateur administratif",
+    // Jamais d'identifiant technique : à défaut de nom, le libellé du rôle.
+    senderName: senderName || labels[normalizedMessagingRole(caller?.role)] || "Personnel de l'école",
     senderRole: normalizedMessagingRole(caller?.role),
   };
 }

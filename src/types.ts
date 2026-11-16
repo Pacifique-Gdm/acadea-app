@@ -456,7 +456,10 @@ export interface Message {
   schoolYearId: string;
   senderId: string;
   senderName?: string;
-  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "coordination_admin" | "sub_coordination_admin";
+  senderRole?: "parent" | "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "coordination_admin" | "sub_coordination_admin" | "super_admin";
+  /** Lot 23 : message du Super administrateur ou réponse à celui-ci. */
+  platformMessage?: boolean;
+  replyToMessageId?: string;
   participantIds?: string[];
   recipientIds?: string[];
   recipientParentId: string | "all" | "school";

@@ -2,6 +2,11 @@ import { createHash } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { chunks, coordinationHttpError, requireActiveCoordinationActor, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
+import { displayName, SENDER_ROLE_LABELS, sendPlatformReply } from "./_lib/platformMessaging.js";
+
+/** Envoi « Tous les … » : plafond de sécurité par envoi groupé (le plafond de 200 reste pour une liste choisie). */
+export const AUDIENCE_MAX_RECIPIENTS = 5000;
+const AUDIENCE_BATCH = 200;
 
 const ALLOWED_ROLES = new Set(["school_admin", "discipline_director", "study_director", "cashier", "teacher", "parent", "secretary"]);
 function sendJson(res, status, body) { res.statusCode = status; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(body)); }
@@ -15,7 +20,12 @@ async function loadRecipients(req, res, db, caller) {
   await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.message.recipients", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
   const selectedSchoolId = String(req.query?.schoolId ?? "").trim();
   if (selectedSchoolId && !schoolIds.includes(selectedSchoolId)) throw coordinationHttpError(403, "school-outside-coordination", "École hors Coordination.");
-  const scope = selectedSchoolId ? [selectedSchoolId] : schoolIds;
+  const recipients = await scopedRecipients(db, selectedSchoolId ? [selectedSchoolId] : schoolIds);
+  return sendJson(res, 200, { recipients });
+}
+
+/** Destinataires actifs autorisés des écoles de la portée (mêmes règles que la liste affichée). */
+async function scopedRecipients(db, scope) {
   const recipients = [];
   for (const batch of chunks(scope, 30)) {
     let cursor;
@@ -33,22 +43,40 @@ async function loadRecipients(req, res, db, caller) {
     } while (cursor);
   }
   recipients.sort((a, b) => a.name.localeCompare(b.name, "fr"));
-  return sendJson(res, 200, { recipients });
+  return recipients;
 }
 
-async function sendMessage(req, res, db, caller) {
+/** Exporté pour les tests sur l'émulateur (lot 23). */
+export async function sendMessage(req, res, db, caller) {
   const input = await readBody(req);
   const subject = text(input.subject, 200); const messageBody = text(input.body); const idempotencyKey = text(req.headers["x-idempotency-key"], 128);
+  if (input.replyToMessageId) {
+    // Lot 23 : réponse de la Coordination au Super administrateur.
+    await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.message.send", idempotencyKey, ...API_RATE_LIMITS.SCHOOL_MESSAGE });
+    return sendJson(res, 200, await sendPlatformReply(db, caller, { ...input, idempotencyKey }));
+  }
+  const audience = input.audience && typeof input.audience === "object" ? { role: text(input.audience.role, 40), schoolId: text(input.audience.schoolId, 128) } : null;
   const recipientIds = Array.isArray(input.recipientIds) ? [...new Set(input.recipientIds.map((item) => text(item, 128)).filter(Boolean))] : [];
-  if (!subject || !messageBody || !idempotencyKey || !recipientIds.length || recipientIds.length > 200) throw coordinationHttpError(400, "invalid-argument", "Objet, message et destinataires sont requis.");
+  if (!subject || !messageBody || !idempotencyKey || (!audience && (!recipientIds.length || recipientIds.length > 200)) || (audience && !ALLOWED_ROLES.has(audience.role))) throw coordinationHttpError(400, "invalid-argument", "Objet, message et destinataires sont requis.");
   const schoolIds = await resolveCoordinationSchoolScope(db, caller);
-  const selectedSchoolId = text(input.schoolId, 128);
+  const selectedSchoolId = audience ? audience.schoolId : text(input.schoolId, 128);
   if (selectedSchoolId && !schoolIds.includes(selectedSchoolId)) throw coordinationHttpError(403, "school-outside-coordination", "École hors Coordination.");
   await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.message.send", idempotencyKey, ...API_RATE_LIMITS.SCHOOL_MESSAGE });
-  const recipientSnapshots = [];
-  for (const batch of chunks(recipientIds, 100)) recipientSnapshots.push(...await db.getAll(...batch.map((id) => db.doc(`users/${id}`))));
-  const recipients = recipientSnapshots.map((snapshot) => snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null);
-  if (recipients.some((item) => !item)) throw coordinationHttpError(400, "invalid-recipient", "Un destinataire est introuvable.");
+  let recipients;
+  if (audience) {
+    // « Tous les … » : la liste est calculée par le serveur (droits et séparation entre écoles), sans doublon.
+    const listed = (await scopedRecipients(db, selectedSchoolId ? [selectedSchoolId] : schoolIds)).filter((item) => item.role === audience.role);
+    if (!listed.length) throw coordinationHttpError(400, "invalid-recipient", "Aucun destinataire dans cette catégorie.");
+    if (listed.length > AUDIENCE_MAX_RECIPIENTS) throw coordinationHttpError(400, "too-many-recipients", `Envoi limité à ${AUDIENCE_MAX_RECIPIENTS} destinataires.`);
+    const snapshots = [];
+    for (const batch of chunks(listed.map((item) => item.uid), 100)) snapshots.push(...await db.getAll(...batch.map((id) => db.doc(`users/${id}`))));
+    recipients = snapshots.filter((snapshot) => snapshot.exists).map((snapshot) => ({ id: snapshot.id, ...snapshot.data() }));
+  } else {
+    const recipientSnapshots = [];
+    for (const batch of chunks(recipientIds, 100)) recipientSnapshots.push(...await db.getAll(...batch.map((id) => db.doc(`users/${id}`))));
+    recipients = recipientSnapshots.map((snapshot) => snapshot.exists ? { id: snapshot.id, ...snapshot.data() } : null);
+    if (recipients.some((item) => !item)) throw coordinationHttpError(400, "invalid-recipient", "Un destinataire est introuvable.");
+  }
   for (const recipient of recipients) {
     const role = recipient.role === "admin" ? "school_admin" : recipient.role;
     if (!schoolIds.includes(recipient.schoolId) || (selectedSchoolId && recipient.schoolId !== selectedSchoolId) || !ALLOWED_ROLES.has(role) || recipient.active === false || recipient.status === "inactive") throw coordinationHttpError(403, "invalid-recipient", "Destinataire hors périmètre ou non autorisé.");
@@ -59,20 +87,27 @@ async function sendMessage(req, res, db, caller) {
   if (existing.exists) return sendJson(res, 200, { messageIds: existing.data().messageIds ?? [], idempotent: true });
   const schoolSnapshots = await db.getAll(...schoolIds.map((id) => db.doc(`schools/${id}`)));
   const activeYears = new Map(schoolSnapshots.filter((item) => item.exists).map((item) => [item.id, item.data().activeSchoolYearId]));
-  const now = new Date().toISOString(); const batch = db.batch(); const messageIds = [];
+  const now = new Date().toISOString(); const messageIds = [];
+  const batches = []; let batch = db.batch(); let pending = 0;
   for (const recipient of recipients) {
+    if (pending === AUDIENCE_BATCH) { batches.push(batch); batch = db.batch(); pending = 0; }
+    pending += 1;
     const schoolYearId = activeYears.get(recipient.schoolId);
     if (!schoolYearId) throw coordinationHttpError(409, "school-year-missing", "Une école ne possède aucune année scolaire active.");
     const messageId = stableId("coord-msg", caller.uid, idempotencyKey, recipient.id); messageIds.push(messageId);
-    batch.set(db.doc(`messages/${messageId}`), { id: messageId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, senderId: caller.uid, senderName: caller.profile.name ?? "Coordination", senderRole: caller.role, recipientIds: [recipient.id], participantIds: [caller.uid, recipient.id], recipientParentId: "school", subject, body: messageBody, createdAt: now, idempotencyKeyHash: stableId("key", caller.uid, idempotencyKey) });
+    batch.set(db.doc(`messages/${messageId}`), { id: messageId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, senderId: caller.uid, senderName: displayName(caller.profile, caller.role), senderRole: caller.role, recipientIds: [recipient.id], participantIds: [caller.uid, recipient.id], recipientParentId: "school", subject, body: messageBody, createdAt: now, idempotencyKeyHash: stableId("key", caller.uid, idempotencyKey) });
     const notificationId = stableId("notif", messageId, recipient.id);
-    batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [recipient.role === "admin" ? "school_admin" : recipient.role], messageId, type: "message", title: "Nouveau message de la Coordination", body: subject, createdAt: now, read: false });
+    batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), schoolId: recipient.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [recipient.role === "admin" ? "school_admin" : recipient.role], messageId, type: "message", title: `Nouveau message de ${displayName(caller.profile, caller.role)} (${SENDER_ROLE_LABELS[caller.role]})`, body: subject, createdAt: now, read: false });
   }
-  const auditRef = db.collection("auditLogs").doc();
-  batch.set(auditRef, { id: auditRef.id, eventType: "coordination.message.sent", coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, actorRole: caller.role, actorName: caller.profile.name ?? "Coordinateur", action: "Message Coordination envoyé", source: "server", createdAt: now, metadata: { recipientCount: recipients.length } });
-  batch.create(requestRef, { id: requestId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, messageIds, createdAt: now });
-  await batch.commit();
-  return sendJson(res, 200, { messageIds, idempotent: false });
+  const auditRef = db.doc(`auditLogs/${stableId("coord-audit", caller.uid, idempotencyKey)}`);
+  batches.push(batch);
+  // Les messages ont des identifiants stables : une reprise après coupure réécrit les mêmes documents, sans doublon.
+  for (let index = 0; index < batches.length; index += 5) await Promise.all(batches.slice(index, index + 5).map((item) => item.commit()));
+  const closing = db.batch();
+  closing.set(auditRef, { id: auditRef.id, eventType: "coordination.message.sent", coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, actorRole: caller.role, actorName: caller.profile.name ?? "Coordinateur", action: "Message Coordination envoyé", source: "server", createdAt: now, metadata: { recipientCount: recipients.length, ...(audience ? { audienceRole: audience.role, audienceSchoolId: selectedSchoolId || "toutes" } : {}) } });
+  closing.create(requestRef, { id: requestId, coordinationId: caller.coordinationId, ...(caller.subCoordinationId ? { subCoordinationId: caller.subCoordinationId } : {}), actorId: caller.uid, messageCount: messageIds.length, ...(messageIds.length <= 500 ? { messageIds } : {}), createdAt: now });
+  await closing.commit();
+  return sendJson(res, 200, { messageIds: messageIds.length <= 500 ? messageIds : [], recipientCount: messageIds.length, idempotent: false });
 }
 
 export default async function handler(req, res) {

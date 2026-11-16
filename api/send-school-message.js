@@ -3,6 +3,7 @@ import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
 import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
+import { resolveReplyTarget, SENDER_ROLE_LABELS, sendCoordinationReply, sendPlatformReply } from "./_lib/platformMessaging.js";
 
 export const MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const MAX_ATTACHMENTS = 10;
@@ -159,6 +160,15 @@ export default async function handler(req, res) {
     const { auth, db, bucket } = initAdmin();
     const caller = await requireMessagingCaller(auth, db, token);
     const body = await readBody(req);
+    if (body.replyToMessageId) {
+      // Lot 23 : réponse du personnel à la Coordination (pas les parents) ou d'un administrateur au Super administrateur.
+      const replyKey = text(req.headers["x-idempotency-key"], 128);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.schoolId, action: "school.message.send", idempotencyKey: replyKey, ...API_RATE_LIMITS.SCHOOL_MESSAGE });
+      const { kind } = await resolveReplyTarget(db, caller, body.replyToMessageId);
+      const input = { ...body, idempotencyKey: replyKey };
+      sendJson(res, 200, kind === "platform" ? await sendPlatformReply(db, caller, input) : await sendCoordinationReply(db, caller, input));
+      return;
+    }
     const schoolYearId = text(body.schoolYearId, 120);
     const subject = text(body.subject, 200);
     const messageBody = text(body.body, 5000);
@@ -193,7 +203,7 @@ export default async function handler(req, res) {
     batch.set(db.doc(`conversations/${conversationId}`), conversation);
     recipients.forEach((recipient) => {
       const notificationId = stableId("notif", messageId, recipient.id);
-      batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: "Nouveau message", body: subject, createdAt, read: false });
+      batch.set(db.doc(`notifications/${notificationId}`), { id: notificationId, schoolId: caller.schoolId, schoolYearId, recipientUserId: recipient.id, audienceRoles: [normalizedRole(recipient.role)], messageId, type: "message", title: `Nouveau message de ${savedMessage.senderName} (${SENDER_ROLE_LABELS[savedMessage.senderRole] ?? "Personnel"})`, body: subject, createdAt, read: false });
     });
     await batch.commit();
     await Promise.allSettled(temporaryPaths.map((path) => bucket.file(path).delete({ ignoreNotFound: true })));
