@@ -3,11 +3,13 @@ import { db } from "../firebase";
 import type { AppUser, FeeType, School, SchoolClassRecord, SchoolYear, Student } from "../types";
 import { operationalSchoolClasses } from "./schoolSubclasses";
 import { getApplicableFeeTypes } from "../utils/stats";
+import { supportBalance } from "../../api/_lib/socialSupportMath.js";
 import { loadTeacherGrading, loadTeacherGradingRoster } from "../modules/teacher/teacherGradingService";
 import { loadDisciplineYearData } from "./firestoreData";
 import { readOfflineContext, saveOfflineContext, type OfflineScope } from "./offlineQueue";
 
-export type OfflineStudent = { id: string; name: string; className: string; section?: string; feeTypeIds?: string[] };
+/** Lot 26c : `netByFee` = montant net (après réduction ou prise en charge) des frais concernés, pour le Caissier hors connexion. */
+export type OfflineStudent = { id: string; name: string; className: string; section?: string; feeTypeIds?: string[]; netByFee?: Record<string, number> };
 export type OfflineClass = { id: string; name: string; parentClassId?: string; section?: string; option?: string; classOptionKey?: string; operational?: boolean; label?: string };
 export type OfflineGradeCourse = { assignmentId: string; classId: string; subjectId: string;
   className: string; subjectName: string; students: OfflineStudent[];
@@ -67,7 +69,11 @@ export async function prepareOfflineContext(user: AppUser, school: School, year:
       const feeRows = fees.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id } as FeeType));
       context.students = students.docs.map((snapshot) => {
         const pupil = { ...snapshot.data(), id: snapshot.id } as Student;
-        return { ...asStudent(pupil), feeTypeIds: getApplicableFeeTypes(pupil, feeRows).map((fee) => fee.id) };
+        const applicable = getApplicableFeeTypes(pupil, feeRows);
+        // Lot 26c : même calcul que le serveur (tarif − réduction), seulement pour les frais réduits.
+        const netByFee: Record<string, number> = {};
+        for (const fee of applicable) { const balance = supportBalance(pupil, fee); if (balance.reduction > 0) netByFee[fee.id] = balance.net; }
+        return { ...asStudent(pupil), feeTypeIds: applicable.map((fee) => fee.id), ...(Object.keys(netByFee).length ? { netByFee } : {}) };
       });
       context.fees = fees.docs.map((snapshot) => ({ id: snapshot.id, name: String(snapshot.data().name ?? "Frais"),
         amount: Number(snapshot.data().amount), currency }));

@@ -389,12 +389,13 @@ describe("décisions financières atomiques", () => {
       }),
     ).rejects.toMatchObject({ status: 403 });
   });
-  it("autorise le Caissier et le Secrétaire du même établissement avec une trace commune", async () => {
+  it("lot 26c : le Caissier et la Secrétaire consultent seulement ; le serveur refuse qu'ils accordent une réduction", async () => {
     for (const [uid, role] of [["c", "cashier"], ["sec", "secretary"]] as const) {
       const f = fixture();
-      const result = await manageSocialSupport({ db: f.db, caller: { uid, role, schoolId: "s" }, body: f.body });
-      expect(result.decision.history[0]).toMatchObject({ actorId: uid, actorRole: role });
-      expect(f.values.get("students/p")?.financialSupport).toBeTruthy();
+      await expect(manageSocialSupport({ db: f.db, caller: { uid, role, schoolId: "s" }, body: f.body })).rejects.toMatchObject({ status: 403 });
+      expect(f.values.get("students/p")?.financialSupport).toBeFalsy();
+      expect([...f.values.keys()].some((key) => key.startsWith("socialSupportDecisions/"))).toBe(false);
+      await expect(manageSocialSupport({ db: f.db, caller: { uid, role, schoolId: "s" }, body: { action: "list-social-support" } })).resolves.toMatchObject({ decisions: [] });
     }
   });
   it("fournit aux rôles de gestion uniquement les noms de personnel nécessaires", async () => {
@@ -409,9 +410,9 @@ describe("décisions financières atomiques", () => {
     expect(JSON.stringify(result)).not.toContain("private-phone-value");
     expect(JSON.stringify(result)).not.toContain("Hors école");
   });
-  it("oriente un paiement tiers ordinaire vers la caisse sans nouveau dossier social", async () => {
+  it("lot 26c : le motif « tiers » n'existe plus ; un paiement passe par la caisse normale sans dossier social", async () => {
     const f = fixture();
-    await expect(save(f, { reason: "third-party", thirdPartyName: "Association" })).rejects.toThrow("module Caissier");
+    await expect(save(f, { reason: "third-party", thirdPartyName: "Association" })).rejects.toThrow("Sélectionner un motif");
     const receipt = await executeFinancialOperation({ db: f.db, caller: { uid: "c", role: "cashier", schoolId: "s" }, body: {
       action: "create-payment", schoolYearId: "y", studentId: "p", feeTypeId: "f", amount: 30,
       note: "Payé par Association", clientRequestId: "ordinary-third-payment-001",
@@ -437,73 +438,21 @@ describe("décisions financières atomiques", () => {
 });
 
 describe("encaissement par le service financier existant", () => {
-  it("encaisse un paiement tiers partiel, produit un reçu et refuse de dépasser la créance", async () => {
+  it("lot 26c : un paiement « par un tiers » est refusé ; un paiement ordinaire va jusqu'au reste dû, même avec un ancien engagement", async () => {
     const f = fixture();
     const decision = seedLegacyThirdParty(f);
-    const body = {
-      action: "create-payment",
-      schoolYearId: "y",
-      studentId: "p",
-      feeTypeId: "f",
-      amount: 30,
-      supportDecisionId: decision.id,
-      clientRequestId: "payment-request-001",
-    };
-    const result = (await executeFinancialOperation({
-      db: f.db,
-      caller: { uid: "c", schoolId: "s", role: "cashier" },
-      body,
-    })) as { payment: { amount: number; receiptNumber: string } };
-    expect(result.payment.amount).toBe(30);
+    const cashier = { uid: "c", schoolId: "s", role: "cashier" as const };
+    const body = { action: "create-payment", schoolYearId: "y", studentId: "p", feeTypeId: "f", amount: 30, clientRequestId: "payment-request-001" };
+    await expect(executeFinancialOperation({ db: f.db, caller: cashier, body: { ...body, supportDecisionId: decision.id } })).rejects.toThrow("n'existe plus");
+    const result = (await executeFinancialOperation({ db: f.db, caller: cashier, body })) as { payment: Payment & { receiptNumber: string } };
+    expect(result.payment).toMatchObject({ amount: 30 });
+    expect(result.payment).not.toHaveProperty("supportDecisionId");
     expect(result.payment.receiptNumber).toMatch(/^REC-/);
-    const payments = [...f.values]
-      .filter(([key]) => key.startsWith("payments/"))
-      .map(([, value]) => value as unknown as Payment);
-    expect(
-      supportBalance(
-        f.values.get("students/p") as unknown as Student,
-        f.values.get("feeTypes/f") as unknown as FeeType,
-        payments,
-      ),
-    ).toMatchObject({
-      paid: 30,
-      thirdRemaining: 70,
-      studentRemaining: 200,
-      remaining: 270,
-    });
-    await expect(
-      executeFinancialOperation({
-        db: f.db,
-        caller: { uid: "c", schoolId: "s", role: "cashier" },
-        body: { ...body, amount: 71, clientRequestId: "payment-request-002" },
-      }),
-    ).rejects.toThrow("dépasse");
-    await expect(
-      save(f, {
-        action: "cancel-social-support",
-        decisionId: decision.id,
-        expectedVersion: 1,
-        clientRequestId: "request-cancel-001",
-      }),
-    ).rejects.toThrow("encaissements");
-  });
-  it("refuse de facturer la part promise au tiers comme une seconde dette élève", async () => {
-    const f = fixture();
-    seedLegacyThirdParty(f);
-    await expect(
-      executeFinancialOperation({
-        db: f.db,
-        caller: { uid: "c", schoolId: "s", role: "cashier" },
-        body: {
-          action: "create-payment",
-          schoolYearId: "y",
-          studentId: "p",
-          feeTypeId: "f",
-          amount: 201,
-          clientRequestId: "payment-request-001",
-        },
-      }),
-    ).rejects.toThrow("dépasse");
+    const payments = [...f.values].filter(([key]) => key.startsWith("payments/")).map(([, value]) => value as unknown as Payment);
+    // Le total dû ne change pas (tarif − réduction) ; le reste dû = dû − payé.
+    expect(supportBalance(f.values.get("students/p") as unknown as Student, f.values.get("feeTypes/f") as unknown as FeeType, payments)).toMatchObject({ paid: 30, remaining: 270 });
+    await expect(executeFinancialOperation({ db: f.db, caller: cashier, body: { ...body, amount: 271, clientRequestId: "payment-request-002" } })).rejects.toThrow("dépasse");
+    expect(await executeFinancialOperation({ db: f.db, caller: cashier, body: { ...body, amount: 270, clientRequestId: "payment-request-003" } })).toMatchObject({ payment: { amount: 270 } });
   });
   it("applique la réduction dans le contrôle serveur des paiements", async () => {
     const f = fixture();

@@ -11,6 +11,12 @@ const slots = ["period_1", "period_2", "semester_1_exam", "period_3", "period_4"
 const slotLabel: Record<string, string> = { period_1: "1re période", period_2: "2e période", semester_1_exam: "Examen du 1er semestre",
   period_3: "3e période", period_4: "4e période", semester_2_exam: "Examen du 2e semestre" };
 
+/** Lot 26c : le Caissier hors connexion voit le montant net (après réduction), pas le tarif officiel. */
+export function offlineFeeLabel(fee: { name: string; amount: number; currency: "CDF" | "USD" }, student?: { netByFee?: Record<string, number> } & Record<string, unknown>, feeId = (fee as { id?: string }).id ?? "") {
+  const net = student?.netByFee?.[feeId];
+  return net === undefined ? `${fee.name} · ${formatCurrencyMoney(fee.amount, fee.currency)}` : `${fee.name} · ${formatCurrencyMoney(net, fee.currency)} (après réduction)`;
+}
+
 export function OfflineDraftForms({ scope, role }: { scope: OfflineScope; role: OfflineAccess["role"] }) {
   return <ScopedOfflineDraftForms key={`${scope.userId}:${scope.schoolId}:${scope.schoolYearId}:${role}`} scope={scope} role={role} />;
 }
@@ -131,7 +137,7 @@ function ScopedOfflineDraftForms({ scope, role }: { scope: OfflineScope; role: O
     </>}
     {role === "cashier" && <>
       <select className="input" aria-label="Élève" value={studentId} onChange={(event) => { setStudentId(event.target.value); setFeeTypeId(""); }}><option value="">Choisir un élève</option>{students.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-      <select className="input" aria-label="Type de frais" value={feeTypeId} onChange={(event) => setFeeTypeId(event.target.value)}><option value="">Choisir un frais</option>{fees.map((item) => <option key={item.id} value={item.id}>{item.name} · {formatCurrencyMoney(item.amount, item.currency)}</option>)}</select>
+      <select className="input" aria-label="Type de frais" value={feeTypeId} onChange={(event) => setFeeTypeId(event.target.value)}><option value="">Choisir un frais</option>{fees.map((item) => <option key={item.id} value={item.id}>{offlineFeeLabel(item, students.find((row) => row.id === studentId))}</option>)}</select>
       {studentId && !fees.length && <p role="status">Aucune obligation identifiable dans le cache pour cet élève. Actualisez les références en ligne.</p>}
       <input className="input" aria-label="Montant provisoire" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} />
       <input className="input" aria-label="Note facultative" value={note} onChange={(event) => setNote(event.target.value)} />

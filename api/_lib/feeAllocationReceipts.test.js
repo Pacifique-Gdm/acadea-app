@@ -135,14 +135,13 @@ describe("paiements du handler, frontières de projet et registre atomique", () 
     await expect(create(db)).rejects.toThrow("interruption"); expect([...db.records]).toEqual(before);
     db.interrupt = false; await create(db); expect(movements(db)).toHaveLength(1);
   });
-  it("réduction, promesse et paiement réel du tiers sont distincts", async () => {
-    const db = fixture(); db.records.get("students/student").financialSupport = { d: { id: "d", schoolYearId: "year", lines: { fee: { reductionMinor: 5000, commitmentMinor: 3000 } } } };
+  it("lot 26c : réduction et paiements ordinaires ; un paiement « tiers » est refusé sans mouvement", async () => {
+    const db = fixture(); db.records.get("students/student").financialSupport = { d: { id: "d", schoolYearId: "year", lines: { fee: { reductionMinor: 5000 } } } };
     expect(movements(db)).toHaveLength(0);
-    await create(db, 20); await create(db, 10, "third-payment-001", { supportDecisionId: "d" }); await create(db, 20, "third-payment-002", { supportDecisionId: "d" });
-    expect(movements(db).reduce((n, m) => n + m.amountMinor, 0)).toBe(5000);
-    const third = movements(db).find(m => m.supportDecisionId === "d");
-    await expect(remove(db, db.records.get(`payments/${third.sourceId}`))).rejects.toMatchObject({ code: "failed-precondition" });
-    expect((await create(db, 10, "third-payment-001", { supportDecisionId: "d" })).idempotent).toBe(true);
+    await create(db, 20); await create(db, 10, "ordinary-payment-001");
+    await expect(create(db, 10, "third-payment-001", { supportDecisionId: "d" })).rejects.toMatchObject({ code: "invalid-argument" });
+    expect(movements(db).reduce((n, m) => n + m.amountMinor, 0)).toBe(3000);
+    expect((await create(db, 10, "ordinary-payment-001")).idempotent).toBe(true);
   });
   it("exonération totale : aucun paiement ni mouvement", async () => {
     const db = fixture(); db.records.get("students/student").financialSupport = { d: { id: "d", schoolYearId: "year", lines: { fee: { reductionMinor: 10000 } } } };

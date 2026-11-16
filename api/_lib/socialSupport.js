@@ -3,14 +3,16 @@ import { FinancialApiError } from "./financialTransactions.js";
 import { supportAmount, supportBalance, supportReductionCeiling, supportCeilingMessage } from "./socialSupportMath.js";
 import { toMoneyMinor, fromMoneyMinor } from "./money.js";
 
+// Lot 26c : la notion de « tiers » est supprimée (décision du propriétaire du 16/11/2026).
 const reasons = [
   "social",
   "scholarship",
   "direction",
   "personnel",
-  "third-party",
   "other",
 ];
+// Lot 26c : seul l'Administrateur accorde, modifie ou retire ; les autres rôles consultent.
+const writingRoles = ["admin", "school_admin"];
 const managingRoles = ["admin", "school_admin", "cashier", "secretary"];
 const normalizedRole = (role) => role === "admin" ? "school_admin" : role;
 const fail = (message, status = 400) => {
@@ -112,6 +114,8 @@ export async function manageSocialSupport({ db, caller, body }) {
     }
     return { decisions };
   }
+  if (!writingRoles.includes(caller.role))
+    fail("Seul l'Administrateur peut accorder, modifier ou retirer une réduction ou une prise en charge.", 403);
   const requestId = id(body.clientRequestId);
   if (requestId.length < 12) fail("Clé de requête invalide.");
   const hash = createHash("sha256")
@@ -161,7 +165,7 @@ export async function manageSocialSupport({ db, caller, body }) {
     if (
       !actor ||
       actor.schoolId !== schoolId ||
-      !managingRoles.includes(actor.role) ||
+      !writingRoles.includes(actor.role) ||
       normalizedRole(actor.role) !== normalizedRole(caller.role) ||
       actor.active === false ||
       actor.status === "inactive"
@@ -214,8 +218,6 @@ export async function manageSocialSupport({ db, caller, body }) {
       next = { ...old, status: "cancelled" };
     } else {
       if (!reasons.includes(body.reason)) fail("Sélectionner un motif.");
-      if (body.reason === "third-party" && !old)
-        fail("Un paiement par un tiers s'enregistre directement dans le module Caissier, sans engagement préalable.");
       if (!["fixed", "percent", "full"].includes(body.nature))
         fail("Nature invalide.");
       if (
