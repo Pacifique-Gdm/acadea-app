@@ -65,7 +65,8 @@ async function linkedParentUsers(db, schoolId, schoolYearId, studentId) {
   // Query on the indexed child identifier, then enforce tenant/year on the server.
   // This avoids requiring a new composite index for a protected publication path.
   const parentSnapshot = await db.collection("parents").where("studentIds", "array-contains", studentId).get();
-  const parents = serialize(parentSnapshot).filter((item) => item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.status === "active" && Array.isArray(item.studentIds) && item.studentIds.includes(studentId));
+// Lot 26b : la fiche parent est commune à l'école (elle garde l'année de sa création) ; la portée annuelle est prouvée par l'élève.
+  const parents = serialize(parentSnapshot).filter((item) => item.schoolId === schoolId && item.status === "active" && Array.isArray(item.studentIds) && item.studentIds.includes(studentId));
   if (!parents.length) return [];
   const parentIds = parents.map((item) => item.id);
   const chunks = Array.from({ length: Math.ceil(parentIds.length / 30) }, (_, index) => parentIds.slice(index * 30, index * 30 + 30));
@@ -77,7 +78,8 @@ async function parentProfile(db, caller, schoolId, schoolYearId) {
   const { user } = await actorContext(db, caller, schoolId, schoolYearId, "parent");
   const parentId = required(user.parentId, "Profil Parent");
   const profile = await db.doc(`parents/${parentId}`).get();
-  if (!profile.exists || profile.data()?.schoolId !== schoolId || profile.data()?.schoolYearId !== schoolYearId
+// Lot 26b : la fiche parent est commune à l'école (elle garde l'année de sa création) ; la portée annuelle est prouvée par l'élève.
+  if (!profile.exists || profile.data()?.schoolId !== schoolId
     || profile.data()?.status !== "active" || !Array.isArray(profile.data()?.studentIds)) {
     throw new GradingApiError(403, "permission-denied", "Profil Parent introuvable pour cette année.");
   }

@@ -77,6 +77,13 @@ describe("filtres du Contrôle", () => {
     expect(selectPaymentWarningRecipients({ students, parents, feeTypes: fees, payments, schoolId: "school-a", schoolYearId: "year-a", classKey: "all", feeName: "Minerval", requiredAmount: 100 })).toEqual([]);
   });
 
+  it("lot 26b : avertit le parent dont la fiche date d'une année passée, si son enfant est inscrit cette année", () => {
+    const students = [student("a", "1ère Primaire")];
+    const parents: ParentProfile[] = [{ id: "parent-a", schoolId: "school-a", schoolYearId: "year-old", userId: "user-a", fullName: "Ancienne fiche", phone: "", email: "", address: "", studentIds: ["a"], status: "active" }];
+    const result = selectPaymentWarningRecipients({ students, parents, feeTypes: [fee("minerval", "Minerval", "1ère Primaire")], payments: [], schoolId: "school-a", schoolYearId: "year-a", classKey: "all", feeName: "Minerval", requiredAmount: 100 });
+    expect(result.map((item) => item.parent.id)).toEqual(["parent-a"]);
+  });
+
   it("conserve le filtre classe avec les autres filtres et leur réinitialisation", () => {
     const source = readFileSync(new URL("../modules/control/ControlModule.tsx", import.meta.url), "utf8");
     expect(source).toContain("getControlClassKey(row.student) !== controlClassKey");

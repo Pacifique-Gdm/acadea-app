@@ -5,6 +5,9 @@ import { listOwnPayroll } from "../../services/personnelPayroll";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { formatCurrencyMoney } from "../../utils/currency";
 import type { AppUser, PersonnelPayment, School } from "../../types";
+import { createOwnPayrollCache } from "./ownPayrollCache";
+
+const loadOwnPayroll = createOwnPayrollCache<PersonnelPayment[]>(listOwnPayroll);
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
 
@@ -13,14 +16,17 @@ export function OwnPayrollEntry({ user, school }: { user: AppUser; school: Schoo
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [payments, setPayments] = useState<PersonnelPayment[]>([]);
+  const allowed = allowedRoles.has(user.role) && user.schoolId === school.id;
+  // Lot 26b : préparation dès l'affichage du Menu (le serveur peut mettre ~5 s à répondre la première fois).
+  useEffect(() => { if (allowed) void loadOwnPayroll(user.id).catch(() => undefined); }, [allowed, user.id]);
   useEffect(() => {
     if (!open) return;
     let current = true;
     setLoading(true); setError("");
-    void listOwnPayroll().then((items) => { if (current) setPayments(items); }).catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (current) setLoading(false); });
+    void loadOwnPayroll(user.id).then((items) => { if (current) setPayments(items); }).catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [open]);
-  if (!allowedRoles.has(user.role) || user.schoolId !== school.id) return null;
+  }, [open, user.id]);
+  if (!allowed) return null;
   return <>
     <button
       type="button"
