@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { chromium, expect as baseExpect } from '@playwright/test';
+import { createCanvas } from '@napi-rs/canvas';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { services } from './socialFinanceStagingFixture.mjs';
 import { redactRecipeError } from './hostedRecipeSafety.mjs';
 
@@ -25,7 +28,11 @@ const email = uid + '@example.invalid', password = 'Ephemeral-' + randomUUID() +
 const output = `${root}/${sha}-${Date.now()}`;
 mkdirSync(output, { recursive: true });
 const manifest = { projectId: 'acadea-staging', tag, sha, school, year, uid, email, paths: [], retired: false };
-const save = () => writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), { mode: 0o600 });
+const save = () => {
+  const json = JSON.stringify(manifest, null, 2);
+  writeFileSync(manifestPath, json, { mode: 0o600 });
+  writeFileSync(`${output}/manifest.json`, json, { mode: 0o600 });
+};
 save();
 const s = services(), results = [], errors = [];
 const pass = name => { results.push({ name, result: 'PASS' }); console.log('PASS: ' + name); };
@@ -39,7 +46,7 @@ async function put(collection, id, data) {
 }
 try {
   browser = await chromium.launch({ headless: true, ...(process.env.ACADEA_HOSTED_BROWSER_CHANNEL === 'chrome' ? { channel: 'chrome' } : {}) });
-  context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
+  context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'allow' });
   page = await context.newPage(); page.setDefaultTimeout(60000);
   await page.addInitScript(() => window.addEventListener('acadea:offline-context-ready', () => { window.acadeaRefreshOfflineReady = true; }));
   page.on('console', message => {
@@ -52,7 +59,7 @@ try {
   await put('schoolYears', year, { schoolId: school, name: '2026-2027', status: 'active', currency: 'USD', startsAt: '2026-09-01', endsAt: '2027-07-31' });
   await put('classes', classId, { schoolId: school, schoolYearId: year, name: '1ère Primaire', section: 'Primaire', active: true });
   await put('feeTypes', tag + '-fee', { schoolId: school, schoolYearId: year, name: 'Frais fictif actualisation', amount: 100, currency: 'USD', className: '1ère Primaire' });
-  await put('students', tag + '-student', { schoolId: school, schoolYearId: year, nom: 'ACTUALISATION', postnom: 'FICTIF', prenom: 'INITIAL', matricule: 'E2E', className: '1ère Primaire', classId, section: 'Primaire', status: 'ACTIVE', birthDate: '2017-01-01' });
+  await put('students', tag + '-student', { schoolId: school, schoolYearId: year, nom: 'ACTUALISATION', postnom: 'FICTIF', prenom: 'INITIAL', matricule: 'E2E', className: '1ère Primaire', classId, section: 'Primaire', status: 'ACTIVE', sexe: 'F', birthDate: '2017-01-01' });
   await put('users', uid, { role: 'school_admin', schoolId: school, activeSchoolYearId: year, name: 'Administrateur fictif actualisation', email, active: true, status: 'active' });
   await s.auth.createUser({ uid, email, password });
   await s.auth.setCustomUserClaims(uid, { role: 'school_admin', schoolId: school });
@@ -67,6 +74,7 @@ try {
   await expect(page.getByRole('button', { name: 'Actualiser', exact: true })).toBeEnabled();
   pass('Authentification hébergée, chargement initial et actualisation normale ; PDF financier autorisé');
 
+  if (process.env.ACADEA_REFRESH_RECIPE !== 'offline') {
   let delayed = 0;
   const delaySecondary = async route => {
     const data = route.request().postData() ?? '';
@@ -91,9 +99,25 @@ try {
   await expect(page.getByText(/^Messages non actualisés\./)).toHaveCount(0, { timeout: 60000 });
   await page.unroute('**/google.firestore.v1.Firestore/Listen/channel**', delaySecondary);
   pass('Lecture secondaire retardée au-delà de 15 s : finances confirmées, avertissement localisé et récupération automatique sans rechargement');
+  }
 
   await tab('Dashboard').click();
   await expect.poll(() => page.evaluate(() => Boolean(window.acadeaRefreshOfflineReady)), { timeout: 90000 }).toBe(true);
+  // Context preloading is not the offline authorization ticket. Wait for the
+  // real PWA preparation and encrypted ticket; never inject a login or a ticket.
+  await expect.poll(() => page.evaluate(async () => {
+    if (!(await indexedDB.databases()).some(db => db.name === 'acadea-offline-access-v1')) return false;
+    return new Promise(resolve => {
+      const request = indexedDB.open('acadea-offline-access-v1');
+      request.onerror = () => resolve(false);
+      request.onsuccess = () => {
+        const db = request.result;
+        const count = db.transaction('access', 'readonly').objectStore('access').count('current');
+        count.onsuccess = () => { db.close(); resolve(count.result === 1); };
+        count.onerror = () => { db.close(); resolve(false); };
+      };
+    });
+  }), { timeout: 90000 }).toBe(true);
   const before = (await s.db.collection('students').where('schoolId', '==', school).get()).size;
   await context.setOffline(true);
   await refresh();
@@ -102,6 +126,7 @@ try {
   await page.screenshot({ path: `${output}/financial-unconfirmed.png`, fullPage: true });
   await tab('Menu').click();
   await expect(page.getByText(/Données scolaires et financières non confirmées/)).toHaveCount(0);
+  pass('Coupure réseau : cache non validé, chiffres conservés, PDF bloqué et avertissement borné aux données touchées');
   await page.getByRole('button', { name: 'Voir les opérations', exact: true }).click();
   const queue = page.getByRole('region', { name: 'État des opérations hors connexion', exact: true });
   await queue.getByLabel('Classe préchargée', { exact: true }).selectOption(classId);
@@ -111,7 +136,7 @@ try {
   await queue.getByLabel('Date de naissance', { exact: true }).fill('2017-05-06');
   await queue.getByRole('button', { name: 'Enregistrer le brouillon local', exact: true }).click();
   await expect(queue.getByText('Brouillon local enregistré.', { exact: false })).toBeVisible();
-  pass('Coupure réseau : cache non validé, PDF bloqué, avertissement borné aux données touchées, saisie locale conservée');
+  pass('Saisie hors connexion conservée dans la file autorisée par la session normale');
   await context.setOffline(false);
   await expect(queue.getByText('Confirmée par le serveur', { exact: true })).toBeVisible({ timeout: 120000 });
   const students = (await s.db.collection('students').where('schoolId', '==', school).get()).docs;
@@ -123,11 +148,23 @@ try {
   await expect(page.getByText(/Données scolaires et financières non confirmées/)).toHaveCount(0);
   await refresh(); await expect(pdf).toBeEnabled();
   assert.equal((await s.db.collection('students').where('schoolId', '==', school).get()).size, before + 1);
-  const popupPromise = context.waitForEvent('page'); await pdf.click();
-  const popup = await popupPromise; await popup.waitForLoadState('domcontentloaded');
-  await expect.poll(() => popup.url()).not.toBe('about:blank');
+  pass('Retour en ligne : confirmation serveur automatique et exactement une inscription synchronisée, même après une seconde actualisation');
+  await pdf.click();
+  await expect(page.locator('[data-pdf-download]')).toHaveAttribute('href', /^blob:/, { timeout: 90000 });
+  const bytes = new Uint8Array(await page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector('[data-pdf-download]').href)).arrayBuffer()))));
+  assert.equal(new TextDecoder().decode(bytes.slice(0, 5)), '%PDF-');
+  writeFileSync(`${output}/dashboard-recovered.pdf`, bytes);
+  const document = await getDocument({ data: bytes.slice(), standardFontDataUrl: fileURLToPath(new URL('../../standard_fonts/', import.meta.resolve('pdfjs-dist/legacy/build/pdf.mjs'))).replaceAll('\\', '/') }).promise;
+  assert.ok(document.numPages > 0);
+  for (let index = 1; index <= document.numPages; index++) {
+    const sheet = await document.getPage(index), viewport = sheet.getViewport({ scale: 1.4 });
+    const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+    await sheet.render({ canvas, canvasContext: canvas.getContext('2d'), viewport }).promise;
+    writeFileSync(`${output}/dashboard-recovered-${index}.png`, canvas.toBuffer('image/png'));
+  }
+  await page.locator('[data-pdf-close]').click();
   await page.screenshot({ path: `${output}/recovered.png`, fullPage: true });
-  pass('Retour en ligne : confirmation serveur automatique, exactement une inscription synchronisée et export PDF réautorisé');
+  pass('Export PDF réel réautorisé après reprise, fichier valide généré et toutes ses pages rendues pour contrôle');
   assert.equal((await (await fetch(origin + '/version.json')).json()).version, sha);
 } catch (error) {
   results.push({ name: 'Recette hébergée', result: 'FAIL', detail: redactRecipeError(error, [password]) }); process.exitCode = 1;
