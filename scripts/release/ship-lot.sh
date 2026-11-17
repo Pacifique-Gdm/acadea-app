@@ -16,7 +16,7 @@ PR="${1:-}"; REPO="Pacifique-Gdm/acadea-app"
 DEPLOY="${ACADEA_DEPLOY_DIR:-C:/Users/Pacifique BILOMBI/Documents/AC-production-deploy}"
 stop() { echo "ARRÊT : $1"; exit 1; }
 [ -n "$PR" ] || stop "numéro de PR manquant (bash scripts/release/ship-lot.sh <PR>)"
-[ -d "$DEPLOY/.git" ] || stop "dossier de déploiement introuvable : $DEPLOY (variable ACADEA_DEPLOY_DIR)"
+git -C "$DEPLOY" rev-parse --git-dir >/dev/null 2>&1 || stop "dossier de déploiement introuvable : $DEPLOY (variable ACADEA_DEPLOY_DIR)"
 
 # 1. Contrôles GitHub (dont version-check).
 sleep 20
