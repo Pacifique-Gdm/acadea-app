@@ -48,7 +48,9 @@ export function allocateFeeReceiptCumulative(shares, totalMinor) {
   return rows.map(s => ({ rubricId: s.rubricId, amountMinor: s.allocated }));
 }
 
-const sourceDigest = (p) => hash([p.id, p.schoolId, p.schoolYearId, p.collectionSchoolYearId ?? p.schoolYearId,
+/** Lot 27a-bis : exportés pour la reprise automatique « à partir de ce qui est enregistré ». */
+export const feeAllocationPaymentRequestId = (schoolId, paymentId) => `payment_${hash([schoolId, paymentId])}`;
+export const sourceDigest = (p) => hash([p.id, p.schoolId, p.schoolYearId, p.collectionSchoolYearId ?? p.schoolYearId,
   p.studentId, p.feeTypeId, p.currency, p.amount, p.createdAt, p.updatedAt, p.supportDecisionId ?? null]);
 
 function assertBinding(value, p) {

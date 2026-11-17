@@ -16,7 +16,7 @@ import { deactivateInvalidToken, isInvalidTokenError } from "./cleanupInvalidTok
 // Quatre semaines : le téléphone reçoit la notification dès qu'il retrouve la connexion.
 const TTL_SECONDS = 28 * 24 * 60 * 60;
 
-export type PersonalEvent = "message_received" | "payment_corrected" | "payment_cancelled" | "grades_published";
+export type PersonalEvent = "message_received" | "payment_corrected" | "payment_cancelled" | "grades_published" | "allocation_alert";
 type NotificationValue = Record<string, unknown>;
 type UserRecord = { id: string; role?: string; status?: string; active?: boolean; archivedAt?: unknown; schoolId?: string; coordinationId?: string };
 type TokenRecord = { id: string; token?: string; userId?: string; active?: boolean };
@@ -28,6 +28,8 @@ export function personalEvent(value: NotificationValue): PersonalEvent | null {
   if (value.type === "financial_correction" && value.event === "payment_corrected") return "payment_corrected";
   if (value.type === "financial_correction" && value.event === "payment_cancelled") return "payment_cancelled";
   if (value.type === "grade_publication") return "grades_published";
+  // Lot 27a-bis : alerte de la répartition des frais (paiement en attente depuis plus d'une heure, écart de nuit).
+  if (value.type === "allocation_alert") return "allocation_alert";
   return null;
 }
 
@@ -45,6 +47,8 @@ export function recipientAllowed(user: UserRecord | null, value: NotificationVal
 /** Lot 25 : textes communs (pushTexts.ts) — école et prénom, ni montant ni motif. */
 export function personalText(event: PersonalEvent, message?: { senderName?: unknown; senderRole?: unknown; subject?: unknown } | null, context: PushContext = {}) {
   if (event === "message_received") return messagePushText(message);
+  // Sans montant sur l'écran verrouillé : le détail est dans la notification ouverte dans Acadéa.
+  if (event === "allocation_alert") return { title: "Acadéa — Répartition des frais", body: "Une alerte de répartition demande votre attention. Ouvrez Acadéa pour le détail." };
   return pushText(event, context);
 }
 

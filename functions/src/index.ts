@@ -14,3 +14,4 @@ export { secretaryDeleteDocument } from "./audit/secretaryDocumentDeletion.js";
 export { secretaryCorrespondenceFile } from "./audit/secretaryCorrespondenceFile.js";
 export { messageAttachmentFile } from "./audit/messageAttachmentFile.js";
 export { onStudentAllocationForecastChanged, onFeeAllocationForecastChanged } from "./finance/forecastSignals.js";
+export { allocationMaintenanceEvery10Minutes, allocationNightlyCheck } from "./finance/allocationMaintenance.js";
