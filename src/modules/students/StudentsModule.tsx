@@ -20,7 +20,7 @@ import { formatOperationalStudentClassName, resolveStudentParentClass, schoolCla
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyPreviousArchivedYear, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
 import { countStudentStatusesWithFallback, loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, studentQueryKey, type StudentArchiveFilter, type StudentQueryFilters } from "../../services/studentPagination";
-import { missingSexNotice, studentStatusLabel, useStudentStatusCounts } from "../../hooks/useStudentStatusCounts";
+import { missingSexNotice, studentStatusChoices, studentStatusLabel, useStudentStatusCounts } from "../../hooks/useStudentStatusCounts";
 import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
 import { failureKind, plainFailureMessage, publicServerMessage } from "../../services/requestFailure";
 import { discardUploadedPhotoIfUnused, findSavedStudent } from "../../services/studentSaveVerification";
@@ -633,11 +633,8 @@ export function StudentsModule({
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
           </label>
           <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
-            <option value="active">{studentStatusLabel("active", statusCounts)}</option>
-            <option value="archived">{studentStatusLabel("archived", statusCounts)}</option>
-            <option value="all">{studentStatusLabel("all", statusCounts)}</option>
-            <option value="girls">{studentStatusLabel("girls", statusCounts)}</option>
-            <option value="boys">{studentStatusLabel("boys", statusCounts)}</option>
+            {/* Ordre voulu partout : Tous, Actifs, Archivés, Filles, Garçons. */}
+            {studentStatusChoices.map((choice) => <option key={choice} value={choice}>{studentStatusLabel(choice, statusCounts)}</option>)}
           </select>
           <select
             value={sectionFilter}
