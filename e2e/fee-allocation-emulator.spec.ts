@@ -60,7 +60,8 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     const configs = () => f.db.collection("feeAllocationConfigs").where("schoolId", "==", f.school).get();
     expect((await configs()).size).toBe(2);
     expect((await invoke(handler, adminToken, lost)).payload.idempotent).toBe(true);
-    await page.getByRole("button", { name: "Fonctionnement", exact: true }).first().click();
+    // Lot 27c-1 : le pourcentage suit le nom de la rubrique (« Fonctionnement (20 %) »).
+    await page.getByRole("button", { name: /^Fonctionnement \(20 %\)$/ }).first().click();
     const sciencesConfig = page.getByRole('dialog', { name: 'Fonctionnement', exact: true }).locator('section').filter({ has: page.getByRole('heading', { name: /Minerval fictif.*Sciences/ }) });
     await expect(sciencesConfig).toHaveCount(1);
     await sciencesConfig.getByRole("button", { name: "Préparer une version", exact: true }).click();
