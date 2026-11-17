@@ -34,8 +34,12 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     await editor.getByLabel("Frais existant", { exact: true }).selectOption(`${f.tag}-a`);
     await editor.getByRole("checkbox", { name: "Toutes les classes concernées", exact: true }).check();
     for (const [index, name, mode, value] of [[0, "Fonctionnement", "percent", "20"], [1, "Salaire", "fixed", "30"], [2, "Prime", "percent", "25"]] as const) {
-      if (index) await editor.getByRole("button", { name: "+ Ajouter une rubrique", exact: true }).click();
-      await editor.getByLabel(`Nom de la rubrique ${index + 1}`, { exact: true }).fill(name);
+      // Lot 27b : la rubrique se choisit dans le catalogue ; « + Nouvelle rubrique… » la crée et la sélectionne.
+      if (index) await editor.getByRole("button", { name: "+ Ajouter une ligne", exact: true }).click();
+      await editor.getByLabel(`Rubrique ${index + 1}`, { exact: true }).selectOption("__new__");
+      await editor.getByLabel("Nom de la nouvelle rubrique", { exact: true }).fill(name);
+      await editor.getByRole("button", { name: "Créer", exact: true }).click();
+      await expect(editor.getByLabel(`Rubrique ${index + 1}`, { exact: true })).not.toHaveValue("");
       await editor.getByRole("combobox", { name: "Mode", exact: true }).nth(index).selectOption(mode);
       await editor.locator('input[inputmode="decimal"]').nth(index).fill(value);
     }
