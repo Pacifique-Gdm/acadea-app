@@ -24,13 +24,17 @@ describe('prévu annuel net, sans écritures financières', () => {
     data.students[0].status = 'ARCHIVED';
     data.students[1].financialSupport = { reduction: { schoolYearId: 'y', lines: { fee: { reductionMinor: 3000 } } } };
     data.students[2].financialSupport = { exemption: { schoolYearId: 'y', lines: { fee: { reductionMinor: 6000 } } } };
-    expect(calculateAllocationForecast(data).rows.map(r => r.amountMinor)).toEqual([20400, 10200, 20400, 0]);
+    // Lot 27c-1 : tableaux 1 et 2 séparés ; leur somme par rubrique est inchangée.
+    const byRubric = (rows) => [...rows.reduce((m, r) => m.set(r.rubricId, (m.get(r.rubricId) ?? 0) + r.amountMinor), new Map()).values()];
+    expect(byRubric(calculateAllocationForecast(data).rows)).toEqual([20400, 10200, 20400, 0]);
+    expect(calculateAllocationForecast(data).rows.filter(r => r.table === 2).reduce((n, r) => n + r.amountMinor, 0)).toBeGreaterThan(0);
   });
   it('réutilise la ventilation des encaissements pour un fixe lorsque le net est inférieur au tarif', () => {
     const data = fixture(); data.students = [data.students[0]];
     data.configs[0].draft.rubrics = [{ id: rubric(1), name: 'Fixe', mode: 'fixed', fixedMinor: 3000 }];
     data.students[0].financialSupport = { r: { schoolYearId: 'y', lines: { fee: { reductionMinor: 3000, commitmentMinor: 3000 } } } };
-    expect(calculateAllocationForecast(data).rows.map(r => r.amountMinor)).toEqual([1500, 1500]);
+    expect(calculateAllocationForecast(data).rows.filter(r => r.table === 2).map(r => r.amountMinor)).toEqual([1500, 1500]);
+    expect(calculateAllocationForecast(data).rows.filter(r => r.table === 1).every(r => r.amountMinor === 0)).toBe(true);
   });
   it('comprend les frais non répartis, mais ni les autres écoles, ni les années anciennes', () => {
     const data = fixture(); data.configs = [];

@@ -2,7 +2,10 @@ import type { AllocationWorkspace } from "../services/feeAllocation";
 import type { FeeAllocationConfig, FeeAllocationRubric } from "../types/feeAllocation";
 
 export type AllocationFilter = { kind: "fee" | "class" | "period"; value: string; from: string; to: string };
+/** Lot 27c-1 : 1 = élèves normalement inscrits, 2 = cas sociaux et prises en charge, 3 = ensemble (somme). */
+export type AllocationTable = 1 | 2 | 3;
 export type AllocationRow = { key: string; schoolId: string; schoolName: string; yearName: string; feeName: string;
+  table?: AllocationTable; rubricId?: string; percentLabel?: string; percentDetail?: string;
   classLabel: string; currency: "USD" | "CDF"; rubricName: string; rubric?: FeeAllocationRubric;
   amountMinor: number; percent: number; config: FeeAllocationConfig; stale: boolean;
   financial?: { receivedMinor: number; spentMinor: number; availableMinor: number; openingMinor: number; arrearsMinor: number;
@@ -42,66 +45,139 @@ export function projectAllocations(workspaces: AllocationWorkspace[], filter: Al
   });
 }
 
-function projectAnnual(workspace: AllocationWorkspace, filter: AllocationFilter): AllocationRow[] {
+type ForecastRow = NonNullable<AllocationWorkspace["forecast"]>["rows"][number];
+const tableOf = (row: { table?: 1 | 2 }) => (row.table === 2 ? 2 : 1) as 1 | 2;
+const percentText = (value: number) => `${value.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
+
+/** « Salaires (60 %) » ; pourcentages différents : « Salaires (40 % et 60 %) » + « Minerval 60 % · Transport 40 % ». */
+function percentLabels(workspace: AllocationWorkspace, rows: ForecastRow[], rubricId: string) {
+  const parts = new Map<string, string>();
+  for (const row of rows.filter((item) => item.rubricId === rubricId)) {
+    const fee = workspace.fees.find((item) => item.id === row.feeTypeId)?.name ?? "Frais";
+    const tariff = row.tariffMinor ?? 0, share = row.rubricShare ?? 0;
+    const text = row.rubricMode === "percent" && row.basisPoints ? percentText(row.basisPoints / 100)
+      : row.rubricMode === "fixed" ? `${(share / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${workspace.currency} fixe`
+      : tariff > 0 ? percentText(Math.round((share / tariff) * 10000) / 100) : "";
+    if (text && !parts.has(fee)) parts.set(fee, text);
+  }
+  const values = [...new Set(parts.values())];
+  if (!values.length) return { percentLabel: undefined, percentDetail: undefined };
+  return { percentLabel: values.length === 1 ? values[0] : `${values.slice(0, -1).join(", ")} et ${values.at(-1)}`,
+    percentDetail: values.length > 1 ? [...parts].map(([fee, text]) => `${fee} ${text}`).join(" · ") : undefined };
+}
+
+function filteredForecast(workspace: AllocationWorkspace, filter: AllocationFilter) {
   if (workspace.forecast?.status !== 'complete') throw new Error('Prévu annuel non confirmé : aucun total partiel ne peut être affiché.');
+  return workspace.forecast.rows.filter((item) => !(filter.kind === 'fee' && filter.value && filter.value !== allocationFeeKey(workspace.school.id, item.feeTypeId))
+    && !(filter.kind === 'class' && filter.value && filter.value !== allocationClassKey(workspace.school.id, item.classOptionKey || item.className)));
+}
+
+function projectAnnual(workspace: AllocationWorkspace, filter: AllocationFilter): AllocationRow[] {
+  const forecast = filteredForecast(workspace, filter);
   const rows = new Map<string, AllocationRow>();
-  for (const item of workspace.forecast.rows) {
-    if (filter.kind === 'fee' && filter.value && filter.value !== allocationFeeKey(workspace.school.id, item.feeTypeId)) continue;
-    if (filter.kind === 'class' && filter.value && filter.value !== allocationClassKey(workspace.school.id, item.classOptionKey || item.className)) continue;
+  for (const item of forecast) {
     // A period constrains receipts, never the annual net obligation.
-    const existing = rows.get(item.rubricId);
+    const table = tableOf(item), key = `${table}|${item.rubricId}`;
+    const existing = rows.get(key);
     if (existing) { existing.amountMinor += item.amountMinor; existing.feeName = 'Frais du périmètre'; existing.classLabel = 'Classes du périmètre'; }
     else {
       const config = workspace.configs.find(c => c.feeTypeId === item.feeTypeId) ?? { id: '', schoolId: workspace.school.id, schoolYearId: workspace.year.id,
         feeTypeId: item.feeTypeId, className: item.className, currency: workspace.currency, draftRevision: 0 };
-      rows.set(item.rubricId, { key: `${workspace.school.id}/${workspace.year.id}/${item.rubricId}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
+      rows.set(key, { key: `${workspace.school.id}/${workspace.year.id}/${table}/${item.rubricId}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
         yearName: workspace.year.name, feeName: workspace.fees.find(f => f.id === item.feeTypeId)?.name ?? 'Libellé du frais indisponible',
         classLabel: allocationClassLabel(item.classOptionKey || item.className), currency: workspace.currency, rubricName: item.rubricName,
-        rubric: config.draft?.rubrics.find(r => r.id === item.rubricId), amountMinor: item.amountMinor, percent: 0, config, stale: false });
+        rubric: config.draft?.rubrics.find(r => r.id === item.rubricId), amountMinor: item.amountMinor, percent: 0, config, stale: false,
+        table, rubricId: item.rubricId, ...percentLabels(workspace, forecast, item.rubricId) });
     }
-    if (!Number.isSafeInteger(rows.get(item.rubricId)!.amountMinor)) throw new Error('Prévu annuel hors limites.');
+    if (!Number.isSafeInteger(rows.get(key)!.amountMinor)) throw new Error('Prévu annuel hors limites.');
   }
   return [...rows.values()];
+}
+
+/** Partage d'un montant commun à la rubrique (ouverture, dépenses) entre les tableaux 1 et 2, à proportion
+ * de leurs encaissements cumulés ; le tableau 2 est arrondi au centime inférieur, le tableau 1 reçoit le reste :
+ * la somme des deux est toujours exactement le total réel (tableau 3). */
+export function prorataShares(total: number, weight1: number, weight2: number) {
+  if (total === 0 || weight2 <= 0) return [total, 0] as const;
+  if (weight1 <= 0) return [0, total] as const;
+  const second = total >= 0 ? Math.floor((total * weight2) / (weight1 + weight2)) : -Math.floor((-total * weight2) / (weight1 + weight2));
+  return [total - second, second] as const;
 }
 
 function projectOperational(workspace: AllocationWorkspace, filter: AllocationFilter, period: { from: string; to: string } | null): AllocationRow[] {
   const ledger = workspace.ledger!;
   if (!workspace.configs.length) throw new Error("Configuration active manquante.");
+  const forecast = filteredForecast(workspace, filter);
   const base = projectAnnual(workspace, filter);
-  const expected = new Map<string, number>();
-  base.forEach(row => expected.set(row.key.split('/').at(-1)!, row.amountMinor));
+  const expected = new Map(base.map(row => [`${row.table}|${row.rubricId}`, row.amountMinor]));
   const rubrics = new Map(ledger.rubrics.map(r => [r.id, r]));
-  base.forEach(r => rubrics.set(r.key.split('/').at(-1)!, { id: r.key.split('/').at(-1)!, name: r.rubricName }));
-  return [...rubrics.values()].map(rubric => {
-    let receivedMinor = 0, spentMinor = 0, availableMinor = 0, openingMinor = 0, arrearsMinor = 0;
-    let cumulativeReceivedMinor = 0, cumulativeSpentMinor = 0;
+  base.forEach(r => { if (!rubrics.has(r.rubricId!)) rubrics.set(r.rubricId!, { id: r.rubricId!, name: r.rubricName }); });
+  return [...rubrics.values()].flatMap(rubric => {
+    // Totaux communs à la rubrique (comme avant), puis encaissements séparés par tableau.
+    let spentMinor = 0, availableMinor = 0, openingMinor = 0, cumulativeSpentMinor = 0;
+    const received = { 1: 0, 2: 0 }, cumulative = { 1: 0, 2: 0 }, arrears = { 1: 0, 2: 0 };
     for (const m of ledger.movements) {
       const day = m.postedAt.slice(0, 10), amount = m.lines.find(l => l.rubricId === rubric.id)?.amountMinor ?? 0;
       if (period?.to && day > period.to) continue;
       // End-of-period availability is cumulative, not the period's cash variation.
-      // A rubric is shared: expenditure/availability cannot be invented per fee.
       availableMinor += amount;
       if (m.sourceType === "opening") { openingMinor += amount; continue; }
+      const table = m.socialCase ? 2 : 1;
       if (m.sourceType === "expense") cumulativeSpentMinor -= amount;
-      else cumulativeReceivedMinor += amount;
+      else cumulative[table] += amount;
       if (period?.from && day < period.from) continue;
       if (m.sourceType === "expense") { spentMinor -= amount; continue; }
       if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(workspace.school.id, m.feeTypeId ?? "")) continue;
       if (filter.kind === "class" && filter.value && filter.value !== allocationClassKey(workspace.school.id, m.classOptionKey || m.className || "")) continue;
-      receivedMinor += amount;
-      if (m.originSchoolYearId !== workspace.year.id) arrearsMinor += amount;
+      received[table] += amount;
+      if (m.originSchoolYearId !== workspace.year.id) arrears[table] += amount;
     }
     const reserved = ledger.balances.find(b => b.rubricId === rubric.id)?.reservedMinor ?? 0;
     // This candidate does not create reservations. Fail explicitly rather than
     // display a balance that the three displayed components cannot explain.
     if (reserved) throw new Error("Réservations à rapprocher : le solde disponible ne peut pas être justifié par cette vue.");
-    if (![receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor, cumulativeReceivedMinor, cumulativeSpentMinor].every(Number.isSafeInteger)) throw new Error("Totaux financiers hors limites.");
-    if (openingMinor + cumulativeReceivedMinor - cumulativeSpentMinor !== availableMinor) throw new Error("Écart dans le rapprochement de la rubrique.");
-    return { key: `${workspace.school.id}/${workspace.year.id}/${rubric.id}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
+    if (![spentMinor, availableMinor, openingMinor, cumulativeSpentMinor, received[1], received[2], cumulative[1], cumulative[2]].every(Number.isSafeInteger)) throw new Error("Totaux financiers hors limites.");
+    if (openingMinor + cumulative[1] + cumulative[2] - cumulativeSpentMinor !== availableMinor) throw new Error("Écart dans le rapprochement de la rubrique.");
+    const opening = prorataShares(openingMinor, cumulative[1], cumulative[2]);
+    const spent = prorataShares(spentMinor, cumulative[1], cumulative[2]);
+    const cumSpent = prorataShares(cumulativeSpentMinor, cumulative[1], cumulative[2]);
+    const labels = percentLabels(workspace, forecast, rubric.id);
+    return ([1, 2] as const).map((table, index): AllocationRow => ({ key: `${workspace.school.id}/${workspace.year.id}/${table}/${rubric.id}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
       yearName: workspace.year.name, feeName: "Rubrique commune · disponible global", classLabel: "Toutes les classes", currency: workspace.currency,
-      rubricName: rubric.name, amountMinor: expected.get(rubric.id) ?? 0, percent: 0, config: workspace.configs[0], stale: false,
-      financial: { receivedMinor, spentMinor, availableMinor, openingMinor, arrearsMinor, cumulativeReceivedMinor, cumulativeSpentMinor } };
+      rubricName: rubric.name, amountMinor: expected.get(`${table}|${rubric.id}`) ?? 0, percent: 0, config: workspace.configs[0], stale: false,
+      table, rubricId: rubric.id, ...labels,
+      financial: { receivedMinor: received[table], spentMinor: spent[index], openingMinor: opening[index],
+        cumulativeReceivedMinor: cumulative[table], cumulativeSpentMinor: cumSpent[index], arrearsMinor: arrears[table],
+        availableMinor: opening[index] + cumulative[table] - cumSpent[index] } }));
   });
+}
+
+// Règle du propriétaire : une rubrique est cachée quand son PRÉVU vaut 0. Sécurité : jamais si elle a un encaissé,
+// une dépense ou un disponible différent de 0 (l'argent n'échappe jamais aux tableaux). En préparation (aucun
+// registre), une rubrique configurée reste visible même à 0 pour que l'Administrateur ouvre son détail.
+const isEmptyRow = (row: AllocationRow) => {
+  if (row.amountMinor !== 0) return false;
+  if (row.financial) {
+    const f = row.financial;
+    return [f.receivedMinor, f.cumulativeReceivedMinor, f.spentMinor, f.cumulativeSpentMinor, f.availableMinor].every((value) => value === 0);
+  }
+  return row.table === 2 || !row.percentLabel;
+};
+
+/** Trois tableaux sur le même modèle : 1, 2 et 3 = somme rubrique par rubrique et colonne par colonne.
+ * Une rubrique sans aucun montant n'apparaît pas dans le tableau concerné. */
+export function buildAllocationTables(rows: AllocationRow[]) {
+  const one = rows.filter((row) => (row.table ?? 1) === 1), two = rows.filter((row) => row.table === 2);
+  const sum = new Map<string, AllocationRow>();
+  for (const row of rows) {
+    const key = `${row.schoolId}/${row.currency}/${row.rubricId ?? row.key}`;
+    const current = sum.get(key);
+    if (!current) { sum.set(key, { ...row, table: 3, key: `${row.key}/total`, financial: row.financial ? { ...row.financial } : undefined }); continue; }
+    current.amountMinor += row.amountMinor;
+    if (current.financial && row.financial) for (const field of Object.keys(current.financial) as AllocationFinancialField[]) current.financial[field] += row.financial[field];
+    else current.financial = undefined;
+  }
+  return { one: one.filter((row) => !isEmptyRow(row)), two: two.filter((row) => !isEmptyRow(row)), three: [...sum.values()].filter((row) => !isEmptyRow(row)) };
 }
 
 export function allocationFinancialTotals(rows: AllocationRow[], field: AllocationFinancialField) {
