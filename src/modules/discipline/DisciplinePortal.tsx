@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { AppVersion } from "../../components/ui/AppVersion";
 import type { ComponentType, ReactNode } from "react";
 import { BarChart3, BookOpen, CalendarRange, CheckCircle2, Clock3, LogOut, Settings } from "lucide-react";
 import { DisciplineAttendanceDrawer } from "../../components/discipline/DisciplineAttendanceDrawer";
@@ -752,6 +753,7 @@ export function DisciplinePortal({
               <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
                 <LogOut className="h-4 w-4" /> Déconnexion
               </button>
+              <AppVersion />
             </div>
           </section>
         )}

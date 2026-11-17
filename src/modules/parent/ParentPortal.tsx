@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { AppVersion } from "../../components/ui/AppVersion";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import type { FormEvent, ReactNode } from "react";
 import { ArrowLeft, BookOpen, CalendarRange, Clock3, Download, GraduationCap, HeartPulse, LogOut, MessageSquare, UserRound } from "lucide-react";
@@ -678,6 +679,7 @@ export function ParentPortal({
               <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button">
                 <LogOut className="h-4 w-4" /> Déconnexion
               </button>
+              <AppVersion />
             </div>
           </section>
         )}

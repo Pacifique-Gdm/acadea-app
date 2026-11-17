@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AppVersion } from "../../components/ui/AppVersion";
 import type { ReactNode } from "react";
 import { BarChart3, BookOpen, CalendarRange, Clock3, Fingerprint, HeartPulse, LogOut, Radio, Upload, UsersRound } from "lucide-react";
 import { ActivityHistoryContent } from "../../components/history/ActivityHistoryContent";
@@ -121,6 +122,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
       <button type="button" onClick={() => setHistoryDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><Clock3 className="h-5 w-5" /></span><span className="font-bold text-ink">Historique</span></button>
       <button type="button" onClick={() => setArchiveDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><CalendarRange className="h-5 w-5" /></span><span className="font-bold text-ink">Année scolaire</span></button>
       <button onClick={onLogout} className="inline-flex w-full items-center justify-center gap-2 rounded border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700 transition hover:bg-red-100" type="button"><LogOut className="h-4 w-4" /> Déconnexion</button>
+      <AppVersion />
     </div>
     {medicalError && <p className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalError}</p>}
     <ArchivedStudentsImportDrawer open={importDrawerOpen} onClose={() => setImportDrawerOpen(false)} user={user} data={data} school={school} year={year} updateData={updateData} />
