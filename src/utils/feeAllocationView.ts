@@ -152,7 +152,9 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
   });
 }
 
-const isEmptyRow = (row: AllocationRow) => row.amountMinor === 0 && (!row.financial || Object.values(row.financial).every((value) => value === 0));
+// Répartition active : une rubrique sans aucun montant est cachée. En préparation (aucun registre), une rubrique
+// configurée reste visible même à 0, pour que l'Administrateur puisse ouvrir son détail et préparer sa version.
+const isEmptyRow = (row: AllocationRow) => row.amountMinor === 0 && (row.financial ? Object.values(row.financial).every((value) => value === 0) : row.table === 2 || !row.percentLabel);
 
 /** Trois tableaux sur le même modèle : 1, 2 et 3 = somme rubrique par rubrique et colonne par colonne.
  * Une rubrique sans aucun montant n'apparaît pas dans le tableau concerné. */

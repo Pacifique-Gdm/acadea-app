@@ -41,6 +41,12 @@ describe("lot 27c-1 : trois tableaux sur le même modèle", () => {
     const tables = buildAllocationTables(projectAllocations([workspace()], { kind: "fee", value: "", from: "", to: "" }));
     expect([...tables.one, ...tables.two, ...tables.three].map((row) => row.rubricName)).not.toContain("Entretien");
   });
+  it("en préparation, une rubrique configurée reste visible à 0 (accès à son détail), jamais dans le tableau 2 vide", () => {
+    const preparing = { ...workspace(), ledger: null } as unknown as AllocationWorkspace;
+    const tables = buildAllocationTables(projectAllocations([preparing], { kind: "fee", value: "", from: "", to: "" }));
+    expect(tables.one.map((row) => row.rubricName)).toContain("Entretien");
+    expect(tables.two.map((row) => row.rubricName)).not.toContain("Entretien");
+  });
   it("pourcentage après le nom ; pourcentages différents : « 60 % et 40 % » avec le détail par frais", () => {
     const rows = projectAllocations([workspace()], { kind: "fee", value: "", from: "", to: "" });
     const salary = rows.find((row) => row.rubricName === "Salaires")!;
