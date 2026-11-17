@@ -6,7 +6,7 @@ export type AllocationFee = { id: string; name: string; className: string; class
 export type AllocationWorkspace = {
   school: { id: string; name: string; activeSchoolYearId: string };
   year: { id: string; schoolId: string; name: string; status: string; startsAt: string | null; endsAt: string | null };
-  currency: "USD" | "CDF"; canConfigure: boolean; operational: false;
+  currency: "USD" | "CDF"; canConfigure: boolean; operational: false; pendingAllocations?: number;
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   forecast?: { status: 'complete'; revision: string | null; calculatedAt: string; studentCount: number;
     rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; studentsCount: number }[] };
