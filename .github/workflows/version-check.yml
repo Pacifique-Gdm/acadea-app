@@ -1,0 +1,25 @@
+name: version-check
+
+# Refuse une PR vers main si le numéro de version n'a pas été augmenté selon la règle
+# (correction / fonctionnalité / grand changement) ou si CHANGELOG.md n'est pas complété.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  version-check:
+    name: version-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Numéro de version et liste des changements
+        run: node scripts/release/check-version.mjs "origin/${{ github.base_ref }}"
