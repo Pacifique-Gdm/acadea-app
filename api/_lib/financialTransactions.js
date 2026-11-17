@@ -4,7 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { protectCashMutation } from "./cashBalance.js";
 import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
-import { prepareFeeAllocationReceiptNeverBlocking as prepareFeeAllocationReceipt } from "./feeAllocationPending.js";
+import { prepareFeeAllocationReceiptNeverBlocking as prepareFeeAllocationReceipt, settlePendingFeeAllocations } from "./feeAllocationPending.js";
 import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
 import { normalizeStudentSearch, studentAlphabeticalKey, studentIdentityKey } from "../../src/utils/studentSearch.js";
 
@@ -835,7 +835,20 @@ Raison : ${reason}`,
   return result;
 }
 
-export async function executeFinancialOperation({ db, caller: rawCaller, body, now = new Date().toISOString() }) {
+/** Lot 27a : la répartition en attente est reprise par le serveur juste avant une dépense
+ * (disponible juste) et juste après un paiement (avec nouvelles tentatives). Jamais bloquant. */
+export async function executeFinancialOperation(input) {
+  const action = text(input?.body?.action, 60);
+  const isExpense = ["create-expense", "update-expense", "delete-expense"].includes(action);
+  const isPayment = ["create-payment", "update-payment", "delete-payment"].includes(action);
+  const schoolId = input?.caller?.schoolId;
+  if (isExpense) await settlePendingFeeAllocations({ db: input.db, caller: input.caller, schoolId, now: input.now, attempts: 1 });
+  const result = await executeFinancialOperationCore(input);
+  if (isPayment) await settlePendingFeeAllocations({ db: input.db, caller: input.caller, schoolId, now: input.now });
+  return result;
+}
+
+async function executeFinancialOperationCore({ db, caller: rawCaller, body, now = new Date().toISOString() }) {
   if (!body || typeof body !== "object" || Array.isArray(body)) throw new FinancialApiError(400, "invalid-argument", "Requête financière invalide.");
   const action = text(body.action, 60);
   const caller = authorizeFinancialCaller(rawCaller, action);

@@ -51,3 +51,21 @@ export async function retryPendingFeeAllocations({ db, caller, schoolId, now = n
   }
   return { processed, remaining: remaining + Math.max(0, snapshot.docs.length - items.length) };
 }
+
+const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Lot 27a : reprise automatique par le serveur, sans dépendre d'aucun écran.
+ * - juste après chaque paiement (avec nouvelles tentatives rapprochées) ;
+ * - juste avant chaque dépense et chaque paiement du personnel, pour que le disponible soit juste.
+ * Ne lève jamais d'erreur : elle ne doit bloquer ni un paiement ni une dépense. */
+export async function settlePendingFeeAllocations({ db, caller, schoolId, now = new Date().toISOString(), attempts = 3, delayMs = 250 }) {
+  if (!schoolId || typeof db?.collection !== "function") return { processed: 0, remaining: 0 };
+  let total = 0, last = { processed: 0, remaining: 0 };
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try { last = await retryPendingFeeAllocations({ db, caller, schoolId, now }); } catch { last = { processed: 0, remaining: -1 }; }
+    total += last.processed;
+    if (last.remaining === 0) break;
+    if (attempt + 1 < attempts) await pause(delayMs * (attempt + 1));
+  }
+  return { processed: total, remaining: last.remaining };
+}

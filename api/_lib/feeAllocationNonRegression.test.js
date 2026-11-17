@@ -146,6 +146,34 @@ describe("lot 27a — DÉCISIONS du propriétaire appliquées", () => {
     expect(records(db, "payments/")).toHaveLength(1);
     expect(records(db, "expenses/")).toHaveLength(1);
   });
+  it("11b. le serveur reprend tout seul, juste après le paiement, une répartition échouée sur un incident passager", async () => {
+    const db = await activeSchool();
+    // Incident passager : la version est illisible pendant l'opération d'encaissement seulement.
+    const realGet = db.records.get.bind(db.records), realHas = db.records.has.bind(db.records), realRun = db.runTransaction;
+    let hidden = false, first = true;
+    db.records.has = (key) => (hidden && key === "feeAllocationVersions/version" ? false : realHas(key));
+    db.records.get = (key) => (hidden && key === "feeAllocationVersions/version" ? undefined : realGet(key));
+    db.runTransaction = async (fn) => { if (!first) return realRun(fn); first = false; hidden = true; try { return await realRun(fn); } finally { hidden = false; } };
+    const result = await pay(db, 30, "transient-payment-0001");
+    db.records.has = realHas; db.records.get = realGet; db.runTransaction = realRun;
+    expect(result.payment).toMatchObject({ amount: 30 });
+    // Aucun écran ouvert : la reprise a eu lieu dans la même requête, juste après l'encaissement.
+    expect(records(db, "feeAllocationPending/").map((p) => p.status)).toEqual(["done"]);
+    expect(records(db, "feeAllocationMovements/").filter((m) => m.sourceType === "payment").map((m) => m.amountMinor)).toEqual([3000]);
+  });
+  it("11c. avant une dépense, le serveur traite les paiements en attente : le disponible de la rubrique est juste", async () => {
+    const db = await activeSchool();
+    const version = db.records.get("feeAllocationVersions/version");
+    db.records.delete("feeAllocationVersions/version");
+    await pay(db, 50, "pending-before-expense-0001"); // reste en attente (incident durable)
+    expect(records(db, "feeAllocationPending/").map((p) => p.status)).toEqual(["pending"]);
+    expect(balance(db, rubricId)?.receivedMinor ?? 0).toBe(0);
+    db.records.set("feeAllocationVersions/version", version); // incident résolu, aucun écran ouvert
+    // 80 % de 50 $ = 40 $ disponibles pour « Fonctionnement » : la dépense de 35 $ passe grâce à la reprise préalable.
+    await spend(db, 35, "expense-after-settle-0001", { allocationRubricId: rubricId });
+    expect(records(db, "feeAllocationPending/").map((p) => p.status)).toEqual(["done"]);
+    expect(balance(db, rubricId)).toMatchObject({ receivedMinor: 4000, spentMinor: 3500, availableMinor: 500 });
+  });
   it("11. DÉCISION : un incident de répartition ne bloque jamais un paiement d'élève ; il est mis en attente puis repris", async () => {
     const db = await activeSchool();
     const version = db.records.get("feeAllocationVersions/version");

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { settlePendingFeeAllocations } from "./feeAllocationPending.js";
 import { FinancialApiError } from "./financialTransactions.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { payrollWritesSuspended } from "./payrollRollbackMode.js";
@@ -89,6 +90,8 @@ export async function listPayroll({ db, caller, body }) {
 export async function createPersonnelPayment({ db, caller, body, now = new Date().toISOString() }) {
   assertReader(caller);
   if (caller.role !== "cashier") invalid("Opération réservée au Caissier.", "permission-denied", 403);
+  // Lot 27a : disponible des rubriques à jour avant le paiement du personnel (jamais bloquant).
+  await settlePendingFeeAllocations({ db, caller, schoolId: caller.schoolId, now, attempts: 1 });
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !WRITE_KEYS.has(key))) invalid("Champs de paie non autorisés.");
   const kind = field(body.kind, 20);
   if (!["salary", "bonus", "advance"].includes(kind)) invalid("Nature du paiement invalide.");
@@ -191,6 +194,7 @@ const CONFIRMATION = { salary: "MODIFIER CE SALAIRE", bonus: "MODIFIER CETTE PRI
 
 export async function updatePersonnelPayment({ db, caller, body, now = new Date().toISOString() }) {
   if (!caller?.uid || caller.role !== "school_admin" || !caller.schoolId) invalid("Modification réservée à l'Administrateur de l'établissement.", "permission-denied", 403);
+  await settlePendingFeeAllocations({ db, caller, schoolId: caller.schoolId, now, attempts: 1 });
   if (!body || typeof body !== "object" || Array.isArray(body) || Object.keys(body).some((key) => !CORRECTION_KEYS.has(key))) invalid("Champs de correction non autorisés.");
   const paymentId = field(body.paymentId, 180);
   if (!/^[\w-]{1,180}$/.test(paymentId)) invalid("Paiement du personnel invalide.");
