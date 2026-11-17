@@ -7,7 +7,8 @@
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "currency", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
+        { "fieldPath": "createdAt", "order": "ASCENDING" },
+        { "fieldPath": "amount", "order": "ASCENDING" }
       ]
     },
     {
@@ -17,7 +18,8 @@
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "currency", "order": "ASCENDING" },
         { "fieldPath": "collectionSchoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
+        { "fieldPath": "createdAt", "order": "ASCENDING" },
+        { "fieldPath": "amount", "order": "ASCENDING" }
       ]
     },
     {
@@ -28,7 +30,8 @@
         { "fieldPath": "currency", "order": "ASCENDING" },
         { "fieldPath": "collectionSchoolYearId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "ASCENDING" }
+        { "fieldPath": "createdAt", "order": "ASCENDING" },
+        { "fieldPath": "amount", "order": "ASCENDING" }
       ]
     },
     {
