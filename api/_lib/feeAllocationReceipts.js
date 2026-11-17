@@ -88,6 +88,9 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     transaction.get(db.doc(`feeTypes/${source.feeTypeId}`)), transaction.get(db.doc(`schoolYears/${source.schoolYearId}`)),
   ]);
   const profile = profileSnap.data(), fee = feeSnap.data(), student = studentSnap.data(), year = yearSnap.data();
+  // Lot 27c-1 : tableau 2 si l'élève a une réduction ou une prise en charge sur ce frais (année d'origine de la dette).
+  const socialCaseNow = Object.values(student?.financialSupport ?? {}).some((decision) => decision?.schoolYearId === source.schoolYearId
+    && (decision.lines?.[source.feeTypeId]?.reductionMinor ?? 0) > 0);
   if (!profile || profile.active === false || profile.status === "inactive" || profile.schoolId !== caller.schoolId
     || (profile.role === "admin" ? "school_admin" : profile.role) !== (caller.role === "admin" ? "school_admin" : caller.role)
     || school.status !== "active" || !student || student.schoolId !== source.schoolId || student.schoolYearId !== source.schoolYearId
@@ -214,13 +217,16 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     className: anchor.className ?? null, classOptionKey: anchor.classOptionKey ?? null, amountMinor: delta, lines, postedAt: now,
     collectedAt: source.createdAt, paidAt: source.paidAt, actorId: caller.uid, type: previous ? payment ? "correction" : "reversal" : "receipt",
     reversesMovementId: priorSource?.lastMovementId ?? null, supportDecisionId: source.supportDecisionId ?? null,
+    // Une correction ou une suppression reste dans le tableau de l'encaissement d'origine.
+    socialCase: typeof priorSource?.socialCase === "boolean" ? priorSource.socialCase : socialCaseNow,
     sourceSnapshot: { ...source }, testOnly: operational ? operational.testOnly : true });
   return () => {
     if (!anchorSnap.exists) transaction.create(anchorRef, anchor);
     transaction.create(movementRef, movement);
     transaction.set(totalRef, { schoolId: source.schoolId, anchorId, versionDigest, amountMinor: after, updatedAt: now });
     transaction.set(sourceRef, { schoolId: source.schoolId, anchorId, sourceId: source.id, sourceDigest: payment ? sourceDigest(payment) : null,
-      amountMinor: newMinor, lastMovementId: movementId, deleted: !payment, updatedAt: now });
+      amountMinor: newMinor, lastMovementId: movementId, deleted: !payment, updatedAt: now,
+      socialCase: typeof priorSource?.socialCase === "boolean" ? priorSource.socialCase : socialCaseNow });
     balanceRows.forEach(row => transaction.set(row.ref, row.value));
   };
 }

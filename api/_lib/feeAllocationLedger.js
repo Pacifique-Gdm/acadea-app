@@ -34,7 +34,7 @@ export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, curr
     if (rows.some(m => m.lines.some(l => !relevant.some(b => b.rubricId === l.rubricId)))) fail("Solde manquant.");
     const safeRows = rows.map(m => ({ id: m.id, sourceType: m.sourceType, type: m.type, amountMinor: m.amountMinor, lines: m.lines,
         feeTypeId: m.feeTypeId ?? null, className: m.className ?? null, classOptionKey: m.classOptionKey ?? null,
-        originSchoolYearId: m.originSchoolYearId ?? schoolYearId, postedAt: m.postedAt }));
+        originSchoolYearId: m.originSchoolYearId ?? schoolYearId, postedAt: m.postedAt, socialCase: m.socialCase === true }));
     const digest = allocationHash([state, revision, relevant]);
     if (fingerprint && fingerprint !== digest) fail("Le registre a changé pendant sa lecture : actualisez la consultation complète.");
     const bounded = []; let size = 0;

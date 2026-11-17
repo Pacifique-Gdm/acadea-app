@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allocationFinancialTotals, projectAllocations } from "./feeAllocationView";
+import { allocationFinancialTotals, buildAllocationTables, projectAllocations } from "./feeAllocationView";
 import { feeAllocationPdfSections } from "./feeAllocationPdf";
 import type { AllocationWorkspace } from "../services/feeAllocation";
 
@@ -29,7 +29,8 @@ describe("projection et PDF du registre rapproché", () => {
     expect(rows[0].financial).toMatchObject({ receivedMinor: 0, spentMinor: 2000, availableMinor: 4000 });
     expect(rows[0].feeName).toContain("global");
     const pdf = feeAllocationPdfSections(rows, "Frais différent", "Fictif").join("");
-    expect(pdf).toContain("Frais différent"); expect(pdf).toContain("Selon le filtre"); expect(pdf).toContain("Situation globale de la rubrique à la fin de la période"); expect(pdf).toContain("40");
+    // Lot 27c-1 : trois tableaux sur le même modèle (décision du propriétaire).
+    expect(pdf).toContain("Frais différent"); expect(pdf).toContain("Tableau 1 — Élèves normalement inscrits"); expect(pdf).toContain("Tableau 3 — Ensemble"); expect(pdf).toContain("40");
     expect(pdf).toContain("ouverture"); expect(pdf).toContain("dont arriérés"); expect(pdf).not.toContain("brouillon v");
   });
   it("sépare les monnaies et refuse un total opérationnel mêlé à une école non activée", () => {
@@ -54,21 +55,23 @@ describe("projection et PDF du registre rapproché", () => {
       { rubricId: unallocated, openingMinor: 500, receivedMinor: 25500, spentMinor: 0, reservedMinor: 0, availableMinor: 26000 }];
     const before = structuredClone(w);
     for (const filter of [{ kind: "fee", value: JSON.stringify(["school", "selected"]) }, { kind: "class", value: JSON.stringify(["school", "2ème"]) }] as const) {
-      const rows = projectAllocations([w], { ...filter, from: "", to: "" });
+      // Lot 27c-1 : le tableau 3 additionne les tableaux 1 et 2 : mêmes montants qu'avant.
+      const rows = buildAllocationTables(projectAllocations([w], { ...filter, from: "", to: "" })).three;
       expect(rows[0].financial).toMatchObject({ receivedMinor: 400, cumulativeReceivedMinor: 6000, cumulativeSpentMinor: 4200, openingMinor: 0, availableMinor: 1800 });
       expect(rows[1].financial).toMatchObject({ receivedMinor: 4400, cumulativeReceivedMinor: 25500, cumulativeSpentMinor: 0, openingMinor: 500, availableMinor: 26000 });
       expect(rows.map(r => r.financial!.cumulativeReceivedMinor - r.financial!.receivedMinor)).toEqual([5600, 21100]);
       rows.forEach(r => expect(r.financial!.openingMinor + r.financial!.cumulativeReceivedMinor - r.financial!.cumulativeSpentMinor).toBe(r.financial!.availableMinor));
     }
-    const empty = projectAllocations([w], { kind: "period", value: "custom", from: "2026-11-14", to: "2026-11-14" });
+    const emptyRows = projectAllocations([w], { kind: "period", value: "custom", from: "2026-11-14", to: "2026-11-14" });
+    const empty = buildAllocationTables(emptyRows).three;
     expect(empty.map(r => r.financial!.receivedMinor)).toEqual([0, 0]);
     expect(empty.map(r => r.financial!.availableMinor)).toEqual([1800, 26000]);
     expect(empty.map(r => r.financial!.cumulativeSpentMinor)).toEqual([4200, 0]);
     const earlier = projectAllocations([w], { kind: "period", value: "custom", from: "2026-11-12", to: "2026-11-12" });
     expect(earlier.every(r => r.financial!.availableMinor === 0)).toBe(true);
     expect(w).toEqual(before);
-    const html = feeAllocationPdfSections(empty, "Période sans mouvement", "USD").join("");
-    for (const heading of ["Selon le filtre", "Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"]) expect(html).toContain(heading);
+    const html = feeAllocationPdfSections(emptyRows, "Période sans mouvement", "USD").join("");
+    for (const heading of ["Tableau 3 — Ensemble", "Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"]) expect(html).toContain(heading);
     expect(html).toContain("$60,00"); expect(html).toContain("$255,00"); expect(html).toContain("$42,00");
   });
   it("refuse une réservation non expliquée au lieu de présenter une égalité trompeuse", () => {

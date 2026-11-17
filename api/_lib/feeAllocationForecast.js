@@ -24,22 +24,33 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
       || ((model.classOptionKey ?? config.classOptionKey) ?? null) !== (fee.classOptionKey ?? null)
       || version === model && (version.status !== 'published' || version.feeTypeId !== fee.id || version.schoolId !== schoolId || version.schoolYearId !== yearId || version.currency !== currency))) fail('Tarif, classe ou version modifié : prévu à revérifier.');
     const checked = model ? validateFeeAllocationRubrics(model.rubrics, tariff) : { rubrics: [], shares: [{ rubricId: 'UNALLOCATED', amountMinor: tariff }] };
-    const totals = new Map(checked.shares.map(s => [s.rubricId, 0]));
+    // Lot 27c-1 : prévu séparé — tableau 1 (élèves normaux) et tableau 2 (réduction ou prise en charge sur ce frais).
+    const totals = new Map([1, 2].flatMap(table => checked.shares.map(s => [`${table}|${s.rubricId}`, 0])));
+    const counts = { 1: 0, 2: 0 };
     let studentsCount = 0;
     for (const student of activeStudents) {
       if (!feeAppliesToHistoricalStudent(fee, student)) continue;
       studentsCount++;
       // Exact same net obligation and cumulative apportionment as receipts,
       // including fixed shares scaled down when the student's net is smaller.
-      const net = toMoneyMinor(supportBalance(student, fee).net);
+      const balance = supportBalance(student, fee);
+      const net = toMoneyMinor(balance.net), table = balance.reduction > 0 ? 2 : 1;
+      counts[table]++;
       for (const share of allocateFeeReceiptCumulative(checked.shares, net)) {
-        const total = totals.get(share.rubricId) + share.amountMinor;
+        const total = totals.get(`${table}|${share.rubricId}`) + share.amountMinor;
         if (!Number.isSafeInteger(total)) fail('Prévu annuel hors limites.');
-        totals.set(share.rubricId, total);
+        totals.set(`${table}|${share.rubricId}`, total);
       }
     }
-    for (const [rubricId, amountMinor] of totals) rows.push({ feeTypeId: fee.id, className: fee.className ?? '', classOptionKey: fee.classOptionKey ?? null,
-      rubricId, rubricName: checked.rubrics.find(r => r.id === rubricId)?.name ?? 'Non affecté', amountMinor, studentsCount });
+    for (const [key, amountMinor] of totals) {
+      const [table, rubricId] = [Number(key.split('|')[0]), key.split('|')[1]];
+      // Le tableau 2 n'a une ligne que s'il a des élèves pour ce frais.
+      if (table === 2 && !counts[2]) continue;
+      rows.push({ feeTypeId: fee.id, className: fee.className ?? '', classOptionKey: fee.classOptionKey ?? null, table,
+        rubricId, rubricName: checked.rubrics.find(r => r.id === rubricId)?.name ?? 'Non affecté', amountMinor, studentsCount: counts[table],
+        ...(model ? { rubricShare: checked.shares.find(s => s.rubricId === rubricId)?.amountMinor ?? 0, tariffMinor: tariff,
+          rubricMode: checked.rubrics.find(r => r.id === rubricId)?.mode ?? null, basisPoints: checked.rubrics.find(r => r.id === rubricId)?.basisPoints ?? null } : { rubricShare: tariff, tariffMinor: tariff, rubricMode: null, basisPoints: null }) });
+    }
   }
   return { status: 'complete', rows, studentCount: activeStudents.length };
 }
