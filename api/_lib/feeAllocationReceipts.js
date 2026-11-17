@@ -74,7 +74,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   const school = schoolSnap.data(), state = stateSnap.data();
   const operational = ["ACTIVE", "PAUSED"].includes(state?.status) ? await readOperationalAllocation({ db, transaction,
     schoolId: source.schoolId, schoolYearId: collectionYear, currency: source.currency, now }) : null;
-  if (operational?.status === "PAUSED") fail("Répartition en pause : conservez la proposition pour sa reprise.");
+  // Lot 27a : la pause n'existe plus ; un ancien état « PAUSED » est traité comme actif.
   if (!operational && !state?.phase3FixtureId) return noop;
   if (!operational && (!isFeeAllocationReceiptSandbox(db) || !school?.fixtureId || !/^e2e-(recipe|offline)-/.test(school.fixtureId) || state.phase3FixtureId !== school.fixtureId
     || state.status !== "EN_PREPARATION" || state.schoolId !== source.schoolId || state.schoolYearId !== collectionYear

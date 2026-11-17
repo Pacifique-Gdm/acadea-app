@@ -71,11 +71,13 @@ describe("activation ordinaire sans inscription de fixture (base en mémoire)", 
     await action(db, "activate", { openingId: p.openingId, confirmation: "ACTIVER LA REPARTITION DE MON ETABLISSEMENT" });
     delete db.records.get(`feeAllocationOpeningAudits/${p.openingId}`).receiptVersions;
     delete db.records.get(`feeAllocationOpeningAudits/${p.openingId}`).receiptVersionsRunId;
-    const before = structuredClone([...db.records]);
-    await expect(executeFinancialOperation({ db, caller: cashier, now: "2026-11-13T12:00:00.000Z", body: {
+    // Lot 27a (décision du propriétaire) : le paiement est encaissé ; la version actuelle n'est jamais devinée,
+    // la répartition attend (« postérieure à l'obligation »).
+    await executeFinancialOperation({ db, caller: cashier, now: "2026-11-13T12:00:00.000Z", body: {
       action: "create-payment", schoolYearId: "year", studentId: "student", feeTypeId: "fee", amount: 100, clientRequestId: "legacy-obligation-001",
-    } })).rejects.toThrow("postérieure à l'obligation");
-    expect([...db.records]).toEqual(before);
+    } });
+    expect([...db.records].filter(([k, v]) => k.startsWith("feeAllocationMovements/") && v.sourceType === "payment")).toHaveLength(0);
+    expect([...db.records].filter(([k]) => k.startsWith("feeAllocationPending/")).map(([, v]) => v.reason)).toEqual([expect.stringContaining("postérieure à l'obligation")]);
   });
   it("affecte seulement les nouveaux encaissements approuvés d'un tarif historique, sans doubler l'ouverture", async () => {
     const db = ordinarySchool(), past = "2026-09-01T00:00:00.000Z";

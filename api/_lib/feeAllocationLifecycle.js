@@ -12,6 +12,9 @@ const sum = values => { const n = values.reduce((a, b) => a + BigInt(b), 0n); if
 
 export async function manageFeeAllocationLifecycle({ db, caller, body, now = new Date().toISOString() }) {
   if (!allocationLifecycleActions.has(body.action)) fail("Action inconnue.", "invalid-argument", 400);
+  // Lot 27a (décision du propriétaire) : la répartition ne peut plus être mise en pause.
+  // « resume » reste possible pour remettre en service un ancien état « PAUSED ».
+  if (body.action === "pause") fail("La pause de la répartition n'existe plus : elle reste toujours disponible.", "invalid-argument", 400);
   if (!["admin", "school_admin"].includes(caller.role)) fail("Action réservée à l'Administrateur.", "permission-denied", 403);
   await readFeeAllocationScope(db, caller, caller.schoolId);
   await readAllocationEligibility(db, null, caller.schoolId, now);
@@ -161,6 +164,6 @@ export async function getAllocationSpendOptions({ db, caller, body, now = new Da
   const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, body.schoolYearId, false);
   const state = await readOperationalAllocation({ db, transaction: null, schoolId, schoolYearId: yearId, currency, now });
   if (!state || !["ACTIVE", "PAUSED"].includes(state.status)) return { operational: false, required: false, rubrics: [] };
-  return { operational: false, required: true, paused: state.status === "PAUSED", currency,
+  return { operational: false, required: true, paused: false, currency,
     rubrics: [...state.rubrics.filter(r => r.active !== false), { id: "UNALLOCATED", name: "Non affecté", active: true }] };
 }

@@ -88,15 +88,13 @@ describe("activation isolée, ouverture prouvée et dépenses", () => {
     await createPersonnelPayment({ db, caller: cashier, body: { ...body, kind: "bonus", amount: 15, deduction: 0, cnss: 0, tax: 0, clientRequestId: "bonus-request-001" }, now: later });
     expect(balance(db).spentMinor).toBe(3500); expect(movements(db)).toHaveLength(4);
   });
-  it("refuse rubrique étrangère, absence de rubrique, solde insuffisant et pause sans écritures", async () => {
+  it("refuse rubrique étrangère, absence de rubrique et solde insuffisant sans écritures ; la pause n'existe plus (lot 27a)", async () => {
     const db = completeAllocationFixture(); await activate(db); await pay(db);
     for (const extra of [{ allocationRubricId: "b".repeat(32) }, { allocationRubricId: undefined }, { amount: 90 }]) {
       const before = structuredClone([...db.records]); await expect(spend(db, extra)).rejects.toThrow(); expect([...db.records]).toEqual(before);
     }
-    await action(db, "pause", { reason: "Test de suspension" });
-    await expect(spend(db)).rejects.toMatchObject({ code: "allocation-paused" });
-    await expect(pay(db, { clientRequestId: "new-payment-request-001", amount: 1 })).rejects.toThrow();
-    await action(db, "resume", { reason: "Test de reprise" }); await spend(db);
+    await expect(action(db, "pause", { reason: "Test de suspension" })).rejects.toThrow("n'existe plus");
+    await spend(db);
   });
   it("ne crée aucune écriture partielle en cas d'interruption", async () => {
     const db = completeAllocationFixture(); await activate(db); await pay(db); const before = structuredClone([...db.records]); db.interrupt = true;
@@ -120,17 +118,19 @@ describe("activation isolée, ouverture prouvée et dépenses", () => {
     markFixtureFinancialChange(db);
     await expect(action(db, "approve-opening", { openingId: p.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" })).rejects.toThrow("refaire le rapprochement");
   });
-  it("garde les anciennes propositions indécidables, sans paiement ni affectation", async () => {
-    const db = completeAllocationFixture(); await activate(db); const before = structuredClone([...db.records]);
-    await expect(pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD" })).rejects.toThrow("coupure");
-    expect([...db.records]).toEqual(before);
-    await expect(pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD", proposedAt: "2026-11-12T12:00:00.000Z" })).rejects.toThrow("coupure");
-    await pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD", proposedAt: later });
+  it("lot 27a : une ancienne proposition indécidable est encaissée, sans affectation, et mise en attente de répartition", async () => {
+    const db = completeAllocationFixture(); await activate(db);
+    const first = await pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD" });
+    const pending = [...db.records].filter(([k]) => k.startsWith("feeAllocationPending/")).map(([, v]) => v);
+    expect(pending).toEqual([expect.objectContaining({ paymentId: first.payment.id, status: "pending" })]);
+    expect(pending[0].reason).toContain("coupure");
+    expect(movements(db).filter(m => m.sourceType === "payment")).toHaveLength(0);
   });
-  it("compare la coupure à l'instant réel, pas à l'ordre textuel d'un fuseau horaire", async () => {
-    const db = completeAllocationFixture(); await activate(db); const before = structuredClone([...db.records]);
-    await expect(pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD", proposedAt: "2026-11-13T10:30:00+02:00" })).rejects.toThrow("coupure");
-    expect([...db.records]).toEqual(before);
+  it("compare la coupure à l'instant réel, pas à l'ordre textuel d'un fuseau horaire (lot 27a : encaissé, répartition en attente)", async () => {
+    const db = completeAllocationFixture(); await activate(db);
+    await pay(db, { expectedFeeAmount: 100, expectedCurrency: "USD", proposedAt: "2026-11-13T10:30:00+02:00" });
+    expect([...db.records].filter(([k]) => k.startsWith("feeAllocationPending/")).map(([, v]) => v.reason)).toEqual([expect.stringContaining("coupure")]);
+    expect(movements(db).filter(m => m.sourceType === "payment")).toHaveLength(0);
   });
   it("garde le circuit historique sans rubrique ni nouvelle écriture si inactif", async () => {
     const db = completeAllocationFixture(); await pay(db); await spend(db, { allocationRubricId: undefined }); expect(movements(db)).toHaveLength(0);

@@ -13,7 +13,7 @@ export async function prepareFeeAllocationExpense({ db, transaction, caller, exp
     if (expense?.allocationRubricId !== undefined) fail("Aucune répartition active pour cette dépense.");
     return () => {};
   }
-  if (state.status === "PAUSED") fail("Répartition en pause : conservez l'opération pour sa reprise.", "allocation-paused");
+  // Lot 27a : la pause n'existe plus ; un ancien état « PAUSED » est traité comme actif.
   if (caller.schoolId !== source.schoolId || !["school_admin", "admin", "cashier"].includes(caller.role)
     || ![source.id, requestId].every(id) || !["financial-api", "personnel-payroll"].includes(source.provenance)) fail("Source de décaissement non autorisée.", "permission-denied", 403);
   const rubricId = previous?.allocationRubricId ?? expense?.allocationRubricId;
