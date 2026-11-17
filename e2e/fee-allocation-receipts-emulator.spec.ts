@@ -78,8 +78,10 @@ test("encaissements répartis : Auth réel, concurrence, arriérés, social, cor
       expect(entries).toHaveLength(2); expect(entries.reduce((n, m) => n + m.amountMinor, 0)).toBe(10000);
       expect(entries.every(m => m.collectionSchoolYearId === f.year)).toBe(true);
       expect(entries.every(m => m.currency === (suffix === "old1" ? "CDF" : "USD"))).toBe(true);
+      // Lot 27c-3a : un arriéré va dans les lignes « … (arriéré AAAA-AAAA) » de son année d'origine, jamais dans les rubriques de l'année.
+      expect(entries.every(m => m.lines.every((line: { rubricId: string }) => line.rubricId.startsWith(`ARR__${oldYear}__`)))).toBe(true);
       if (suffix === "old1") expect(entries.every(m => m.configVersionId === `${oldYear}-version`)).toBe(true);
-      else expect(entries.every(m => m.configVersionId === null && m.lines.length === 1 && m.lines[0].rubricId === "UNALLOCATED")).toBe(true);
+      else expect(entries.every(m => m.configVersionId === null && m.lines.length === 1 && m.lines[0].rubricId === `ARR__${oldYear}__UNALLOCATED`)).toBe(true);
     }
 
     // School reduction and unpaid commitments create no ledger entry.

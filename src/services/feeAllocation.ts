@@ -9,7 +9,7 @@ export type AllocationWorkspace = {
   currency: "USD" | "CDF"; canConfigure: boolean; operational: false; pendingAllocations?: number; rubricCatalog?: { id: string; name: string; hidden: boolean }[];
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   forecast?: { status: 'complete'; revision: string | null; calculatedAt: string; studentCount: number;
-    rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; studentsCount: number;
+    rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; arrearsYearName?: string; studentsCount: number;
       /** Lot 27c-1 : tableau 1 (élèves normaux) ou 2 (cas sociaux) ; part de la rubrique dans le tarif. */
       table?: 1 | 2; rubricShare?: number; tariffMinor?: number; rubricMode?: "percent" | "fixed" | null; basisPoints?: number | null }[] };
   ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string; arrearsYearName?: string; originSchoolYearId?: string }[];
