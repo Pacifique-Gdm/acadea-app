@@ -9,7 +9,9 @@ export type AllocationRow = { key: string; schoolId: string; schoolName: string;
   classLabel: string; currency: "USD" | "CDF"; rubricName: string; rubric?: FeeAllocationRubric;
   amountMinor: number; percent: number; config: FeeAllocationConfig; stale: boolean;
   financial?: { receivedMinor: number; spentMinor: number; availableMinor: number; openingMinor: number; arrearsMinor: number;
-    cumulativeReceivedMinor: number; cumulativeSpentMinor: number } };
+    cumulativeReceivedMinor: number; cumulativeSpentMinor: number;
+    /** Lot 27c-2 : paiements d'anciens élèves, inclus à la fois dans le prévu et dans l'encaissé. */
+    formerMinor: number } };
 export type AllocationFinancialField = keyof NonNullable<AllocationRow["financial"]>;
 export const unavailableAllocation = "Indisponible — répartition en préparation";
 export const allocationFeeKey = (schoolId: string, feeId: string) => JSON.stringify([schoolId, feeId]);
@@ -115,7 +117,7 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
   return [...rubrics.values()].flatMap(rubric => {
     // Totaux communs à la rubrique (comme avant), puis encaissements séparés par tableau.
     let spentMinor = 0, availableMinor = 0, openingMinor = 0, cumulativeSpentMinor = 0;
-    const received = { 1: 0, 2: 0 }, cumulative = { 1: 0, 2: 0 }, arrears = { 1: 0, 2: 0 };
+    const received = { 1: 0, 2: 0 }, cumulative = { 1: 0, 2: 0 }, arrears = { 1: 0, 2: 0 }, former = { 1: 0, 2: 0 };
     for (const m of ledger.movements) {
       const day = m.postedAt.slice(0, 10), amount = m.lines.find(l => l.rubricId === rubric.id)?.amountMinor ?? 0;
       if (period?.to && day > period.to) continue;
@@ -125,6 +127,10 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
       const table = m.socialCase ? 2 : 1;
       if (m.sourceType === "expense") cumulativeSpentMinor -= amount;
       else cumulative[table] += amount;
+      // Lot 27c-2 : un paiement d'ancien élève augmente le prévu annuel du même montant (jamais réduit par une période).
+      if (m.sourceType === "payment" && m.formerStudent
+        && !(filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(workspace.school.id, m.feeTypeId ?? ""))
+        && !(filter.kind === "class" && filter.value && filter.value !== allocationClassKey(workspace.school.id, m.classOptionKey || m.className || ""))) former[table] += amount;
       if (period?.from && day < period.from) continue;
       if (m.sourceType === "expense") { spentMinor -= amount; continue; }
       if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(workspace.school.id, m.feeTypeId ?? "")) continue;
@@ -136,7 +142,7 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
     // This candidate does not create reservations. Fail explicitly rather than
     // display a balance that the three displayed components cannot explain.
     if (reserved) throw new Error("Réservations à rapprocher : le solde disponible ne peut pas être justifié par cette vue.");
-    if (![spentMinor, availableMinor, openingMinor, cumulativeSpentMinor, received[1], received[2], cumulative[1], cumulative[2]].every(Number.isSafeInteger)) throw new Error("Totaux financiers hors limites.");
+    if (![spentMinor, availableMinor, openingMinor, cumulativeSpentMinor, received[1], received[2], cumulative[1], cumulative[2], former[1], former[2]].every(Number.isSafeInteger)) throw new Error("Totaux financiers hors limites.");
     if (openingMinor + cumulative[1] + cumulative[2] - cumulativeSpentMinor !== availableMinor) throw new Error("Écart dans le rapprochement de la rubrique.");
     const opening = prorataShares(openingMinor, cumulative[1], cumulative[2]);
     const spent = prorataShares(spentMinor, cumulative[1], cumulative[2]);
@@ -144,10 +150,10 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
     const labels = percentLabels(workspace, forecast, rubric.id);
     return ([1, 2] as const).map((table, index): AllocationRow => ({ key: `${workspace.school.id}/${workspace.year.id}/${table}/${rubric.id}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
       yearName: workspace.year.name, feeName: "Rubrique commune · disponible global", classLabel: "Toutes les classes", currency: workspace.currency,
-      rubricName: rubric.name, amountMinor: expected.get(`${table}|${rubric.id}`) ?? 0, percent: 0, config: workspace.configs[0], stale: false,
+      rubricName: rubric.name, amountMinor: (expected.get(`${table}|${rubric.id}`) ?? 0) + former[table], percent: 0, config: workspace.configs[0], stale: false,
       table, rubricId: rubric.id, ...labels,
       financial: { receivedMinor: received[table], spentMinor: spent[index], openingMinor: opening[index],
-        cumulativeReceivedMinor: cumulative[table], cumulativeSpentMinor: cumSpent[index], arrearsMinor: arrears[table],
+        cumulativeReceivedMinor: cumulative[table], cumulativeSpentMinor: cumSpent[index], arrearsMinor: arrears[table], formerMinor: former[table],
         availableMinor: opening[index] + cumulative[table] - cumSpent[index] } }));
   });
 }

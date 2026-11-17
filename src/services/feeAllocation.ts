@@ -16,7 +16,7 @@ export type AllocationWorkspace = {
     pagination?: { page: number; hasNext: boolean; nextCursor: string | null; fingerprint: string };
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
-      originSchoolYearId: string; postedAt: string; socialCase?: boolean }[];
+      originSchoolYearId: string; postedAt: string; socialCase?: boolean; formerStudent?: boolean }[];
     balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number }[] };
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;

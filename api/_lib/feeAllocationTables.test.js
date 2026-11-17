@@ -38,3 +38,17 @@ describe("lot 27c-1 — tableau de chaque encaissement", () => {
     expect(receipts(db).map((m) => m.socialCase)).toEqual([true, true]);
   });
 });
+
+describe("lot 27c-2 — encaissement d'un ancien élève repéré dans le registre", () => {
+  it("la marque « ancien élève » de la copie du paiement est transmise à l'écran, sans autre donnée de l'élève", async () => {
+    const { readFeeAllocationLedger } = await import("./feeAllocationLedger.js");
+    const db = await activeSchool(); await pay(db, 40, "former-mark-0001");
+    const read = async () => (await readFeeAllocationLedger({ db, schoolId: "school", schoolYearId: "year", currency: "USD", now: "2026-11-13T12:00:00.000Z" })).movements.filter((m) => m.sourceType === "payment");
+    expect((await read()).map((m) => m.formerStudent)).toEqual([false]);
+    const [path, movement] = [...db.records].find(([p, v]) => p.startsWith("feeAllocationMovements/") && v.sourceType === "payment");
+    db.records.set(path, { ...movement, sourceSnapshot: { ...movement.sourceSnapshot, formerStudent: true } });
+    const [row] = await read();
+    expect(row.formerStudent).toBe(true);
+    expect(row).not.toHaveProperty("sourceSnapshot");
+  });
+});

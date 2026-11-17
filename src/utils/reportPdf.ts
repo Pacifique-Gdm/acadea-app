@@ -21,6 +21,8 @@ export async function exportReportPdf(
   students: Student[],
   arrearsPayments: Payment[] = [],
   cashInflows: CashInflow[] = [],
+  /** Lot 27c-2 : paiements d'anciens élèves, déjà inclus dans `paid` (et dans le prévu) ; le solde reste hors arriérés. */
+  former: { CDF: number; USD: number } = { CDF: 0, USD: 0 },
 ) {
   if (paid.unknownCount || spent.unknownCount || cashInflows.some((inflow) => inflow.currency !== "CDF" && inflow.currency !== "USD") || arrearsPayments.some((payment) => payment.currency !== "CDF" && payment.currency !== "USD")) {
     throw new Error("Export bloqué : devise historique inconnue.");
@@ -73,10 +75,10 @@ export async function exportReportPdf(
         "Synthèse",
         pdfInfoGrid([
           { label: "Section", value: sectionLabel },
-          { label: "Paiements", value: formatRecordedTotals(paid, defaultCurrency) },
+          { label: "Paiements", value: `${formatRecordedTotals(paid, defaultCurrency)}${former.CDF || former.USD ? ` (dont anciens élèves : ${formatRecordedTotals({ ...former, unknownCount: 0 }, defaultCurrency)})` : ""}` },
           { label: "Autres entrées de caisse", value: formatRecordedTotals(inflowTotals, defaultCurrency) },
           { label: "Dépenses", value: formatRecordedTotals(spent, defaultCurrency) },
-          { label: "Solde", value: formatRecordedTotals({ CDF: sumMoney([paid.CDF, inflowTotals.CDF, -spent.CDF]), USD: sumMoney([paid.USD, inflowTotals.USD, -spent.USD]), unknownCount: 0 }, defaultCurrency) },
+          { label: "Solde", value: formatRecordedTotals({ CDF: sumMoney([paid.CDF, -former.CDF, inflowTotals.CDF, -spent.CDF]), USD: sumMoney([paid.USD, -former.USD, inflowTotals.USD, -spent.USD]), unknownCount: 0 }, defaultCurrency) },
           { label: "Recouvrement", value: recovery === null ? "Non calculable" : `${recovery}%` },
           ...(showGlobalExpenseNote
             ? [{ label: "Note caisse", value: "Les dépenses et autres entrées de caisse sont globales pour l'école, car elles ne sont pas rattachées à une section." }]

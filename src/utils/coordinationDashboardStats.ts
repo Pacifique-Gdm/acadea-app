@@ -100,6 +100,11 @@ export function buildCoordinationDashboardStats(
 
   const classRows = buildDashboardClassRows(students, (schoolId) => schoolById.get(schoolId)?.name ?? schoolId) as CoordinationDashboardClassRow[];
 
+  // Lot 27c-2 : paiements d'anciens élèves comptés dans le prévu et l'encaissé ; sans section, exclus par ce filtre.
+  const allStudentKeys = new Set(allStudents.map((student) => `${student.schoolId}:${student.id}`));
+  const formerPayments = filters.section && filters.section !== "all" ? [] : uniqueBySchoolAndId(model.payments.filter((payment) => payment.formerStudent === true
+    && alignedSchoolIds.has(payment.schoolId) && activeYearBySchoolId.get(payment.schoolId) === (payment.collectionSchoolYearId ?? payment.schoolYearId)
+    && !allStudentKeys.has(`${payment.schoolId}:${payment.studentId}`) && isDateInRange(payment.paidAt, filters)));
   const financialGroups = groupCoordinationFinancialsByCurrency({
     schools: alignedSchools.map((school) => schoolWithYearCurrency(school, yearsById.get(school.activeSchoolYearId))),
     students,
@@ -107,6 +112,7 @@ export function buildCoordinationDashboardStats(
     payments,
     expenses,
     cashInflows,
+    formerPayments,
   });
 
   return {

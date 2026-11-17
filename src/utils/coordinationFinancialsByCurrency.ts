@@ -15,6 +15,8 @@ export type CoordinationCurrencyFinancialGroup = {
   cashInflows: number;
   remaining: number;
   recoveryRate: number;
+  /** Lot 27c-2 : paiements d'anciens élèves, déjà inclus dans le prévu et dans l'encaissé. */
+  formerPaid?: number;
   feeProgressRows: DashboardFeeProgressRow[];
   feeShares: DashboardFeeShare[];
   payments: Payment[];
@@ -49,6 +51,7 @@ export function groupCoordinationFinancialsByCurrency({
   payments,
   expenses,
   cashInflows = [],
+  formerPayments = [],
 }: {
   schools: School[];
   students: Student[];
@@ -56,6 +59,8 @@ export function groupCoordinationFinancialsByCurrency({
   payments: Payment[];
   expenses: Expense[];
   cashInflows?: CashInflow[];
+  /** Lot 27c-2 : paiements d'anciens élèves de l'année active, jamais déjà comptés avec un élève actif. */
+  formerPayments?: Payment[];
 }): CoordinationCurrencyFinancialGroup[] {
   const scopedSchoolIds = new Set(schools.map((school) => school.id));
   const currencyOrder = [...new Set([
@@ -74,7 +79,10 @@ export function groupCoordinationFinancialsByCurrency({
       students.filter((student) => student.schoolId === school.id),
       feeTypes.filter((fee) => fee.schoolId === school.id),
       payments.filter((payment) => payment.schoolId === school.id && payment.currency === currency),
+      undefined,
+      formerPayments.filter((payment) => payment.schoolId === school.id && payment.currency === currency),
     ));
+    const formerPaid = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.formerPaid ?? 0));
     const feeProgressRows = mergeFeeRows(schoolAggregates.map((aggregate) => aggregate.feeProgressRows));
     const expected = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.expected));
     const official = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.official));
@@ -95,6 +103,7 @@ export function groupCoordinationFinancialsByCurrency({
       cashInflows: sumMoney(currencyCashInflows.map((inflow) => inflow.amount)),
       remaining: remainingMoney(expected, paid),
       recoveryRate: expected > 0 ? Math.round((paid / expected) * 100) : 0,
+      formerPaid,
       feeProgressRows,
       feeShares: buildDashboardFeeShares(feeProgressRows),
       payments: currencyPayments,

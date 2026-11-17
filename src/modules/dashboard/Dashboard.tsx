@@ -5,7 +5,7 @@ import { DashboardArrearsValue } from "../../components/financial/DashboardArrea
 import type { CSSProperties } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound, X } from "lucide-react";
 import { FormPanel, Metric } from "../../components/ui";
-import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
+import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashboardTransactionDayRows, formerStudentPaymentsOfYear } from "../../utils/dashboardStats";
 import type { DashboardFeeShare } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
@@ -386,13 +386,24 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
     [resolvedExpenses, dateFilterActive, endDate, sectionFilter, startDate],
   "dashboard.filteredExpenses");
   const filteredPaymentIndexes = usePersistentMemo(() => buildSchoolYearDataIndexes(filteredStudents, data.feeTypes, filteredPayments), [filteredStudents, data.feeTypes, filteredPayments], "dashboard.filteredPaymentIndexes");
+  // Lot 27c-2 : paiements d'anciens élèves comptés à la fois dans le prévu et l'encaissé. Ils ne sont
+  // rattachés à aucune section : le filtre de section les exclut, comme les dépenses.
+  const yearCurrency = resolveSchoolYearCurrency(year, school);
+  const formerPayments = usePersistentMemo(() => {
+    const counted = new Set(activeStudents.map((student) => student.id));
+    return formerStudentPaymentsOfYear(data.payments, year.id, counted).filter((payment) => !payment.currency || payment.currency === yearCurrency);
+  }, [activeStudents, data.payments, year.id, yearCurrency], "dashboard.formerPayments");
+  const filteredFormerPayments = usePersistentMemo(() => sectionFilter !== "all" ? [] : formerPayments.filter((payment) => {
+    const normalized = payment.paidAt.slice(0, 10);
+    return !dateFilterActive || ((!startDate || normalized >= startDate) && (!endDate || normalized <= endDate));
+  }), [formerPayments, sectionFilter, dateFilterActive, startDate, endDate], "dashboard.filteredFormerPayments");
   const dashboardFinancialAggregates = usePersistentMemo(
-    () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes),
-    [data.feeTypes, filteredPaymentIndexes, filteredPayments, filteredStudents],
+    () => buildDashboardFinancialAggregates(filteredStudents, data.feeTypes, filteredPayments, filteredPaymentIndexes, filteredFormerPayments),
+    [data.feeTypes, filteredPaymentIndexes, filteredPayments, filteredStudents, filteredFormerPayments],
   "dashboard.dashboardFinancialAggregates");
   const fullYearFinancialAggregates = usePersistentMemo(
-    () => buildDashboardFinancialAggregates(activeStudents, data.feeTypes, data.payments, yearIndexes),
-    [activeStudents, data.feeTypes, data.payments, yearIndexes],
+    () => buildDashboardFinancialAggregates(activeStudents, data.feeTypes, data.payments, yearIndexes, formerPayments),
+    [activeStudents, data.feeTypes, data.payments, yearIndexes, formerPayments],
   "dashboard.fullYearFinancialAggregates");
   const hasDashboardFinancialFilter = sectionFilter !== "all" || dateFilterActive;
   const activeFinancialAggregates = hasDashboardFinancialFilter ? dashboardFinancialAggregates : fullYearFinancialAggregates;
@@ -518,6 +529,9 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
   "dashboard.transactionChartRows");
   const sectionLabel = sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter];
   const dateLabel = dateFilterActive ? (startDate || "D\u00e9but") + " au " + (endDate || "Fin") : "Année scolaire complète";
+  const formerPaid = dashboardFinancialStats.formerPaid ?? 0;
+  const formerMention = formerPaid > 0 ? <span className="mt-1 block text-xs font-normal text-slate-600">dont anciens élèves : {formatCurrencyMoney(formerPaid, currentCurrency)}</span> : null;
+  const formerText = formerPaid > 0 ? ` (dont anciens élèves : ${formatCurrencyMoney(formerPaid, currentCurrency)})` : "";
   const cards = [
     { label: "Nombre total d'\u00e9l\u00e8ves", value: totalActiveStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
     { label: "Nombre de classes", value: operationalClassCount, icon: BookOpen, tone: "bg-indigo-100 text-indigo-700" },
@@ -527,8 +541,8 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
     { label: "Directeurs de Discipline", value: personnelCounts.discipline_director, icon: ShieldCheck, tone: "bg-violet-100 text-violet-700" },
     { label: "Montant officiel", value: formatCurrencyMoney(dashboardFinancialStats.official, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Réductions et exonérations", value: formatCurrencyMoney(dashboardFinancialStats.reduction, currentCurrency), icon: BarChart3, tone: "bg-violet-100 text-violet-700" },
-    { label: "Montant net exigible", value: formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Frais de l'année encaissés", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(totalPayments, currentCurrency), icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant net exigible", value: <>{formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency)}{formerMention}</>, icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
+    { label: "Frais de l'année encaissés", value: financialExportBlocked ? "Non calculable" : <>{formatCurrencyMoney(totalPayments, currentCurrency)}{formerMention}</>, icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
     { label: "Montant restant \u00e0 payer", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
     { label: "Arriérés", value: <DashboardArrearsValue {...dashboardArrears} currency={currentCurrency} />, icon: Banknote, tone: "bg-amber-100 text-amber-700" },
   ];
@@ -560,6 +574,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
       official: dashboardFinancialStats.official,
       reduction: dashboardFinancialStats.reduction,
       expected: dashboardFinancialStats.expected,
+      formerPaid,
       remaining,
       transactions: transactions.map((transaction) => ({ ...transaction, currency: currentCurrency })),
       classRows: classDisplayRows,
@@ -680,8 +695,8 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
         <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
           <Metric label="Officiel" value={formatCurrencyMoney(dashboardFinancialStats.official, currentCurrency)} />
           <Metric label="Réductions" value={formatCurrencyMoney(dashboardFinancialStats.reduction, currentCurrency)} />
-          <Metric label="Net exigible" value={formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency)} />
-          <Metric label={"Frais de l'année encaissés"} value={formatCurrencyMoney(totalPayments, currentCurrency)} />
+          <Metric label="Net exigible" value={formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency) + formerText} />
+          <Metric label={"Frais de l'année encaissés"} value={formatCurrencyMoney(totalPayments, currentCurrency) + formerText} />
           <Metric label={"D\u00e9penses"} value={formatCurrencyMoney(totalExpenses, currentCurrency)} />
           <Metric label="Reste" value={formatCurrencyMoney(remaining, currentCurrency)} />
         </div>
