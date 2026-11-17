@@ -97,6 +97,8 @@ export default defineConfig(({ mode }) => {
   define: {
     ...viteDefines,
     __ACADEA_BUILD_ID__: JSON.stringify(buildId),
+    // Petit lot « Version » : numéro affiché sous « Déconnexion », tenu par la procédure de mise en production.
+    __ACADEA_APP_VERSION__: JSON.stringify(JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")).version),
   },
   optimizeDeps: {
     exclude: ["jspdf"],

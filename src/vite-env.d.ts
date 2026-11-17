@@ -19,6 +19,7 @@ interface ImportMeta {
 }
 
 declare const __ACADEA_BUILD_ID__: string;
+declare const __ACADEA_APP_VERSION__: string;
 
 declare module "jspdf" {
   export default class jsPDF {
