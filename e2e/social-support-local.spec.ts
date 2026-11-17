@@ -104,17 +104,16 @@ test("fermer une modification sale avertit et restaure le défilement sans écri
   expect(await page.evaluate(()=>document.body.style.overflow)).toBe('');
   expect(await page.evaluate(()=>(window as unknown as {__submitted?:unknown}).__submitted)).toBeUndefined();
 });
+// Lot 26c (décision du propriétaire) : seul l'Administrateur accorde, modifie ou retire ;
+// le Caissier et la Secrétaire consultent seulement, comme la Coordination.
 for (const role of ["cashier", "secretary"]) {
-  test(`${role} peut préparer une décision avec le même plafond`, async ({ page }) => {
+  test(`${role} ne dispose que de la consultation (lot 26c)`, async ({ page }) => {
     await page.goto(`${origin}/?role=${role}`);
-    await page.getByRole("tab", { name: "Nouveau" }).click();
-    await selectPupil(page);
-    await page.getByRole("checkbox").check();
-    await page.getByLabel("Minerval — Montant").fill("100");
-    await page.getByLabel("Motif de l’avantage *").selectOption("social");
-    await expect(page.getByRole("button", { name: "Confirmer la prise en charge" })).toBeEnabled();
-    await page.getByRole("button", { name: "Confirmer la prise en charge" }).click();
-    await expect(page.getByRole("status").filter({ hasText: "confirmée" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Bénéficiaires" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Historique" })).toBeVisible();
+    await expect(page.getByRole("tab", { name: "Nouveau" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Modifier" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Annuler la décision" })).toHaveCount(0);
   });
 }
 for (const role of ["coordination_admin", "sub_coordination_admin"]) {

@@ -15,7 +15,7 @@ function handlers() {
   return ts.transpileModule(selected.join("\n"), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 }
 function runSubmit(save: () => Promise<unknown>) {
-  const values: Record<string, unknown> = { StudentId: "a", PaymentStudentQuery: "Eleve A", FeeTypeId: "fee-a", Amount: "20", PaymentNote: "note A", SupportPayer: "tiers-a" };
+  const values: Record<string, unknown> = { StudentId: "a", PaymentStudentQuery: "Eleve A", FeeTypeId: "fee-a", Amount: "20", PaymentNote: "note A" };
   const setters = Object.fromEntries(["CashierControlFeedback", "CashierControlFeedbackDrawer", "PaymentError", "PaymentSubmitting", "PaymentArrears", "ArrearsError", "ArrearsLoading", ...Object.keys(values)].map(key => [`set${key}`, (value: unknown) => { values[key] = value; }]));
   const attempt = { current: null as unknown };
   const bindings = { ...setters, crypto: { randomUUID: () => "request-fictive" },
@@ -23,7 +23,7 @@ function runSubmit(save: () => Promise<unknown>) {
     isArchivedContext: false, studentId: "a", selectedFeeTypeValue: "fee-a", amount: "20", paymentNote: "note A",
     selectedPaymentStudent: { id: "a" }, selectedPaymentFee: { id: "fee-a" }, selectedPaymentDebt: undefined,
     yearData: { payments: [] }, school: { id: "school-fictive" }, year: { id: "year-fictive" }, user: { role: "cashier" },
-    support: {}, currentSupportPayer: "", selectedPaymentFeeRemaining: 100,
+    support: {}, selectedPaymentFeeRemaining: 100,
     sumMoney: () => 0, toMoneyMinor: (n: number) => n * 100, remainingMoney: () => 100,
     createPaymentTransaction: vi.fn(save), paymentHistory: { prependItem: vi.fn() }, refreshExpenseCashBalance: async () => {},
   };
@@ -40,7 +40,7 @@ describe("formulaire neuf après paiement confirmé", () => {
     expect(test.values.Amount).toBe("20");
     confirm({ id: "payment-fictive" });
     await saving;
-    for (const key of ["StudentId", "PaymentStudentQuery", "FeeTypeId", "Amount", "PaymentNote", "SupportPayer"]) expect(test.values[key], key).toBe("");
+    for (const key of ["StudentId", "PaymentStudentQuery", "FeeTypeId", "Amount", "PaymentNote"]) expect(test.values[key], key).toBe("");
     expect(test.values.PaymentArrears).toEqual([]);
     expect(test.attempt.current).toBeNull();
     expect(test.bindings.paymentHistory.prependItem).toHaveBeenCalledOnce();
