@@ -5,6 +5,7 @@ import { validateFeeAllocationRubrics } from './feeAllocationMath.js';
 import { readAllocationPages } from './feeAllocationPagination.js';
 import { allocationHash, allocationStateId, allocationFail as fail } from './feeAllocationRuntime.js';
 import { toMoneyMinor } from './money.js';
+import { readArrearsForecast } from './feeAllocationArrearsForecast.js';
 
 export const forecastSignalId = (schoolId, yearId) => allocationHash([schoolId, yearId]);
 export function calculateAllocationForecast({ students, fees, configs, versions, schoolId, yearId, currency, operational }) {
@@ -59,7 +60,8 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
  * jamais d'identité d'élève). Il n'est recalculé — lecture de tous les élèves — que si sa clé change :
  * signal des élèves et des frais (fonctions), frais, configurations, statut de la répartition,
  * version du calcul. Garde-fou : une heure au plus, même sans signal. */
-export const FORECAST_CACHE_SCHEMA = 1;
+// 2 : lot 27c-3b, le prévu gardé contient aussi les lignes d'arriérés.
+export const FORECAST_CACHE_SCHEMA = 2;
 export const FORECAST_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 export const forecastCacheId = (schoolId, yearId, currency) => allocationHash(['forecast-cache', schoolId, yearId, currency]);
 const forecastCacheKey = ({ signal, fees, configs, state }) => allocationHash([FORECAST_CACHE_SCHEMA, signal,
@@ -90,16 +92,26 @@ export async function readAllocationForecast({ db, schoolId, yearId, currency, f
       && kept.forecast?.status === 'complete' && Array.isArray(kept.forecast.rows)) {
       return { fees, configs, forecast: { ...kept.forecast, revision, calculatedAt: kept.savedAt, cached: true } };
     }
-    const students = await readAllocationPages(annual('students').select('schoolId', 'schoolYearId', 'className', 'option', 'status', 'deletedAt', 'financialSupport'), tx);
+    const students = await readAllocationPages(annual('students').select('schoolId', 'schoolYearId', 'className', 'option', 'status', 'deletedAt', 'financialSupport',
+      'matricule', 'importedFromStudentId', 'nom', 'postnom', 'prenom', 'birthDate'), tx);
     const versions = [];
     for (const config of configRows) if (config.currentVersionId) versions.push({ ...(await tx.get(db.doc(`feeAllocationVersions/${config.currentVersionId}`))).data(), id: config.currentVersionId });
     const calculatedAt = new Date(now).toISOString();
     const forecast = calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions,
       schoolId, yearId, currency, operational: ['ACTIVE', 'PAUSED'].includes(status) });
-    return { fees, configs, forecast: { ...forecast, revision, calculatedAt },
+    const activeStudents = data(students).filter(st => st.schoolId === schoolId && st.schoolYearId === yearId && st.status === 'ACTIVE' && !st.deletedAt);
+    return { fees, configs, forecast: { ...forecast, revision, calculatedAt }, activeStudents, activeYear: year.data(),
       save: { revision, parts: { fees: feeRows, configs: configRows, state: status }, forecast, savedAt: calculatedAt } };
   }, { readOnly: true });
-  const { save, ...response } = result;
+  const { save, activeStudents, activeYear, ...response } = result;
+  // Lot 27c-3b : prévu des lignes d'arriérés (années passées), ajouté au prévu gardé.
+  if (save) {
+    const arrearsRows = await readArrearsForecast({ db, schoolId, yearId, currency, activeYear, activeStudents, now });
+    if (arrearsRows.length) {
+      save.forecast = { ...save.forecast, rows: [...save.forecast.rows, ...arrearsRows] };
+      response.forecast = { ...response.forecast, rows: save.forecast.rows };
+    }
+  }
   // Enregistrement hors de la lecture : un échec ne bloque jamais l'affichage (le prochain appel recalcule).
   // Il n'a lieu que si le signal n'a pas bougé depuis le calcul ; sans signal, un premier signal est créé
   // (jamais écrasé : si une fonction l'a écrit entre-temps, rien n'est gardé).
