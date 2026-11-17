@@ -21,7 +21,9 @@ import { getClassSection } from "../utils/studentClasses";
 import { compareStudentsAlphabetically, normalizeStudentSearch, studentSearchFields } from "../utils/studentSearch.js";
 
 export const STUDENT_SOURCE_PAGE_SIZE = 50;
-export type StudentArchiveFilter = "active" | "archived" | "all";
+/** « Filles » et « Garçons » : élèves actifs seulement (un élève sans sexe renseigné n'est que dans Tous et Actifs). */
+export type StudentArchiveFilter = "active" | "archived" | "all" | "girls" | "boys";
+export const studentSexOfFilter = (archive: StudentArchiveFilter) => archive === "girls" ? "F" : archive === "boys" ? "M" : null;
 export type StudentPageCursor = QueryDocumentSnapshot<DocumentData>;
 
 function studentFirestore() {
@@ -64,6 +66,8 @@ export function studentFilterConstraints(filters: StudentQueryFilters): QueryCon
   if (filters.className) constraints.push(where("className", "==", filters.className));
   if (filters.option) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
   if (filters.archive !== "all") constraints.push(where("searchArchived", "==", filters.archive === "archived"));
+  const sex = studentSexOfFilter(filters.archive);
+  if (sex) constraints.push(where("sexe", "==", sex));
   const search = normalizeStudentSearch(filters.search);
   if (search) constraints.push(where("searchPrefixes", "array-contains", search));
   return constraints;
@@ -133,9 +137,29 @@ export function filterStudentFallback(students: Student[], filters: StudentQuery
       && student.schoolYearId === filters.schoolYearId
       && (!allowed.size || allowed.has(section))
       && (filters.archive === "all" || archived === (filters.archive === "archived"))
+      && (!studentSexOfFilter(filters.archive) || student.sexe === studentSexOfFilter(filters.archive))
       && (!search || prefixes.includes(search))
       && (filters.section === "all" || section === filters.section)
       && (!filters.className || student.className === filters.className)
       && (!filters.option || canonicalSchoolOption(student.option ?? "") === canonicalSchoolOption(filters.option));
   }).sort(compareStudentsAlphabetically);
+}
+
+/** Nombre d'élèves pour chaque choix du filtre de statut, avec les autres filtres (classe, option, recherche).
+ * Quatre comptages seulement : Actifs = Tous − Archivés ; sans sexe renseigné = Actifs − Filles − Garçons. */
+export type StudentStatusCounts = { all: number; active: number; archived: number; girls: number; boys: number; missingSex: number };
+export function studentStatusCountsFrom(all: number, archived: number, girls: number, boys: number): StudentStatusCounts {
+  const active = Math.max(0, all - archived);
+  return { all, active, archived, girls, boys, missingSex: Math.max(0, active - girls - boys) };
+}
+export async function countStudentStatuses(filters: StudentQueryFilters): Promise<StudentStatusCounts> {
+  const [all, archived, girls, boys] = await Promise.all((["all", "archived", "girls", "boys"] as const).map((archive) => countStudentResults({ ...filters, archive })));
+  return studentStatusCountsFrom(all, archived, girls, boys);
+}
+export function countStudentStatusesLocally(students: Student[], filters: StudentQueryFilters): StudentStatusCounts {
+  const count = (archive: StudentArchiveFilter) => filterStudentFallback(students, { ...filters, archive }).length;
+  return studentStatusCountsFrom(count("all"), count("archived"), count("girls"), count("boys"));
+}
+export function countStudentStatusesWithFallback(filters: StudentQueryFilters, fallbackStudents: Student[]) {
+  return studentFirestore() ? countStudentStatuses(filters) : Promise.resolve(countStudentStatusesLocally(fallbackStudents, filters));
 }

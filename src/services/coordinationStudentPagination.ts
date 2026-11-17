@@ -1,4 +1,4 @@
-import { collection, documentId, getDocs, limit, orderBy, query, startAfter, where, type DocumentData, type Firestore, type QueryConstraint, type QueryDocumentSnapshot } from "@firebase/firestore";
+import { collection, documentId, getCountFromServer, getDocs, limit, orderBy, query, startAfter, where, type DocumentData, type Firestore, type QueryConstraint, type QueryDocumentSnapshot } from "@firebase/firestore";
 import { db } from "../firebase";
 import type { FeeType, Payment, School, SchoolSection, SchoolYear, Student } from "../types";
 import { canonicalSchoolOption } from "../utils/schoolOptions";
@@ -90,6 +90,8 @@ export function coordinationStudentConstraints(filters: CoordinationStudentFilte
   if (sections.length === 1) constraints.push(where("section", "==", sections[0]));
   else if (sections.length > 1) constraints.push(where("section", "in", sections.slice(0, 10)));
   if (filters.status !== "all") constraints.push(where("searchArchived", "==", filters.status === "archived"));
+  // « Filles » et « Garçons » : élèves actifs seulement.
+  if (filters.status === "girls" || filters.status === "boys") constraints.push(where("sexe", "==", filters.status === "girls" ? "F" : "M"));
   if (source.className || filters.className) constraints.push(where("className", "==", source.className || filters.className));
   if (filters.option && !source.skipOptionConstraint) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
   const search = normalizeStudentSearch(filters.search);
@@ -171,4 +173,17 @@ export async function loadCoordinationStudentPage(filters: CoordinationStudentFi
     queryCount,
     nextCursor: last && states.some((state) => state.pending.length) ? { sortName: String(last.sortName ?? ""), id: last.id, sourceStates: states } : undefined,
   };
+}
+
+/** Nombre d'élèves pour chaque choix du filtre de statut (Tous, Actifs, Archivés, Filles, Garçons), toutes écoles
+ * du périmètre additionnées ; quatre comptages par source, jamais de lecture des fiches. */
+export async function countCoordinationStudentStatuses(filters: CoordinationStudentFilters) {
+  const { studentStatusCountsFrom } = await import("./studentPagination");
+  if (!db) return studentStatusCountsFrom(0, 0, 0, 0);
+  const database = db as unknown as Firestore;
+  const sources = coordinationStudentSources(filters);
+  const count = async (status: CoordinationStudentStatus) => (await Promise.all(sources.map(async (source) =>
+    (await getCountFromServer(query(collection(database, "students"), ...coordinationStudentConstraints({ ...filters, status }, source)))).data().count))).reduce((n, value) => n + value, 0);
+  const [all, archived, girls, boys] = await Promise.all((["all", "archived", "girls", "boys"] as const).map(count));
+  return studentStatusCountsFrom(all, archived, girls, boys);
 }

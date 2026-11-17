@@ -2,7 +2,7 @@ import type { School, Student } from "../types";
 import { canonicalSchoolOption } from "./schoolOptions";
 import { isArchivedStudent } from "./studentUtils";
 
-export type CoordinationStudentStatus = "active" | "archived" | "all";
+export type CoordinationStudentStatus = "active" | "archived" | "all" | "girls" | "boys";
 
 export type ScopedChoice = {
   value: string;
@@ -61,6 +61,7 @@ export function filterCoordinationStudents(input: {
     return (!input.selectedSchoolId || student.schoolId === input.selectedSchoolId)
       && (!search || searchable.includes(search))
       && (input.status === "all" || (input.status === "archived" ? archived : !archived))
+      && (input.status !== "girls" || student.sexe === "F") && (input.status !== "boys" || student.sexe === "M")
       && (!input.classKey || coordinationStudentClassKey(student) === input.classKey)
       && (!input.optionKey || coordinationStudentOptionKey(student) === input.optionKey);
   });
