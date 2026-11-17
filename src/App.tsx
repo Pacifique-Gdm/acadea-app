@@ -1,4 +1,5 @@
 ﻿import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { usePrefetchAllocation } from "./services/feeAllocationStore";
 import { PushNotificationSettings } from "./components/notifications/PushNotificationPrompt";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
 import { auth } from "./firebase";
@@ -479,6 +480,8 @@ export default function App() {
   }, []);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
+  // Lot « répartition rapide » : « Répartition des frais » préparée dès la connexion (Administrateur, Caissier).
+  usePrefetchAllocation(user, school?.id ? [school.id] : []);
   const schoolYears = useMemo(() => (school ? orderSchoolYears(data.schoolYears.filter((year) => year.schoolId === school.id), school.activeSchoolYearId) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
   useEffect(() => {

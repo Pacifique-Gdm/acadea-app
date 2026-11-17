@@ -73,5 +73,7 @@ describe("lot 27c-1 : trois tableaux sur le même modèle", () => {
     expect(html).toContain("text-align: justify");
     expect(html.split("2027-2028").length - 1).toBe(1);
     expect(html).toContain("Salaires (60 % et 40 %)");
+    // Espace clair entre les trois tableaux dans le PDF.
+    expect(html.split('class="pdf-section fee-allocation-table-pdf-section"').length - 1).toBe(3);
   });
 });
