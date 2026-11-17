@@ -128,16 +128,37 @@ describe("lot 27a — non-régression : rapports", () => {
   });
 });
 
-describe("lot 27a — comportements que les DÉCISIONS du propriétaire vont changer", () => {
-  it("10. DÉCISION (pause supprimée) : aujourd'hui, une dépense est refusée pendant la pause", async () => {
+describe("lot 27a — DÉCISIONS du propriétaire appliquées", () => {
+  it("10. DÉCISION : la pause n'existe plus ; elle est refusée et les dépenses restent possibles", async () => {
     const db = await activeSchool();
     await pay(db, 80, "paused-payment-0001");
-    await lifecycle(db, "pause", { reason: "Pause de test pour figer le comportement actuel." });
-    await expect(spend(db, 5, "paused-expense-0001", { allocationRubricId: rubricId })).rejects.toThrow("pause");
+    await expect(lifecycle(db, "pause", { reason: "Pause de test, désormais refusée." })).rejects.toThrow("n'existe plus");
+    await spend(db, 5, "paused-expense-0001", { allocationRubricId: rubricId });
+    expect(records(db, "expenses/")).toHaveLength(1);
+    expect((await getAllocationSpendOptions({ db, caller: cashier, body: { schoolId: "school", schoolYearId: "year" }, now: at })).paused).toBe(false);
   });
-  it("11. DÉCISION (paiement jamais bloqué) : aujourd'hui, un paiement d'élève est refusé pendant la pause", async () => {
+  it("10b. un ancien état « PAUSED » ne bloque ni les encaissements ni les dépenses", async () => {
     const db = await activeSchool();
-    await lifecycle(db, "pause", { reason: "Pause de test pour figer le comportement actuel." });
-    await expect(pay(db, 10, "paused-payment-0002")).rejects.toThrow("pause");
+    const [statePath, state] = [...db.records].find(([p]) => p.startsWith("feeAllocationStates/"));
+    db.records.set(statePath, { ...state, status: "PAUSED" });
+    await pay(db, 80, "legacy-paused-payment-0001");
+    await spend(db, 5, "legacy-paused-expense-0001", { allocationRubricId: rubricId });
+    expect(records(db, "payments/")).toHaveLength(1);
+    expect(records(db, "expenses/")).toHaveLength(1);
+  });
+  it("11. DÉCISION : un incident de répartition ne bloque jamais un paiement d'élève ; il est mis en attente puis repris", async () => {
+    const db = await activeSchool();
+    const version = db.records.get("feeAllocationVersions/version");
+    db.records.delete("feeAllocationVersions/version"); // incident simulé : version introuvable
+    const result = await pay(db, 30, "incident-payment-0001");
+    expect(result.payment).toMatchObject({ amount: 30 });
+    const pending = records(db, "feeAllocationPending/");
+    expect(pending).toEqual([expect.objectContaining({ paymentId: result.payment.id, kind: "creation", status: "pending" })]);
+    expect(records(db, "feeAllocationMovements/").filter((m) => m.sourceType === "payment")).toHaveLength(0);
+    db.records.set("feeAllocationVersions/version", version); // incident résolu
+    const { retryPendingFeeAllocations } = await import("./feeAllocationPending.js");
+    expect(await retryPendingFeeAllocations({ db, caller: admin, schoolId: "school", now: "2026-11-13T15:00:00.000Z" })).toEqual({ processed: 1, remaining: 0 });
+    expect(records(db, "feeAllocationMovements/").filter((m) => m.sourceType === "payment").map((m) => m.amountMinor)).toEqual([3000]);
+    expect(records(db, "feeAllocationPending/")[0].status).toBe("done");
   });
 });

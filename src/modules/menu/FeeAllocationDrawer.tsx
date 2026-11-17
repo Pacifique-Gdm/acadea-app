@@ -142,7 +142,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   }
   return <div className="grid min-w-0 gap-4" aria-label="Configuration préparatoire des répartitions">
     <p className="text-sm text-slate-600" aria-label="Contexte de répartition">{workspaces.map(w => `${w.school.name} · ${w.year.name} · ${w.currency}`).join(" ; ")}</p>
-    {ready && user.role !== 'school_admin' && <p className="text-sm" role="status">{workspaces.map(w => `${multipleSchools ? w.school.name + ' : ' : ''}${w.ledger?.status === 'ACTIVE' ? 'Active' : w.ledger?.status === 'PAUSED' ? 'En pause' : 'En préparation'}`).join(' · ')}</p>}
+    {ready && user.role !== 'school_admin' && <p className="text-sm" role="status">{workspaces.map(w => `${multipleSchools ? w.school.name + ' : ' : ''}${w.ledger?.status === 'ACTIVE' ? 'Active' : 'En préparation'}`).join(' · ')}</p>}
     {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => setReload(v => v + 1)}/>}
     <div className="min-w-0 max-w-full overflow-x-auto pb-1" role="region" aria-label="Commandes de répartition" tabIndex={0}>
       <div className={`grid min-w-[640px] items-center gap-2 ${configurable ? 'grid-cols-4' : 'grid-cols-3'}`}>
@@ -158,6 +158,8 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     {loading && <p role="status">Chargement...</p>}
     {(error || projection.error) && <div role="alert" className="rounded border border-red-200 p-3 text-sm"><p>{error || projection.error}</p>{workspaces.length > 0 && <p>Les données conservées ne sont pas revérifiées. L'export et les modifications sont bloqués.</p>}<Action busy={loading} className="secondary-button mt-2" onClick={() => setReload((value) => value + 1)}>Réessayer la consultation</Action></div>}
     {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}
+    {/* Lot 27a : un paiement n'est jamais bloqué ; s'il n'a pas pu être réparti tout de suite, il attend ici. */}
+    {ready && workspaces.some(w => (w.pendingAllocations ?? 0) > 0) && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{workspaces.reduce((n, w) => n + Math.max(0, w.pendingAllocations ?? 0), 0)} encaissement(s) enregistré(s) en attente de répartition. Ils ont bien été encaissés ; la répartition sera reprise automatiquement ou rapprochée par l'Administrateur.</p>}
     {ready && hasConfiguration && projection.rows.length > 0 && <div className="min-w-0 max-w-full overflow-x-auto"><table className={`w-full ${operational ? "min-w-[980px]" : "min-w-[600px]"} text-sm`} aria-label="Situation des répartitions"><thead>
       <tr><th rowSpan={2} scope="col" className="border-b p-2 text-left">Rubrique</th><th colSpan={2} scope="colgroup" className="border-b p-2">Selon le filtre</th>{operational && <th colSpan={4} scope="colgroup" className="border-b border-l p-2">Situation globale de la rubrique à la fin de la période</th>}</tr>
       <tr>{["Prévu total de l’année", filter.kind === 'period' ? "Encaissé sur la période" : "Encaissé selon le filtre", ...(operational ? ["Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"] : [])].map(title => <th key={title} scope="col" className="border-b p-2 text-left">{title}</th>)}</tr>

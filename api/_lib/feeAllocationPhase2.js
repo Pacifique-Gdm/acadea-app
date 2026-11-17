@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { retryPendingFeeAllocations } from "./feeAllocationPending.js";
 import { FeeAllocationError, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
@@ -28,6 +29,9 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     fields(body, ["action", "schoolId", "ledgerPage", "ledgerFingerprint", "ledgerCursor"]);
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
     const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
+    // Lot 27a : reprise des encaissements en attente de répartition (jamais bloquante pour la lecture).
+    let pending = { processed: 0, remaining: 0 };
+    if ((body.ledgerPage ?? 0) === 0) pending = await retryPendingFeeAllocations({ db, caller, schoolId }).catch(() => ({ processed: 0, remaining: -1 }));
     // Subsequent ledger pages need only their verified scope and cursor. The
     // first page already carries configuration metadata, immutable while active.
     const { fees, configs, forecast } = (body.ledgerPage ?? 0) > 0 ? { fees: { docs: [] }, configs: { docs: [] }, forecast: undefined }
@@ -35,7 +39,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     return {
       school: { id: schoolId, name: school.name, activeSchoolYearId: yearId },
       year: { id: yearId, schoolId, name: year.name, status: year.status, startsAt: year.startsAt ?? null, endsAt: year.endsAt ?? null },
-      currency, canConfigure: isAdmin(caller.role) && year.status === "active", operational: false,
+      currency, canConfigure: isAdmin(caller.role) && year.status === "active", operational: false, pendingAllocations: pending.remaining,
       fees: fees.docs.map((row) => { const fee = row.data(); return { id: row.id, name: fee.name,
         className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
       configs: configs.docs.map((row) => row.data()),

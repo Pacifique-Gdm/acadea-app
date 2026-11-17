@@ -47,6 +47,9 @@ const create = (db, amount = 40, key = "payment-request-001", extra = {}) => exe
 const correct = (db, payment, amount, key = "correction-request-001") => executeFinancialOperation({ db, caller: admin, now: "2026-11-13T11:00:00.000Z", body: { action: "update-payment", transactionId: payment.id, amount, reason: "Test", confirmation: "MODIFIER CE PAIEMENT", expectedUpdatedAt: payment.updatedAt, clientRequestId: key } });
 const remove = (db, payment) => executeFinancialOperation({ db, caller: admin, now, body: { action: "delete-payment", transactionId: payment.id, reason: "Test", clientRequestId: "delete-request-001" } });
 const movements = db => [...db.records].filter(([p]) => p.startsWith("feeAllocationMovements/")).map(([, d]) => d);
+// Lot 27a (décision du propriétaire) : la répartition ne bloque JAMAIS un paiement d'élève ; elle le met en attente.
+const pendings = db => [...db.records].filter(([p]) => p.startsWith("feeAllocationPending/")).map(([, d]) => d);
+const balances = db => JSON.stringify([...db.records].filter(([p]) => p.startsWith("feeAllocationBalances/")));
 
 describe("ventilation entière et monotone", () => {
   it("40 USD : 8 + 16 + 10 + 6, puis 30/20/50 sans dérive", () => {
@@ -121,14 +124,18 @@ describe("paiements du handler, frontières de projet et registre atomique", () 
     await create(db, 20, "payment-request-002"); await correct(db, payment, 30);
     expect(movements(db).every(m => m.configVersionId === "version")).toBe(true);
   });
-  it("refuse la modification de la version historique sans mutation partielle", async () => {
+  it("version historique modifiée : paiement encaissé, aucune répartition devinée, mise en attente (lot 27a)", async () => {
     const db = fixture(); await create(db); db.records.get("feeAllocationVersions/version").rubrics[0].basisPoints = 1000;
-    const before = [...db.records]; await expect(create(db, 10, "payment-request-002")).rejects.toMatchObject({ code: "allocation-reconciliation-required" }); expect([...db.records]).toEqual(before);
+    const before = balances(db), count = movements(db).length; const { payment } = await create(db, 10, "payment-request-002");
+    expect(movements(db)).toHaveLength(count); expect(balances(db)).toBe(before);
+    expect(pendings(db)).toEqual([expect.objectContaining({ paymentId: payment.id, kind: "creation", status: "pending" })]);
   });
-  it("refuse une compensation sur des fonds réservés", async () => {
+  it("fonds réservés : la correction du paiement passe, sa répartition est mise en attente (lot 27a)", async () => {
     const db = fixture(); const { payment } = await create(db);
     const b = db.records.get(`feeAllocationBalances/${feeAllocationBalanceId("school", "year", "USD", "a".repeat(32))}`); b.reservedMinor = b.receivedMinor;
-    const before = [...db.records]; await expect(correct(db, payment, 20)).rejects.toMatchObject({ code: "allocation-reconciliation-required" }); expect([...db.records]).toEqual(before);
+    const before = balances(db), count = movements(db).length; await correct(db, payment, 20);
+    expect(movements(db)).toHaveLength(count); expect(balances(db)).toBe(before);
+    expect(pendings(db)).toEqual([expect.objectContaining({ paymentId: payment.id, kind: "correction", status: "pending" })]);
   });
   it("interruption transactionnelle : ni paiement ni allocation, puis reprise unique", async () => {
     const db = fixture(); const before = [...db.records]; db.interrupt = true;
@@ -161,10 +168,10 @@ describe("paiements du handler, frontières de projet et registre atomique", () 
     await executeFinancialOperation({ db, caller: cashier, now, body: { action: "create-expense", schoolYearId: "year", amount: 10, category: "Fournitures", description: "Fictif", beneficiary: "Fournisseur fictif", paymentMethod: "Espèces", clientRequestId: "expense-request-001" } });
     expect(movements(db)).toHaveLength(0);
   });
-  it("ancre étrangère : refus sans écriture", async () => {
+  it("ancre étrangère : paiement encaissé sans écriture de répartition, mis en attente (lot 27a)", async () => {
     const db = fixture(); const key = feeAllocationAnchorId({ schoolId: "school", schoolYearId: "year", studentId: "student", feeTypeId: "fee", currency: "USD" });
     db.records.set(`feeAllocationAnchors/${key}`, { schoolId: "foreign" });
-    await expect(create(db)).rejects.toMatchObject({ code: "allocation-reconciliation-required" }); expect(movements(db)).toHaveLength(0);
+    await create(db); expect(movements(db)).toHaveLength(0); expect(pendings(db)).toHaveLength(1);
   });
   it("correction après changement d'année : ancienne ancre, année archivée toujours protégée", async () => {
     const db = fixture(); const { payment } = await create(db);
@@ -198,8 +205,9 @@ describe("paiements du handler, frontières de projet et registre atomique", () 
     const db = fixture();
     if (situation === "newer-version") db.records.get("feeAllocationVersions/version").effectiveFrom = "2026-10-01";
     else delete db.records.get("students/student").createdAt;
-    const before = [...db.records];
-    await expect(create(db)).rejects.toMatchObject({ code: "allocation-reconciliation-required" });
-    expect([...db.records]).toEqual(before);
+    // Lot 27a : le paiement est encaissé ; la répartition n'est jamais devinée, elle attend.
+    await create(db);
+    expect(movements(db)).toHaveLength(0);
+    expect(pendings(db)).toEqual([expect.objectContaining({ kind: "creation", status: "pending" })]);
   });
 });

@@ -4,7 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { protectCashMutation } from "./cashBalance.js";
 import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
-import { prepareFeeAllocationReceipt } from "./feeAllocationReceipts.js";
+import { prepareFeeAllocationReceiptNeverBlocking as prepareFeeAllocationReceipt } from "./feeAllocationPending.js";
 import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
 import { normalizeStudentSearch, studentAlphabeticalKey, studentIdentityKey } from "../../src/utils/studentSearch.js";
 

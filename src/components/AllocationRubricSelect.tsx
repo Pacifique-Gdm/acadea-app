@@ -20,8 +20,8 @@ export function AllocationRubricSelect({ schoolId, schoolYearId, value, onChange
   if (!options) return <p role="status">Vérification de la répartition…</p>;
   if (!options.required) return null;
   return <label className="grid gap-1 text-sm font-semibold">Rubrique d'imputation obligatoire
-    <select required className="input" value={value} onChange={e => onChange(e.target.value)} disabled={options.paused}>
+    <select required className="input" value={value} onChange={e => onChange(e.target.value)}>
       <option value="">Choisir une rubrique</option>{options.rubrics.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
-    </select>{options.paused && <span role="alert">Répartition en pause : aucun décaissement n'est autorisé.</span>}
+    </select>{/* Lot 27a : la pause n'existe plus, le choix n'est jamais bloqué. */}
   </label>;
 }
