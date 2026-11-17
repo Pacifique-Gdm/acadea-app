@@ -1,4 +1,5 @@
 import { manageSocialSupport } from "./_lib/socialSupport.js";
+import { manageFeeAllocationRubrics, rubricActions } from "./_lib/feeAllocationRubrics.js";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { authorizeFinancialCaller, executeFinancialOperation, FinancialApiError, listFormerStudentDebts, listFormerStudents, listStudentArrears, listStudentArrearsBatch, searchFormerStudents } from "./_lib/financialTransactions.js";
@@ -93,13 +94,14 @@ export default async function handler(req, res) {
         ? await requireActiveCoordinationActor(auth, db, token)
         : await requireActiveApiUser(db, caller);
       const allocationAction = requestedAction.slice("fee-allocation.".length);
-      const mutation = ["save-draft", "save-drafts", "prepare-version"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
+      const mutation = ["save-draft", "save-drafts", "prepare-version", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
       await enforceApiRateLimit({ db, actorId: actor.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
         action: requestedAction, idempotencyKey: mutation ? body.requestId : undefined,
         // Bounded ledger pages share a 60/min budget with financial creation;
         // retain a finite budget while allowing a 3,001-row export to finish.
         ...(mutation || ['get-workspace', 'get-forecast-revision'].includes(allocationAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
-      const manage = reconciliationActions.has(allocationAction) ? manageAllocationReconciliation
+      const manage = rubricActions.has(allocationAction) ? manageFeeAllocationRubrics
+        : reconciliationActions.has(allocationAction) ? manageAllocationReconciliation
         : allocationLifecycleActions.has(allocationAction) ? manageFeeAllocationLifecycle
         : ["get-activation", "get-history-proofs"].includes(allocationAction) ? readAllocationActivation
         : allocationAction === "spend-options" ? getAllocationSpendOptions
