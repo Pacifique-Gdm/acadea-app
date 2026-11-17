@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readRubricCatalog } from "./feeAllocationRubrics.js";
 import { retryPendingFeeAllocations } from "./feeAllocationPending.js";
 import { FeeAllocationError, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
@@ -44,6 +45,8 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
         className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
       configs: configs.docs.map((row) => row.data()),
       ...(forecast ? { forecast } : {}),
+      // Lot 27b : noms à jour (un renommage s'affiche partout) ; masquées incluses pour l'historique.
+      ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (await readRubricCatalog(db, schoolId, yearId)).rubrics.map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true })) } : {}),
       ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }),
     };
   }
@@ -84,6 +87,16 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
     const stateRef = db.doc(`feeAllocationStates/${hash([schoolId, body.schoolYearId, currency])}`);
     const state = await transaction.get(stateRef);
+    // Lot 27b : catalogue des rubriques de l'école et de l'année.
+    const catalog = await readRubricCatalog(db, schoolId, body.schoolYearId, transaction);
+    let rubricsInput = body.rubrics;
+    if (catalog.enabled && Array.isArray(body.rubrics)) {
+      rubricsInput = body.rubrics.map((rubric) => {
+        const entry = catalog.rubrics.find((item) => item.id === rubric?.id);
+        if (!entry || entry.hidden) fail(400, "invalid-argument", "Choisissez chaque rubrique dans la liste des rubriques de l'année (non masquées).");
+        return { ...rubric, name: entry.name };
+      });
+    }
     const rows = await Promise.all(targets.map(async (target) => {
       const configId = feeAllocationConfigId(schoolId, body.schoolYearId, target.feeTypeId);
       const ref = db.doc(`feeAllocationConfigs/${configId}`);
@@ -96,7 +109,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       if ((config?.draftRevision ?? 0) !== target.expectedRevision) fail(409, "conflict", "Un brouillon a changé. Actualisez avant de réessayer.");
       let minor;
       try { minor = toMoneyMinor(fee.amount); } catch { fail(400, "invalid-argument", "Tarif invalide."); }
-      const validated = validateFeeAllocationRubrics(body.rubrics, minor);
+      const validated = validateFeeAllocationRubrics(rubricsInput, minor);
       return { ref, previous, fee, configId, minor, validated, target };
     }));
     if (new Set(rows.map(({ fee }) => fee.classOptionKey || fee.className)).size !== rows.length) fail(400, "invalid-argument", "Deux frais ciblent la même classe ; vérifiez les tarifs existants.");

@@ -1,4 +1,5 @@
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
+import { readRubricCatalog } from "./feeAllocationRubrics.js";
 import { validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { toMoneyMinor } from "./money.js";
 import { allocationRunRef, evidenceRevisionRef } from './feeAllocationRevision.js';
@@ -164,6 +165,10 @@ export async function getAllocationSpendOptions({ db, caller, body, now = new Da
   const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, body.schoolYearId, false);
   const state = await readOperationalAllocation({ db, transaction: null, schoolId, schoolYearId: yearId, currency, now });
   if (!state || !["ACTIVE", "PAUSED"].includes(state.status)) return { operational: false, required: false, rubrics: [] };
+  const catalog = await readRubricCatalog(db, schoolId, yearId);
+  const base = catalog.enabled ? catalog.rubrics.filter((r) => !r.hidden).map((r) => ({ id: r.id, name: r.name, active: true })) : state.rubrics.filter(r => r.active !== false);
+  const balances = await db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", yearId).where("currency", "==", currency).get();
+  const available = new Map(balances.docs.map((doc) => [doc.data().rubricId, (doc.data().openingMinor ?? 0) + (doc.data().receivedMinor ?? 0) - (doc.data().spentMinor ?? 0) - (doc.data().reservedMinor ?? 0)]));
   return { operational: false, required: true, paused: false, currency,
-    rubrics: [...state.rubrics.filter(r => r.active !== false), { id: "UNALLOCATED", name: "Non affecté", active: true }] };
+    rubrics: [...base, { id: "UNALLOCATED", name: "Non affecté", active: true }].map((r) => ({ ...r, availableMinor: available.get(r.id) ?? 0 })) };
 }

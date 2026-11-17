@@ -5,13 +5,13 @@ import { allocationRequest } from "../services/feeAllocation";
 export function AllocationRubricSelect({ schoolId, schoolYearId, value, onChange }: {
   schoolId: string; schoolYearId: string; value: string; onChange: (value: string) => void;
 }) {
-  const [options, setOptions] = useState<{ required: boolean; paused?: boolean; rubrics: { id: string; name: string }[] }>();
+  const [options, setOptions] = useState<{ required: boolean; paused?: boolean; rubrics: { id: string; name: string; availableMinor?: number }[]; currency?: string }>();
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setOptions(undefined); setError("");
-    void allocationRequest<{ required: boolean; paused?: boolean; rubrics: { id: string; name: string }[] }>("spend-options", { schoolId, schoolYearId }, controller.signal)
+    void allocationRequest<{ required: boolean; paused?: boolean; rubrics: { id: string; name: string; availableMinor?: number }[]; currency?: string }>("spend-options", { schoolId, schoolYearId }, controller.signal)
       .then(result => { if (!controller.signal.aborted) setOptions(result); })
       .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Rubriques indisponibles."); });
     return () => controller.abort();
@@ -21,7 +21,7 @@ export function AllocationRubricSelect({ schoolId, schoolYearId, value, onChange
   if (!options.required) return null;
   return <label className="grid gap-1 text-sm font-semibold">Rubrique d'imputation obligatoire
     <select required className="input" value={value} onChange={e => onChange(e.target.value)}>
-      <option value="">Choisir une rubrique</option>{options.rubrics.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+      <option value="">Choisir une rubrique</option>{options.rubrics.map(r => <option key={r.id} value={r.id}>{r.name}{typeof r.availableMinor === "number" ? ` — disponible ${(r.availableMinor / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${options.currency ?? ""}` : ""}</option>)}
     </select>{/* Lot 27a : la pause n'existe plus, le choix n'est jamais bloqué. */}
   </label>;
 }

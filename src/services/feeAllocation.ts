@@ -6,7 +6,7 @@ export type AllocationFee = { id: string; name: string; className: string; class
 export type AllocationWorkspace = {
   school: { id: string; name: string; activeSchoolYearId: string };
   year: { id: string; schoolId: string; name: string; status: string; startsAt: string | null; endsAt: string | null };
-  currency: "USD" | "CDF"; canConfigure: boolean; operational: false; pendingAllocations?: number;
+  currency: "USD" | "CDF"; canConfigure: boolean; operational: false; pendingAllocations?: number; rubricCatalog?: { id: string; name: string; hidden: boolean }[];
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   forecast?: { status: 'complete'; revision: string | null; calculatedAt: string; studentCount: number;
     rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; studentsCount: number }[] };
@@ -111,3 +111,16 @@ export async function loadAllocationVersions(config: FeeAllocationConfig) {
   if (!Array.isArray(result.versions)) throw new AllocationApiError("Versions non confirmées.");
   return result.versions.sort((a, b) => b.version - a.version);
 }
+
+/** Lot 27b : catalogue des rubriques de l'école et de l'année. */
+export type AllocationCatalogRubric = { id: string; name: string; hidden: boolean };
+export async function loadRubricCatalog(schoolId: string, signal?: AbortSignal) {
+  const result = await allocationRequest<{ enabled: boolean; rubrics: AllocationCatalogRubric[]; schoolYearId: string }>("list-rubrics", { schoolId }, signal);
+  if (!Array.isArray(result.rubrics)) throw new AllocationApiError("Liste des rubriques incomplète.");
+  return result;
+}
+const rubricRequestId = () => crypto.randomUUID().replaceAll("-", "");
+export const createRubric = (schoolId: string, name: string) => allocationRequest<{ rubric: AllocationCatalogRubric }>("create-rubric", { schoolId, name, requestId: rubricRequestId() });
+export const renameRubric = (schoolId: string, rubricId: string, name: string) => allocationRequest<{ rubric: AllocationCatalogRubric }>("rename-rubric", { schoolId, rubricId, name, requestId: rubricRequestId() });
+export const setRubricHidden = (schoolId: string, rubricId: string, hidden: boolean) => allocationRequest<{ rubric: AllocationCatalogRubric }>("set-rubric-hidden", { schoolId, rubricId, hidden, requestId: rubricRequestId() });
+export const deleteRubric = (schoolId: string, rubricId: string) => allocationRequest<{ deletedId: string }>("delete-rubric", { schoolId, rubricId, requestId: rubricRequestId() });

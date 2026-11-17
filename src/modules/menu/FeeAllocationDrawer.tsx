@@ -3,7 +3,8 @@ import { ChartPie } from "lucide-react";
 import { AdminDrawer } from "../../components/ui";
 import type { AppUser, School } from "../../types";
 import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationVersion } from "../../types/feeAllocation";
-import { AllocationApiError, allocationRequest, loadAllocationVersions, loadAllocationWorkspace, saveAllocationDrafts, type AllocationWorkspace, type SaveAllocationDrafts } from "../../services/feeAllocation";
+import { AllocationApiError, allocationRequest, createRubric, loadAllocationVersions, loadAllocationWorkspace, loadRubricCatalog, saveAllocationDrafts, type AllocationCatalogRubric, type AllocationWorkspace, type SaveAllocationDrafts } from "../../services/feeAllocation";
+import { RubricCatalogPanel } from "./RubricCatalogPanel";
 import { validateFeeAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
 import { allocationClassLabel, allocationFilterChoices, allocationTotals, allocationFinancialTotals, projectAllocations, unavailableAllocation, type AllocationFilter, type AllocationRow } from "../../utils/feeAllocationView";
 import { formatCurrencyMoney } from "../../utils/currency";
@@ -91,10 +92,18 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     document.addEventListener('visibilitychange', visible);
     return () => { disposed = true; window.clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
   }, [loading, workspaces]);
+  // Lot 27b : les noms viennent du catalogue des rubriques (un renommage s'applique partout).
+  const named = useMemo(() => workspaces.map((w) => {
+    const names = new Map((w.rubricCatalog ?? []).map((r) => [r.id, r.name]));
+    if (!names.size) return w;
+    return { ...w,
+      ...(w.forecast ? { forecast: { ...w.forecast, rows: w.forecast.rows.map((row) => names.has(row.rubricId) ? { ...row, rubricName: names.get(row.rubricId)! } : row) } } : {}),
+      ...(w.ledger ? { ledger: { ...w.ledger, rubrics: w.ledger.rubrics.map((r) => names.has(r.id) ? { ...r, name: names.get(r.id)! } : r) } } : {}) };
+  }), [workspaces]);
   const projection = useMemo(() => {
-    try { const rows = projectAllocations(workspaces, filter); return { rows, totals: allocationTotals(rows), error: "" }; }
+    try { const rows = projectAllocations(named, filter); return { rows, totals: allocationTotals(rows), error: "" }; }
     catch (cause) { return { rows: [], totals: [], error: message(cause) }; }
-  }, [workspaces, filter]);
+  }, [named, filter]);
   const ready = !loading && !error && !projection.error && workspaces.length > 0;
   const operational = workspaces.some(w => w.ledger);
   const configurable = user.role === "school_admin" && workspaces.length === 1 && workspaces[0].canConfigure;
@@ -144,6 +153,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     <p className="text-sm text-slate-600" aria-label="Contexte de répartition">{workspaces.map(w => `${w.school.name} · ${w.year.name} · ${w.currency}`).join(" ; ")}</p>
     {ready && user.role !== 'school_admin' && <p className="text-sm" role="status">{workspaces.map(w => `${multipleSchools ? w.school.name + ' : ' : ''}${w.ledger?.status === 'ACTIVE' ? 'Active' : 'En préparation'}`).join(' · ')}</p>}
     {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => setReload(v => v + 1)}/>}
+    {configurable && <RubricCatalogPanel schoolId={workspaces[0].school.id} onChanged={() => setReload(v => v + 1)} />}
     <div className="min-w-0 max-w-full overflow-x-auto pb-1" role="region" aria-label="Commandes de répartition" tabIndex={0}>
       <div className={`grid min-w-[640px] items-center gap-2 ${configurable ? 'grid-cols-4' : 'grid-cols-3'}`}>
         {configurable && <button type="button" className="primary-button min-h-11 shrink-0 whitespace-nowrap" disabled={!ready} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
@@ -181,8 +191,17 @@ type RubricInput = { id: string; name: string; mode: "percent" | "fixed"; value:
 function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: AllocationWorkspace; config?: FeeAllocationConfig; onClose: () => void; onSaved: () => void }) {
   const [feeId, setFeeId] = useState(config?.feeTypeId ?? "");
   const [selected, setSelected] = useState<string[]>(config ? [config.feeTypeId] : []);
-  const [rubrics, setRubrics] = useState<RubricInput[]>(config?.draft?.rubrics.map((rubric) => ({ id: rubric.id, name: rubric.name, mode: rubric.mode, value: String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100) })) ?? [{ id: newId(), name: "", mode: "percent", value: "" }]);
+  const [rubrics, setRubrics] = useState<RubricInput[]>(config?.draft?.rubrics.map((rubric) => ({ id: rubric.id, name: rubric.name, mode: rubric.mode, value: String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100) })) ?? [{ id: "", name: "", mode: "percent", value: "" }]);
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState("");
+  // Lot 27b : rubriques de l'école et de l'année (liste déroulante, « + Nouvelle rubrique… »).
+  const [catalog, setCatalog] = useState<AllocationCatalogRubric[] | null>(null);
+  const [newName, setNewName] = useState<{ index: number; value: string } | null>(null);
+  const [creating, setCreating] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void loadRubricCatalog(workspace.school.id, controller.signal).then((result) => setCatalog(result.rubrics)).catch((cause) => { if (!controller.signal.aborted) setError(message(cause)); });
+    return () => controller.abort();
+  }, [workspace.school.id]);
   const request = useRef<SaveAllocationDrafts | null>(null);
   const locked = useRef(false);
   const eligibleFees = workspace.fees.filter(f => !workspace.ledger || !workspace.configs.some(c => c.feeTypeId === f.id && c.currentVersionId));
@@ -193,6 +212,7 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
     try {
       if (!base || !selected.length) throw new Error("Choisissez un frais et au moins une classe.");
       const normalized: FeeAllocationRubric[] = rubrics.map((rubric) => {
+        if (!rubric.id) throw new Error("Choisissez chaque rubrique dans la liste.");
         if (!/^[0-9]+(?:[.,][0-9]{1,2})?$/.test(rubric.value.trim())) throw new Error("Renseignez une valeur positive avec au maximum deux décimales.");
         const amount = Number(rubric.value.replace(",", "."));
         return { id: rubric.id, name: rubric.name, mode: rubric.mode, ...(rubric.mode === "fixed" ? { fixedMinor: toMoneyMinor(amount) } : { basisPoints: toMoneyMinor(amount) }) };
@@ -202,6 +222,15 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
       return { rows, rubrics: normalized, error: "" };
     } catch (cause) { return { rows: [], rubrics: [], error: message(cause) }; }
   }, [base, selected, rubrics, targets]);
+  async function createNamed(index: number) {
+    if (!newName?.value.trim() || creating) return;
+    setCreating(true); setError("");
+    try {
+      const { rubric } = await createRubric(workspace.school.id, newName.value);
+      setCatalog((items) => [...(items ?? []), rubric].sort((a, b) => a.name.localeCompare(b.name, "fr")));
+      update(index, { id: rubric.id, name: rubric.name }); setNewName(null);
+    } catch (cause) { setError(message(cause)); } finally { setCreating(false); }
+  }
   const update = (index: number, changes: Partial<RubricInput>) => setRubrics((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...changes } : row));
   const save = useCallback(async () => {
     if (locked.current || (!request.current && preview.error)) return;
@@ -218,8 +247,12 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
       <label className="grid gap-1 text-sm">Frais existant<select aria-label="Frais existant" className="input" value={feeId} onChange={(event) => { setFeeId(event.target.value); setSelected(event.target.value ? [event.target.value] : []); }}><option value="">Choisir un frais exact</option>{eligibleFees.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} · {allocationClassLabel(fee.classOptionKey || fee.className)} · {formatCurrencyMoney(fee.amount, workspace.currency)}</option>)}</select></label>
       <div><b className="text-sm">Classes concernées</b><label className="my-2 flex gap-2 text-sm"><input type="checkbox" checked={targets.length > 0 && selected.length === targets.length} onChange={(event) => setSelected(event.target.checked ? targets.map((fee) => fee.id) : [])}/>Toutes les classes concernées</label>{targets.map((fee) => <label key={fee.id} className="flex gap-2 py-1 text-sm"><input type="checkbox" checked={selected.includes(fee.id)} onChange={(event) => setSelected(event.target.checked ? [...selected, fee.id] : selected.filter((id) => id !== fee.id))}/>{allocationClassLabel(fee.classOptionKey || fee.className)} · {formatCurrencyMoney(fee.amount, workspace.currency)}</label>)}</div>
       {selected.some((id) => workspace.configs.some((item) => item.feeTypeId === id && item.draft)) && <p className="text-sm text-amber-800">Les brouillons des classes sélectionnées seront remplacés après vérification de leur révision. Les autres classes et les versions historiques restent inchangées.</p>}
-      {rubrics.map((rubric, index) => <div key={rubric.id} className="grid gap-2 rounded border p-3 sm:grid-cols-4"><label className="grid gap-1 text-sm">Nom de la rubrique {index + 1}<input className="input" maxLength={80} value={rubric.name} onChange={(event) => update(index, { name: event.target.value })}/></label><label className="grid gap-1 text-sm">Mode<select className="input" value={rubric.mode} onChange={(event) => update(index, { mode: event.target.value as RubricInput["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label><label className="grid gap-1 text-sm">{rubric.mode === "percent" ? "Pourcentage (%)" : `Montant (${workspace.currency})`}<input className="input" inputMode="decimal" value={rubric.value} onChange={(event) => update(index, { value: event.target.value })}/></label><button type="button" className="secondary-button self-end" disabled={rubrics.length === 1} onClick={() => setRubrics((rows) => rows.filter((row) => row.id !== rubric.id))}>Retirer la rubrique</button></div>)}
-      <button type="button" className="secondary-button" disabled={rubrics.length >= 40} onClick={() => setRubrics((rows) => [...rows, { id: newId(), name: "", mode: "percent", value: "" }])}>+ Ajouter une rubrique</button>
+      {rubrics.map((rubric, index) => <div key={`ligne-${index}`} className="grid gap-2 rounded border p-3 sm:grid-cols-4"><label className="grid gap-1 text-sm">Rubrique {index + 1}<select className="input" aria-label={`Rubrique ${index + 1}`} value={newName?.index === index ? "__new__" : rubric.id} onChange={(event) => {
+          if (event.target.value === "__new__") { setNewName({ index, value: "" }); return; }
+          const entry = catalog?.find((item) => item.id === event.target.value); setNewName(null); update(index, { id: entry?.id ?? "", name: entry?.name ?? "" });
+        }}><option value="">{catalog ? "Choisir une rubrique" : "Chargement…"}</option>{(catalog ?? []).filter((item) => (!item.hidden || item.id === rubric.id) && (item.id === rubric.id || !rubrics.some((row) => row.id === item.id))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{!catalog?.some((item) => item.id === rubric.id) && rubric.id && <option value={rubric.id}>{rubric.name}</option>}<option value="__new__">+ Nouvelle rubrique…</option></select>
+        {newName?.index === index && <span className="flex gap-2"><input className="input" maxLength={80} placeholder="Nom de la nouvelle rubrique" aria-label="Nom de la nouvelle rubrique" value={newName.value} onChange={(event) => setNewName({ index, value: event.target.value })}/><button type="button" className="secondary-button" disabled={creating || !newName.value.trim()} onClick={() => void createNamed(index)}>{creating ? "Création…" : "Créer"}</button></span>}</label><label className="grid gap-1 text-sm">Mode<select className="input" value={rubric.mode} onChange={(event) => update(index, { mode: event.target.value as RubricInput["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label><label className="grid gap-1 text-sm">{rubric.mode === "percent" ? "Pourcentage (%)" : `Montant (${workspace.currency})`}<input className="input" inputMode="decimal" value={rubric.value} onChange={(event) => update(index, { value: event.target.value })}/></label><button type="button" className="secondary-button self-end" disabled={rubrics.length === 1} onClick={() => { setNewName(null); setRubrics((rows) => rows.filter((_, rowIndex) => rowIndex !== index)); }}>Retirer la ligne</button></div>)}
+      <button type="button" className="secondary-button" disabled={rubrics.length >= 40} onClick={() => setRubrics((rows) => [...rows, { id: "", name: "", mode: "percent", value: "" }])}>+ Ajouter une ligne</button>
     </fieldset>
     <h3 className="mt-4 font-bold">Aperçu par classe</h3>{preview.error && <p role="status" className="text-sm text-amber-800">{preview.error}</p>}
     {preview.rows.map((row) => <section key={row.fee.id} className="my-2 rounded border p-3 text-sm"><h4 className="font-semibold">{allocationClassLabel(row.fee.classOptionKey || row.fee.className)} · {formatCurrencyMoney(row.fee.amount, workspace.currency)}</h4><ul>{row.shares.map((share) => <li key={share.rubricId}>{row.rubrics.find((rubric) => rubric.id === share.rubricId)?.name ?? "Non affecté"} : {formatCurrencyMoney(share.amountMinor / 100, workspace.currency)} · {(share.amountMinor / toMoneyMinor(row.fee.amount) * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %</li>)}</ul></section>)}

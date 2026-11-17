@@ -17,7 +17,15 @@ export async function prepareFeeAllocationExpense({ db, transaction, caller, exp
   if (caller.schoolId !== source.schoolId || !["school_admin", "admin", "cashier"].includes(caller.role)
     || ![source.id, requestId].every(id) || !["financial-api", "personnel-payroll"].includes(source.provenance)) fail("Source de décaissement non autorisée.", "permission-denied", 403);
   const rubricId = previous?.allocationRubricId ?? expense?.allocationRubricId;
-  if (!id(rubricId) || rubricId !== "UNALLOCATED" && !state.rubrics.some(r => r.id === rubricId && r.active !== false)) fail("Sélectionnez une rubrique active de cet établissement.");
+  const catalogMarker = await transaction.get(db.doc(`feeAllocationRubricCatalogs/${source.schoolId}__${source.schoolYearId}`));
+  if (!id(rubricId)) fail("Sélectionnez une rubrique active de cet établissement.");
+  if (rubricId !== "UNALLOCATED") {
+    if (catalogMarker.exists) {
+      // Lot 27b : liste des rubriques de l'école et de l'année ; masquée = refusée pour une nouvelle dépense seulement.
+      const entry = (await transaction.get(db.doc(`feeAllocationRubrics/${rubricId}`))).data();
+      if (!entry || entry.schoolId !== source.schoolId || entry.schoolYearId !== source.schoolYearId || (entry.hidden && !previous)) fail("Sélectionnez une rubrique active de cet établissement.");
+    } else if (!state.rubrics.some(r => r.id === rubricId && r.active !== false)) fail("Sélectionnez une rubrique active de cet établissement.");
+  }
   if (previous && expense && ["id", "schoolId", "schoolYearId", "currency", "createdAt", "personnelPaymentId", "allocationRubricId"].some(k => previous[k] !== expense[k])) fail("Réaffectation de dépense interdite sans rapprochement.");
   const sourceRef = db.doc(`feeAllocationRequests/expense_${hash([source.schoolId, source.id])}`);
   const balanceRef = db.doc(`feeAllocationBalances/${allocationBalanceId(source.schoolId, source.schoolYearId, source.currency, rubricId)}`);
@@ -26,6 +34,8 @@ export async function prepareFeeAllocationExpense({ db, transaction, caller, exp
   const [priorSnap, balanceSnap, movementSnap] = await Promise.all([transaction.get(sourceRef), transaction.get(balanceRef), transaction.get(movementRef)]);
   const prior = priorSnap.data(), balance = balanceSnap.data();
   if (movementSnap.exists || !previous && prior || previous && (!prior || prior.sourceDigest !== digest(previous))) fail("Dépense déjà imputée ou historique à rapprocher.");
+  // Lot 27b : une rubrique du catalogue qui n'a encore rien reçu a un disponible nul.
+  if (!balance && expense && !previous) fail("Solde disponible de la rubrique insuffisant.", "allocation-insufficient-funds");
   if (!balance || balance.schoolId !== source.schoolId || balance.collectionSchoolYearId !== source.schoolYearId
     || balance.currency !== source.currency || balance.rubricId !== rubricId
     || ![balance.openingMinor ?? 0, balance.receivedMinor, balance.spentMinor, balance.reservedMinor].every(minor)) fail("Solde de rubrique introuvable ou incohérent.");
