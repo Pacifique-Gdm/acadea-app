@@ -3,6 +3,12 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.4.0] — 2026-11-17 — Fonctionnalité
+- Répartition des frais : trois tableaux avec les mêmes colonnes — élèves normalement inscrits, cas sociaux et prises en charge, ensemble (somme des deux).
+- Ouverture et dépenses d'une rubrique partagées entre les tableaux 1 et 2 à proportion de leurs encaissements ; « Non affecté » dans chaque tableau ; rubrique sans montant cachée.
+- Pourcentage après le nom de la rubrique (« Salaires (60 %) », ou « (40 % et 60 %) » avec le détail par frais), dans les tableaux et le PDF.
+- PDF : textes justifiés, école, année et devise une seule fois en en-tête.
+
 ## [1.3.0] — 2026-11-17 — Fonctionnalité
 - Répartition des frais : catalogue des rubriques propre à chaque école et à chaque année ; choix dans une liste déroulante avec « + Nouvelle rubrique… » ; une rubrique réutilisée additionne ses montants sans doublon.
 - Rubriques : renommer à tout moment ; supprimer seulement si jamais utilisée, sinon masquer (l'historique reste).
