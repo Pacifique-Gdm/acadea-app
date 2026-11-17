@@ -1036,7 +1036,6 @@ service cloud.firestore {
     match /feeAllocationReconciliationRuns/{id} { allow read, write: if false; }
     match /feeAllocationTestScopes/{id} { allow read, write: if false; }
     match /feeAllocationForecastCaches/{id} { allow read, write: if false; }
-    match /feeAllocationArrearsCaches/{id} { allow read, write: if false; }
 
     match /teachers/{teacherId} {
       allow read: if superAdmin() || sameTenantResource() || studyTenantResource() || teacherOwnProfile();

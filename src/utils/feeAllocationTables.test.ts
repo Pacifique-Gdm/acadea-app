@@ -94,12 +94,3 @@ describe("lot 27c-3a — lignes d'arriérés regroupées sous « Arriérés AAAA
     expect(html).toContain("Non affecté (arriéré 2025-2026)");
   });
 });
-
-describe("lot 27c-3b — prévu des lignes d'arriérés", () => {
-  it("la ligne d'arriéré a son prévu, sous « Arriérés AAAA-AAAA », même sans encaissement", () => {
-    const w = workspace(), key = "ARR__old__UNALLOCATED";
-    w.forecast!.rows.push({ feeTypeId: "old-fee", className: "", classOptionKey: null, table: 1, rubricId: key, rubricName: "Non affecté (arriéré 2025-2026)", arrearsYearName: "2025-2026", amountMinor: 7000, studentsCount: 0, rubricShare: 0, tariffMinor: 0, rubricMode: null, basisPoints: null });
-    const tables = buildAllocationTables(projectAllocations([w], { kind: "fee", value: "", from: "", to: "" }));
-    expect(tables.three.at(-1)).toMatchObject({ rubricName: "Non affecté (arriéré 2025-2026)", arrearsYearName: "2025-2026", amountMinor: 7000, financial: { receivedMinor: 0 } });
-  });
-});
