@@ -11,6 +11,8 @@ export type DashboardFinancialStats = {
   expected: number;
   paid: number;
   remaining: number;
+  /** Lot 27c-2 : paiements d'anciens élèves, comptés à la fois dans le prévu et dans l'encaissé. */
+  formerPaid?: number;
 };
 
 export type DashboardFeeProgressRow = Pick<DashboardFinancialStats, "expected" | "paid" | "remaining"> & {
@@ -44,7 +46,18 @@ function resolveIndexes(students: Student[], feeTypes: FeeType[], payments: Paym
   return indexes ?? buildSchoolYearDataIndexes(students, feeTypes, payments);
 }
 
-export function buildDashboardFinancialAggregates(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes): DashboardFinancialAggregates {
+/** Lot 27c-2 : paiement d'un ancien élève (élève archivé) encaissé pendant l'année `yearId`. */
+export function isFormerStudentPaymentOfYear(payment: Payment, yearId: string) {
+  return payment.formerStudent === true && (payment.collectionSchoolYearId ?? payment.schoolYearId) === yearId;
+}
+/** Paiements d'anciens élèves à ajouter au prévu ET à l'encaissé ; jamais un paiement déjà compté
+ * avec un élève actif (`countedStudentIds`), pour ne jamais le compter deux fois. */
+export function formerStudentPaymentsOfYear(payments: Payment[], yearId: string, countedStudentIds: Set<string>, range?: { from?: string; to?: string }) {
+  return payments.filter((payment) => isFormerStudentPaymentOfYear(payment, yearId) && !countedStudentIds.has(payment.studentId)
+    && (!range?.from || payment.paidAt.slice(0, 10) >= range.from) && (!range?.to || payment.paidAt.slice(0, 10) <= range.to));
+}
+
+export function buildDashboardFinancialAggregates(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes, formerPayments: Payment[] = []): DashboardFinancialAggregates {
   const dataIndexes = resolveIndexes(students, feeTypes, payments, indexes);
   const rowsByFeeName = new Map<string, { name: string; official: number; reduction: number; expected: number; paid: number }>();
   const totals = { official: 0, reduction: 0, expected: 0, paid: 0 };
@@ -74,6 +87,21 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
     });
   });
 
+  // Lot 27c-2 : un paiement d'ancien élève augmente du même montant le prévu et l'encaissé (frais par frais) ;
+  // le reste à payer ne change donc pas.
+  let formerPaid = 0;
+  formerPayments.forEach((payment) => {
+    const amount = payment.amount;
+    formerPaid = sumMoney([formerPaid, amount]);
+    totals.official = sumMoney([totals.official, amount]);
+    totals.expected = sumMoney([totals.expected, amount]);
+    totals.paid = sumMoney([totals.paid, amount]);
+    const name = payment.feeName || feeTypes.find((fee) => fee.id === payment.feeTypeId)?.name || "Frais";
+    const key = name.trim().toLowerCase();
+    const current = rowsByFeeName.get(key) ?? { name, official: 0, reduction: 0, expected: 0, paid: 0 };
+    rowsByFeeName.set(key, { ...current, official: sumMoney([current.official, amount]), expected: sumMoney([current.expected, amount]), paid: sumMoney([current.paid, amount]) });
+  });
+
   const feeProgressRows = Array.from(rowsByFeeName.values())
     .map((row, index) => {
       const remaining = remainingMoney(row.expected, row.paid);
@@ -101,6 +129,7 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
     financialStats: {
       ...totals,
       remaining: remainingMoney(totals.expected, totals.paid),
+      ...(formerPayments.length ? { formerPaid } : {}),
     },
     feeProgressRows,
   };

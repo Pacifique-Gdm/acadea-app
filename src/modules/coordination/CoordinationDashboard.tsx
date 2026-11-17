@@ -155,14 +155,17 @@ export function CoordinationDashboard({
     return { currency: financial.currency, rows };
   });
 
+  // Lot 27c-2 : mention des paiements d'anciens élèves (déjà inclus dans le prévu et l'encaissé).
+  const formerNote = (group: { formerPaid?: number; currency: "USD" | "CDF" }, field: string) => (field === "expected" || field === "paid") && (group.formerPaid ?? 0) > 0
+    ? ` (dont anciens élèves : ${formatCurrency(group.formerPaid ?? 0, group.currency)})` : "";
   const financialValue = (field: "official" | "reduction" | "expected" | "paid" | "remaining") => {
     if (financialExportBlocked && (field === "paid" || field === "remaining")) return "Indéterminé — devise historique non vérifiée";
     if (!stats.financialGroups.length) return formatCurrency(0, "USD");
     if (stats.financialGroups.length === 1) {
       const group = stats.financialGroups[0];
-      return formatCurrency(group[field], group.currency);
+      return formatCurrency(group[field], group.currency) + formerNote(group, field);
     }
-    return <span className="grid min-w-0 gap-1">{stats.financialGroups.map((group) => <span key={group.currency} className="block min-w-0 break-words"><span className="text-sm font-semibold text-slate-500">{group.currency} :</span> {formatCurrency(group[field], group.currency)}</span>)}</span>;
+    return <span className="grid min-w-0 gap-1">{stats.financialGroups.map((group) => <span key={group.currency} className="block min-w-0 break-words"><span className="text-sm font-semibold text-slate-500">{group.currency} :</span> {formatCurrency(group[field], group.currency) + formerNote(group, field)}</span>)}</span>;
   };
   const cards = [
     { label: "Nombre total d'élèves", value: stats.totalStudents, icon: GraduationCap, tone: "bg-mint/10 text-mint" },
@@ -247,7 +250,7 @@ export function CoordinationDashboard({
       return <div key={financial.currency} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-bold text-ink">KPI financier{stats.financialGroups.length > 1 ? ` · ${financial.currency}` : ""}</h2><p className="text-sm text-slate-500">Recouvrement selon les filtres sélectionnés.</p></div><span className={`rounded px-3 py-2 text-sm font-bold ${recoveryTone}`}>{financial.recoveryRate}% recouvré</span></div>
         <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100"><div className={`h-full rounded ${progressTone(financial.recoveryRate)}`} style={{ width: `${Math.min(100, financial.recoveryRate)}%` }} /></div>
-        <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6"><Metric label="Officiel" value={amount(financial.official)} /><Metric label="Réductions" value={amount(financial.reduction)} /><Metric label="Net exigible" value={amount(financial.expected)} /><Metric label="Frais de l'année encaissés" value={amount(financial.paid)} /><Metric label="Dépenses" value={amount(financial.expenses)} /><Metric label="Reste" value={amount(financial.remaining)} /></div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3 lg:grid-cols-6"><Metric label="Officiel" value={amount(financial.official)} /><Metric label="Réductions" value={amount(financial.reduction)} /><Metric label="Net exigible" value={amount(financial.expected) + formerNote(financial, "expected")} /><Metric label="Frais de l'année encaissés" value={amount(financial.paid) + formerNote(financial, "paid")} /><Metric label="Dépenses" value={amount(financial.expenses)} /><Metric label="Reste" value={amount(financial.remaining)} /></div>
         <p className="mt-3 text-sm font-semibold">Autres entrées de caisse : {amount(financial.cashInflows)}</p>
         <div className="mt-5 grid gap-3">{financial.feeProgressRows.map((row) => <div key={row.name} className="rounded border border-slate-100 bg-slate-50 p-3"><div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><p className="break-words text-sm font-bold text-ink">{row.name}</p><p className="break-words text-xs text-slate-500">Toutes les classes confondues</p></div><span className="shrink-0 rounded bg-white px-2.5 py-1 text-xs font-bold text-mint">{row.rate}%</span></div><div className="mt-3 h-2.5 overflow-hidden rounded bg-white"><div className={`h-full rounded ${progressTone(row.rate)}`} style={{ width: `${Math.min(100, row.rate)}%` }} /></div><div className="mt-3 grid gap-2 text-xs sm:grid-cols-3 lg:grid-cols-5"><span className="rounded bg-white px-2 py-1 text-slate-600">Officiel : <strong className="text-ink">{amount(row.official ?? row.expected)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Réductions : <strong className="text-ink">{amount(row.reduction ?? 0)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Net exigible : <strong className="text-ink">{amount(row.expected)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Payé : <strong className="text-ink">{amount(row.paid)}</strong></span><span className="rounded bg-white px-2 py-1 text-slate-600">Solde : <strong className="text-ink">{amount(row.remaining)}</strong></span></div></div>)}{financial.feeProgressRows.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun frais applicable pour les filtres sélectionnés.</p>}</div>
         <FinancialFeeShareChart rows={financial.feeShares} formatAmount={amount} totalAriaLabel={`Répartition des montants attendus en ${financial.currency}`} />

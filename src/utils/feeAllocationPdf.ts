@@ -18,7 +18,7 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   const columns = [
     { header: "Rubrique", render: name },
     { header: "Prévu total de l’année", render: (row: AllocationRow) => money(row.amountMinor, row.currency), align: "right" as const },
-    { header: receivedLabel, render: (row: AllocationRow) => row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)})` : "Non disponible" },
+    { header: receivedLabel, render: (row: AllocationRow) => row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
     ...(operational ? globalFields.map((field: AllocationFinancialField, i) => ({ header: globalLabels[i], render: (row: AllocationRow) => row.financial ? money(row.financial[field], row.currency) : "Non disponible" })) : []),
   ];
   const totalLine = (table: AllocationRow[]) => allocationTotals(table).map(total => `Total ${total.currency} : prévu ${money(total.amountMinor, total.currency)}${operational ? ` · ${globalLabels.map((label, i) => {
@@ -30,7 +30,7 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
     : justified("Aucun montant dans ce tableau."), { className: "fee-allocation-table-pdf-section" });
   return [pdfInfoGrid([{ label: "Établissement, année et devise", value: context }, { label: "Filtre", value: filterLabel },
     { label: "Statut", value: operational ? "Registre rapproché" : "Préparatoire — aucune activation financière" }]),
-  justified("Prévu total de l’année : frais nets des élèves actifs, réductions et exonérations comprises. Un filtre de période ne réduit pas ce prévu annuel. Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. L'ouverture et les dépenses d'une rubrique sont partagées entre les tableaux 1 et 2 à proportion de leurs encaissements ; le tableau 3 additionne les deux."),
+  justified("Prévu total de l’année : frais nets des élèves actifs, réductions et exonérations comprises, plus les paiements des anciens élèves (comptés du même montant dans le prévu et dans l'encaissé). Un filtre de période ne réduit pas ce prévu annuel. Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. L'ouverture et les dépenses d'une rubrique sont partagées entre les tableaux 1 et 2 à proportion de leurs encaissements ; le tableau 3 additionne les deux."),
   section("Tableau 1 — Élèves normalement inscrits", tables.one),
   section("Tableau 2 — Cas sociaux et prises en charge", tables.two),
   section("Tableau 3 — Ensemble (tableaux 1 et 2 additionnés)", tables.three),

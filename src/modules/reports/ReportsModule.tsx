@@ -3,6 +3,9 @@ import { Download } from "lucide-react";
 import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
 import { Field, FormPanel, Metric } from "../../components/ui";
 import { exportReportPdf } from "../../utils/reportPdf";
+import { isFormerStudentPaymentOfYear } from "../../utils/dashboardStats";
+
+const usesSectionFilterEarly = (section: string) => section !== "all";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
@@ -52,23 +55,28 @@ export function ReportsModule({ yearData, school, year, refreshing = false, refr
   const arrearsPayments = yearData.payments.filter((payment) => payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate && filteredStudentIds.has(payment.currentStudentId ?? ""));
   // Lot 21 : paiements des anciens élèves (archivés), ligne séparée. Ils ne sont
   // rattachés à aucune section de l'année actuelle, comme les dépenses.
-  const formerPayments = yearData.payments.filter((payment) => payment.formerStudent === true && payment.collectionSchoolYearId === year.id && payment.paidAt >= startDate && payment.paidAt <= endDate);
+  const formerPayments = yearData.payments.filter((payment) => isFormerStudentPaymentOfYear(payment, year.id) && payment.paidAt >= startDate && payment.paidAt <= endDate);
+  // Lot 27c-2 : sans filtre de section, chaque paiement d'ancien élève (pas déjà compté avec un élève de l'année)
+  // est ajouté à la fois au prévu et aux paiements ; le solde net reste hors arriérés.
+  const formerCounted = usesSectionFilterEarly(sectionFilter) ? [] : formerPayments.filter((payment) => !payments.some((item) => item.id === payment.id));
+  const formerTotals = { CDF: sumMoney(formerCounted.filter((payment) => payment.currency === "CDF").map((payment) => payment.amount)), USD: sumMoney(formerCounted.filter((payment) => payment.currency !== "CDF").map((payment) => payment.amount)) };
   const formerByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: sumMoney(formerPayments.filter((payment) => payment.currency === currency).map((payment) => payment.amount)) })).filter((group) => group.amount > 0);
   const arrearsByCurrency = (["USD", "CDF"] as const).map((currency) => ({ currency, amount: sumMoney(arrearsPayments.filter((payment) => payment.currency === currency).map((payment) => payment.amount)) })).filter((group) => group.amount > 0);
   const expenses = resolvedExpenses.filter((expense) => expense.spentAt >= startDate && expense.spentAt <= endDate);
   const cashInflows = (yearData.cashInflows ?? []).filter((inflow) => inflow.entryDate >= startDate && inflow.entryDate <= endDate);
-  const paidTotals = totalsByRecordedCurrency(payments);
+  const paidTotals = totalsByRecordedCurrency([...payments, ...formerCounted]);
   const inflowTotals = totalsByRecordedCurrency(cashInflows);
   const spentTotals = totalsByRecordedCurrency(expenses);
   const hasUnknownCurrency = paidTotals.unknownCount + inflowTotals.unknownCount + spentTotals.unknownCount
     + arrearsPayments.filter((payment) => payment.currency !== "CDF" && payment.currency !== "USD").length > 0;
   const yearCurrency = resolveSchoolYearCurrency(year, school);
-  const expected = buildStats(filteredStudents, yearData.parents, yearData.feeTypes, payments).expected;
+  const yearFormer = formerTotals[resolveSchoolYearCurrency(year, school)];
+  const expected = sumMoney([buildStats(filteredStudents, yearData.parents, yearData.feeTypes, payments).expected, yearFormer]);
   const recovery = !hasUnknownCurrency && paidTotals[yearCurrency === "CDF" ? "USD" : "CDF"] === 0 && expected > 0
     ? Math.round((paidTotals[yearCurrency] / expected) * 100) : null;
   const usesSectionFilter = sectionFilter !== "all";
-  const netTotals = { CDF: sumMoney([paidTotals.CDF, inflowTotals.CDF, -spentTotals.CDF]),
-    USD: sumMoney([paidTotals.USD, inflowTotals.USD, -spentTotals.USD]), unknownCount: 0 };
+  const netTotals = { CDF: sumMoney([paidTotals.CDF, -formerTotals.CDF, inflowTotals.CDF, -spentTotals.CDF]),
+    USD: sumMoney([paidTotals.USD, -formerTotals.USD, inflowTotals.USD, -spentTotals.USD]), unknownCount: 0 };
 
   return (
     <section className="grid min-w-0 gap-4">
@@ -85,7 +93,7 @@ export function ReportsModule({ yearData, school, year, refreshing = false, refr
               ))}
             </select>
           </label>
-          <button disabled={hasUnknownCurrency || refreshing || Boolean(refreshError)} onClick={() => { if (!refreshing && !refreshError) exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments, cashInflows); }} className="primary-button self-end">
+          <button disabled={hasUnknownCurrency || refreshing || Boolean(refreshError)} onClick={() => { if (!refreshing && !refreshError) exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, payments, expenses, filteredStudents, arrearsPayments, cashInflows, formerTotals); }} className="primary-button self-end">
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
@@ -98,7 +106,7 @@ export function ReportsModule({ yearData, school, year, refreshing = false, refr
         )}
       </div>
       <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Metric label="Paiements des frais de l'année" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(paidTotals, yearCurrency)} />
+        <Metric label="Paiements des frais de l'année" value={hasUnknownCurrency ? "Indéterminé" : `${formatRecordedTotals(paidTotals, yearCurrency)}${formerTotals.CDF || formerTotals.USD ? ` (dont anciens élèves : ${formatRecordedTotals({ ...formerTotals, unknownCount: 0 }, yearCurrency)})` : ""}`} />
         <Metric label="Autres entrées de caisse" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(inflowTotals, yearCurrency)} />
         <Metric label="Dépenses" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(spentTotals, yearCurrency)} />
         <Metric label="Solde net hors arriérés" value={hasUnknownCurrency ? "Indéterminé" : formatRecordedTotals(netTotals, yearCurrency)} />
@@ -111,7 +119,7 @@ export function ReportsModule({ yearData, school, year, refreshing = false, refr
       </div>}
       {formerByCurrency.length > 0 && <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm" data-testid="former-student-payments">
         <h2 className="font-bold">Paiements anciens élèves</h2>
-        <p className="text-slate-600">Dettes d'années passées réglées par des élèves qui ont quitté l'école, encaissées en {year.name}.</p>
+        <p className="text-slate-600">Dettes réglées par des élèves qui ont quitté l'école, encaissées en {year.name}.{usesSectionFilterEarly(sectionFilter) ? " Rattachées à aucune section : hors de ce filtre." : " Comptées à la fois dans le prévu et dans les paiements des frais de l'année."}</p>
         {formerByCurrency.map((group) => <p key={group.currency} className="font-semibold">{formatCurrencyMoney(group.amount, group.currency)}</p>)}
         {formerPayments.map((payment) => <p key={payment.id} className="break-words text-slate-600">{payment.paidAt} · {payment.feeName ?? "Frais"} · {payment.debtSchoolYearName ?? payment.schoolYearId} · {payment.receiptNumber} · {formatCurrencyMoney(payment.amount, payment.currency === "CDF" ? "CDF" : "USD")}</p>)}
       </div>}

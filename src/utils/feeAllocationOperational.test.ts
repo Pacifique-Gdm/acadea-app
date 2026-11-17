@@ -20,7 +20,7 @@ function workspace(): AllocationWorkspace {
 describe("projection et PDF du registre rapproché", () => {
   it("distingue le disponible de fin de période de la variation de la période", () => {
     const rows = projectAllocations([workspace()], { kind: "period", value: "custom", from: "2026-03-01", to: "2026-03-31" });
-    expect(rows[0].financial).toEqual({ receivedMinor: 0, spentMinor: 2000, availableMinor: 4000, openingMinor: 1000, arrearsMinor: 0, cumulativeReceivedMinor: 5000, cumulativeSpentMinor: 2000 });
+    expect(rows[0].financial).toEqual({ receivedMinor: 0, spentMinor: 2000, availableMinor: 4000, openingMinor: 1000, arrearsMinor: 0, cumulativeReceivedMinor: 5000, cumulativeSpentMinor: 2000, formerMinor: 0 });
     const earlier = projectAllocations([workspace()], { kind: "period", value: "custom", from: "2026-02-01", to: "2026-02-28" });
     expect(earlier[0].financial).toMatchObject({ receivedMinor: 5000, spentMinor: 0, availableMinor: 6000, arrearsMinor: 5000 });
   });

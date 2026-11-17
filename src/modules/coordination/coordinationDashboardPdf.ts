@@ -7,6 +7,10 @@ import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 
 type DashboardPdfTransaction = { id: string; type: string; label: string; amount: number; currency?: DashboardCurrency; date: string };
 
+/** Lot 27c-2 : mention des paiements d'anciens élèves (déjà inclus dans le prévu et l'encaissé). */
+function formerNote(group: { formerPaid?: number; currency: DashboardCurrency }) {
+  return (group.formerPaid ?? 0) > 0 ? ` (dont anciens élèves : ${amount(group.formerPaid ?? 0, group.currency)})` : "";
+}
 function amount(value: number, currency: DashboardCurrency) {
   return formatCurrencyMoney(value, currency);
 }
@@ -70,8 +74,8 @@ export async function exportCoordinationDashboardPdf({
           { label: "Recouvrement", value: `${group.recoveryRate}%` },
           { label: "Montant officiel", value: amount(group.official, group.currency) },
           { label: "Réductions et exonérations", value: amount(group.reduction, group.currency) },
-          { label: "Net exigible", value: amount(group.expected, group.currency) },
-          { label: "Frais de l'année encaissés", value: amount(group.paid, group.currency) },
+          { label: "Net exigible", value: amount(group.expected, group.currency) + formerNote(group) },
+          { label: "Frais de l'année encaissés", value: amount(group.paid, group.currency) + formerNote(group) },
           { label: "Autres entrées de caisse", value: amount(group.cashInflows, group.currency) },
           ...arrearsCollections.filter((item) => item.currency === group.currency).map((item) => ({ label: "Arriérés encaissés (hors recouvrement)", value: amount(item.amount, item.currency) })),
           { label: "Dépenses", value: amount(group.expenses, group.currency) },

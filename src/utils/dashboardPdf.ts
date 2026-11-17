@@ -41,7 +41,7 @@ export function dashboardPdfTransactionChart(rows: DashboardPdfChartRow[], curre
 
 export async function exportDashboardReportPdf({
   school, year, sectionLabel, dateLabel, recoveryRate, totalPayments, arrearsCollections,
-  historicalArrears, totalExpenses, official, reduction, expected, remaining, transactions,
+  historicalArrears, totalExpenses, official, reduction, expected, formerPaid = 0, remaining, transactions,
   classRows, totalGirls, totalBoys, totalStudents, totalClasses, totalParents, administrators,
   cashiers, disciplineDirectors, feeProgressRows, feeShares, transactionChartRows, transactionPeriodLabel,
 }: {
@@ -57,6 +57,8 @@ export async function exportDashboardReportPdf({
   official: number;
   reduction: number;
   expected: number;
+  /** Lot 27c-2 : paiements d'anciens élèves (déjà inclus dans le prévu et l'encaissé). */
+  formerPaid?: number;
   remaining: number;
   transactions: DashboardTransaction[];
   classRows: DashboardClassRow[];
@@ -94,8 +96,8 @@ export async function exportDashboardReportPdf({
         { label: "Recouvrement", value: `${recoveryRate}%` },
         { label: "Montant officiel", value: formatCurrencyMoney(official, yearCurrency) },
         { label: "Réductions et exonérations", value: formatCurrencyMoney(reduction, yearCurrency) },
-        { label: "Montant net exigible", value: formatCurrencyMoney(expected, yearCurrency) },
-        { label: "Frais de l'année encaissés", value: formatCurrencyMoney(totalPayments, yearCurrency) },
+        { label: "Montant net exigible", value: `${formatCurrencyMoney(expected, yearCurrency)}${formerPaid > 0 ? ` (dont anciens élèves : ${formatCurrencyMoney(formerPaid, yearCurrency)})` : ""}` },
+        { label: "Frais de l'année encaissés", value: `${formatCurrencyMoney(totalPayments, yearCurrency)}${formerPaid > 0 ? ` (dont anciens élèves : ${formatCurrencyMoney(formerPaid, yearCurrency)})` : ""}` },
         { label: "Dépenses", value: formatCurrencyMoney(totalExpenses, yearCurrency) },
         { label: "Montant restant à payer", value: formatCurrencyMoney(remaining, yearCurrency) },
       ])),
