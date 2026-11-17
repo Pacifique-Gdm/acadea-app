@@ -5,6 +5,7 @@ import type { AppUser, School } from "../../types";
 import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationVersion } from "../../types/feeAllocation";
 import { AllocationApiError, allocationRequest, createRubric, loadAllocationVersions, loadAllocationWorkspace, loadRubricCatalog, saveAllocationDrafts, type AllocationCatalogRubric, type AllocationWorkspace, type SaveAllocationDrafts } from "../../services/feeAllocation";
 import { RubricCatalogPanel } from "./RubricCatalogPanel";
+import { allocationSnapshotIsCurrent, loadAllocationSnapshot, peekAllocationSnapshot, pendingAllocationSnapshot, rememberAllocationUse } from "../../services/feeAllocationStore";
 import { validateFeeAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
 import { allocationClassLabel, allocationFilterChoices, allocationTotals, allocationFinancialTotals, buildAllocationTables, projectAllocations, unavailableAllocation, type AllocationFilter, type AllocationRow } from "../../utils/feeAllocationView";
 import { formatCurrencyMoney } from "../../utils/currency";
@@ -35,11 +36,16 @@ export function FeeAllocationEntry({ user, schools, selectedSchoolId = "", onSch
 
 export function FeeAllocationContent({ user, schools, institution }: Pick<Props, "user" | "schools" | "institution">) {
   const ids = schools.map((school) => school.id).sort().join("|");
-  const [workspaces, setWorkspaces] = useState<AllocationWorkspace[]>([]);
-  const [loading, setLoading] = useState(true);
+  const schoolIds = useMemo(() => ids ? ids.split("|") : [], [ids]);
+  // Lot « répartition rapide » : les données préparées (à la connexion ou à une ouverture précédente)
+  // s'affichent tout de suite ; elles sont vérifiées en arrière-plan et rechargées seulement si
+  // quelque chose a réellement changé (paiement, dépense, correction, répartition, élèves, frais).
+  const initial = peekAllocationSnapshot(user.id, schoolIds);
+  const [workspaces, setWorkspaces] = useState<AllocationWorkspace[]>(initial?.workspaces ?? []);
+  const [loading, setLoading] = useState(!initial);
+  const [checking, setChecking] = useState(Boolean(initial));
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [reload, setReload] = useState(0);
   const [filter, setFilter] = useState<AllocationFilter>({ kind: "fee", value: "", from: "", to: "" });
   const [editor, setEditor] = useState<{ workspace: AllocationWorkspace; config?: FeeAllocationConfig } | null>(null);
   const [detail, setDetail] = useState<AllocationRow | null>(null);
@@ -49,49 +55,45 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   const pdfLock = useRef(false), detailLock = useRef(false);
   const [detailAction, setDetailAction] = useState("");
   const versionRequests = useRef(new Map<string, string>());
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true); setError("");
-    const load = async () => {
-      const results: AllocationWorkspace[] = [];
-      const schoolIds = ids ? ids.split("|") : [];
-      for (let index = 0; index < schoolIds.length; index += 4) {
-        results.push(...await Promise.all(schoolIds.slice(index, index + 4).map((id) => loadAllocationWorkspace(id, controller.signal))));
+  const generation = useRef(0), busy = useRef(false);
+  const refresh = useCallback(async (mode: "verify" | "reload") => {
+    const run = ++generation.current;
+    const shown = peekAllocationSnapshot(user.id, schoolIds);
+    busy.current = true;
+    if (shown) setChecking(true); else setLoading(true);
+    try {
+      let snapshot = shown;
+      if (mode === "reload" || !shown || !await allocationSnapshotIsCurrent(shown)) {
+        const preparing = mode === "verify" && !shown ? pendingAllocationSnapshot(user.id, schoolIds) : null;
+        snapshot = await (preparing ?? loadAllocationSnapshot(user.id, schoolIds, mode === "reload"));
       }
-      if (!controller.signal.aborted) setWorkspaces(results);
-    };
-    void load().catch((cause) => { if (!controller.signal.aborted) setError(message(cause)); })
-      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [ids, reload]);
+      if (run !== generation.current) return;
+      if (snapshot && snapshot !== shown) setWorkspaces(snapshot.workspaces);
+      setError("");
+    } catch (cause) {
+      if (run === generation.current) setError(shown ? `Actualisation automatique non confirmée. ${message(cause)}` : message(cause));
+    } finally {
+      if (run === generation.current) { busy.current = false; setLoading(false); setChecking(false); }
+    }
+  }, [user.id, schoolIds]);
   useEffect(() => {
-    const changed = () => setReload(v => v + 1);
+    rememberAllocationUse(user.id);
+    void refresh("verify");
+    // Fermeture : une réponse arrivée après coup est ignorée (compteur de génération).
+    const runs = generation, running = busy;
+    return () => { runs.current++; running.current = false; };
+  }, [refresh, user.id]);
+  useEffect(() => {
+    // Un changement fait sur cet appareil (paiement, dépense…) : rechargement immédiat en arrière-plan.
+    const changed = () => void refresh("reload");
+    const check = () => { if (!busy.current && document.visibilityState !== "hidden" && navigator.onLine) void refresh("verify"); };
     window.addEventListener('acadea:financial-projection-changed', changed);
-    window.addEventListener('online', changed);
-    return () => { window.removeEventListener('acadea:financial-projection-changed', changed); window.removeEventListener('online', changed); };
-  }, [ids]);
-  useEffect(() => {
-    if (loading || !workspaces.length) return;
-    let disposed = false, checking = false;
-    const check = async () => {
-      if (checking || document.visibilityState === 'hidden' || !navigator.onLine) return;
-      checking = true;
-      try {
-        for (const w of workspaces) {
-          const current = await allocationRequest<{ schoolId: string; yearId: string; revision: string | null }>('get-forecast-revision', { schoolId: w.school.id });
-          if (disposed) return;
-          if (current.schoolId !== w.school.id) throw new Error('Contexte de vérification invalide.');
-          if (current.yearId !== w.year.id || current.revision !== w.forecast?.revision) { setLoading(true); setReload(v => v + 1); return; }
-        }
-        if (!disposed) setError(previous => previous.startsWith('Actualisation automatique non confirmée.') ? '' : previous);
-      } catch (cause) { if (!disposed) setError(`Actualisation automatique non confirmée. ${message(cause)}`); }
-      finally { checking = false; }
-    };
-    const timer = window.setInterval(() => void check(), Math.max(15_000, workspaces.length * 1500));
-    const visible = () => void check();
-    document.addEventListener('visibilitychange', visible);
-    return () => { disposed = true; window.clearInterval(timer); document.removeEventListener('visibilitychange', visible); };
-  }, [loading, workspaces]);
+    window.addEventListener('online', check);
+    document.addEventListener('visibilitychange', check);
+    // Changements faits ailleurs : une petite vérification par minute tant que le drawer est ouvert.
+    const timer = window.setInterval(check, Math.max(60_000, schoolIds.length * 4000));
+    return () => { window.removeEventListener('acadea:financial-projection-changed', changed); window.removeEventListener('online', check); document.removeEventListener('visibilitychange', check); window.clearInterval(timer); };
+  }, [refresh, schoolIds.length]);
   // Lot 27b : les noms viennent du catalogue des rubriques (un renommage s'applique partout).
   const named = useMemo(() => workspaces.map((w) => {
     const names = new Map((w.rubricCatalog ?? []).map((r) => [r.id, r.name]));
@@ -107,6 +109,8 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   // Lot 27c-1 : trois tableaux sur le même modèle (1 = élèves normaux, 2 = cas sociaux, 3 = ensemble).
   const tables = useMemo(() => buildAllocationTables(projection.rows), [projection.rows]);
   const ready = !loading && !error && !projection.error && workspaces.length > 0;
+  // Tant que la vérification n'a pas confirmé les données affichées : pas d'export ni de modification.
+  const current = ready && !checking;
   const operational = workspaces.some(w => w.ledger);
   const configurable = user.role === "school_admin" && workspaces.length === 1 && workspaces[0].canConfigure;
   const multipleSchools = workspaces.length > 1;
@@ -122,7 +126,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     ? `${periods.find(([value]) => value === filter.value)?.[1] ?? "Cette année scolaire"}${filter.value === "custom" ? ` (${filter.from} au ${filter.to})` : ""}`
     : choices.find(([value]) => value === filter.value)?.[1] ?? (filter.kind === "fee" ? "Tous les frais" : "Toutes les classes")}`;
   async function exportPdf() {
-    if (!ready || pdfLock.current) return;
+    if (!current || pdfLock.current) return;
     pdfLock.current = true; setPdfBusy(true); setError("");
     try {
       const school = institution ?? schools[0];
@@ -130,7 +134,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       // Re-read the authoritative snapshot before export, including changes
       // whose asynchronous invalidation signal has not arrived yet.
       const fresh: AllocationWorkspace[] = [];
-      for (const workspace of workspaces) fresh.push(await loadAllocationWorkspace(workspace.school.id));
+      for (const workspace of workspaces) fresh.push(await loadAllocationWorkspace(workspace.school.id, undefined, { fresh: true }));
       const freshRows = projectAllocations(fresh, filter);
       setWorkspaces(fresh);
       await renderAcadPdfPreview({ filename: "repartition-frais.pdf", title: "Répartition des frais", school,
@@ -154,25 +158,26 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   return <div className="grid min-w-0 gap-4" aria-label="Configuration préparatoire des répartitions">
     <p className="text-sm text-slate-600" aria-label="Contexte de répartition">{workspaces.map(w => `${w.school.name} · ${w.year.name} · ${w.currency}`).join(" ; ")}</p>
     {ready && user.role !== 'school_admin' && <p className="text-sm" role="status">{workspaces.map(w => `${multipleSchools ? w.school.name + ' : ' : ''}${w.ledger?.status === 'ACTIVE' ? 'Active' : 'En préparation'}`).join(' · ')}</p>}
-    {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => setReload(v => v + 1)}/>}
-    {configurable && <RubricCatalogPanel schoolId={workspaces[0].school.id} onChanged={() => setReload(v => v + 1)} />}
+    {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => void refresh("reload")}/>}
+    {configurable && <RubricCatalogPanel schoolId={workspaces[0].school.id} onChanged={() => void refresh("reload")} />}
     <div className="min-w-0 max-w-full overflow-x-auto pb-1" role="region" aria-label="Commandes de répartition" tabIndex={0}>
       <div className={`grid min-w-[640px] items-center gap-2 ${configurable ? 'grid-cols-4' : 'grid-cols-3'}`}>
-        {configurable && <button type="button" className="primary-button min-h-11 shrink-0 whitespace-nowrap" disabled={!ready} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
+        {configurable && <button type="button" className="primary-button min-h-11 shrink-0 whitespace-nowrap" disabled={!current} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
         <label className="min-w-0"><span className="sr-only">Filtre</span><select aria-label="Filtre" className="input h-11 w-full min-w-0" value={filter.kind} onChange={event => setFilter({ kind: event.target.value as AllocationFilter["kind"], value: event.target.value === "period" ? "year" : "", from: "", to: "" })}><option value="fee">Frais</option><option value="class">Classe</option><option value="period">Période</option></select></label>
         <label className="min-w-0"><span className="sr-only">Valeur du filtre</span><select aria-label="Valeur correspondante" className="input h-11 w-full min-w-0 truncate" value={filter.value} onChange={event => setFilter({ ...filter, value: event.target.value })}>{filter.kind === "period" ? periods.map(([value, label]) => <option key={value} value={value}>{label}</option>) : <><option value="">{filter.kind === "fee" ? "Tous les frais" : "Toutes les classes"}</option>{choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</>}</select></label>
-        <Action busy={pdfBusy} disabled={!ready || !hasConfiguration} onClick={() => void exportPdf()}>Exporter PDF</Action>
+        <Action busy={pdfBusy} disabled={!current || !hasConfiguration} onClick={() => void exportPdf()}>Exporter PDF</Action>
       </div>
     </div>
     {filter.kind === "period" && <p className="text-xs text-slate-600">Prévu total de l’année active, indépendamment des dates sélectionnées. Encaissé sur la période : dates de comptabilisation. Le disponible cumule toutes les écritures jusqu’à sa fin, ouverture incluse.</p>}
     {filter.kind === "period" && filter.value === "custom" && <div className="flex flex-wrap gap-2"><label className="grid gap-1 text-sm">Du<input className="input" type="date" value={filter.from} onChange={(event) => setFilter({ ...filter, from: event.target.value })}/></label><label className="grid gap-1 text-sm">Au<input className="input" type="date" value={filter.to} onChange={(event) => setFilter({ ...filter, to: event.target.value })}/></label></div>}
     {ready && hasConfiguration && <details className="text-sm"><summary className="cursor-pointer">Comprendre les montants</summary><p>Le prévu total de l’année additionne les frais nets des élèves actifs concernés, réductions et exonérations comprises, même sans paiement. Les filtres Frais et Classe réduisent ce périmètre ; les dates filtrent uniquement les encaissements. Une prise en charge non réglée n’est pas un encaissement.</p><p>La situation globale reste commune à la rubrique, jamais propre à une classe ou à un frais. Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. Les dépenses nettes incluent les corrections et annulations compensatoires.</p></details>}
     {loading && <p role="status">Chargement...</p>}
-    {(error || projection.error) && <div role="alert" className="rounded border border-red-200 p-3 text-sm"><p>{error || projection.error}</p>{workspaces.length > 0 && <p>Les données conservées ne sont pas revérifiées. L'export et les modifications sont bloqués.</p>}<Action busy={loading} className="secondary-button mt-2" onClick={() => setReload((value) => value + 1)}>Réessayer la consultation</Action></div>}
+    {checking && !loading && <p role="status" className="text-xs text-slate-600">Mise à jour… Les montants affichés sont en cours de vérification ; l'export attend la confirmation.</p>}
+    {(error || projection.error) && <div role="alert" className="rounded border border-red-200 p-3 text-sm"><p>{error || projection.error}</p>{workspaces.length > 0 && <p>Les données conservées ne sont pas revérifiées. L'export et les modifications sont bloqués.</p>}<Action busy={loading} className="secondary-button mt-2" onClick={() => void refresh("reload")}>Réessayer la consultation</Action></div>}
     {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}
     {/* Lot 27a : un paiement n'est jamais bloqué ; s'il n'a pas pu être réparti tout de suite, il attend ici. */}
     {ready && workspaces.some(w => (w.pendingAllocations ?? 0) > 0) && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{workspaces.reduce((n, w) => n + Math.max(0, w.pendingAllocations ?? 0), 0)} encaissement(s) enregistré(s) en attente de répartition. Ils ont bien été encaissés ; la répartition sera reprise automatiquement ou rapprochée par l'Administrateur.</p>}
-    {ready && hasConfiguration && projection.rows.length > 0 && ([["Tableau 1 — Élèves normalement inscrits", tables.one], ["Tableau 2 — Cas sociaux et prises en charge", tables.two], ["Tableau 3 — Ensemble (tableaux 1 et 2 additionnés)", tables.three]] as const).map(([title, rows]) => <section key={title} className="grid min-w-0 gap-2"><h3 className="text-sm font-bold text-ink">{title}</h3>{rows.length ? <div className="min-w-0 max-w-full overflow-x-auto"><table className={`w-full ${operational ? "min-w-[980px]" : "min-w-[600px]"} text-sm`} aria-label={title}><thead>
+    {ready && hasConfiguration && projection.rows.length > 0 && ([["Tableau 1 — Élèves normalement inscrits", tables.one], ["Tableau 2 — Cas sociaux et prises en charge", tables.two], ["Tableau 3 — Ensemble (tableaux 1 et 2 additionnés)", tables.three]] as const).map(([title, rows]) => <section key={title} data-allocation-table className="mt-6 grid min-w-0 gap-2 rounded border border-slate-200 bg-white p-3 first-of-type:mt-2 sm:p-4"><h3 className="text-sm font-bold text-ink">{title}</h3>{rows.length ? <div className="min-w-0 max-w-full overflow-x-auto"><table className={`w-full ${operational ? "min-w-[980px]" : "min-w-[600px]"} text-sm`} aria-label={title}><thead>
       <tr><th rowSpan={2} scope="col" className="border-b p-2 text-left">Rubrique</th><th colSpan={2} scope="colgroup" className="border-b p-2">Selon le filtre</th>{operational && <th colSpan={4} scope="colgroup" className="border-b border-l p-2">Situation globale de la rubrique à la fin de la période</th>}</tr>
       <tr>{["Prévu total de l’année", filter.kind === 'period' ? "Encaissé sur la période" : "Encaissé selon le filtre", ...(operational ? ["Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"] : [])].map(title => <th key={title} scope="col" className="border-b p-2 text-left">{title}</th>)}</tr>
     </thead><tbody>{rows.map(row => <tr key={row.key}><td className="border-b p-2"><button type="button" className="text-left text-blue-700 underline" onClick={() => { setDetail(row); setVersions(null); }}>{row.rubricName}{row.percentLabel ? ` (${row.percentLabel})` : ""}</button>{row.percentDetail && <p className="text-xs text-slate-500">{row.percentDetail}</p>}<p className="text-xs text-slate-500">{multipleSchools ? row.schoolName + " · " + row.yearName + " · " + row.currency : ""}{!row.financial && ` · ${row.feeName} · ${row.classLabel} · v${row.config.draftRevision}`}</p>{row.financial && <p className="text-xs">Dont arriérés selon le filtre : {formatCurrencyMoney(row.financial.arrearsMinor / 100, row.currency)}</p>}{row.stale && <p className="text-xs text-amber-800">Tarif ou cible modifié : brouillon à reprendre.</p>}</td><td className="border-b p-2 whitespace-nowrap">{formatCurrencyMoney(row.amountMinor / 100, row.currency)}</td>{(["receivedMinor", ...(operational ? ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const : [])] as const).map(field => <td key={field} className={`border-b p-2 text-xs whitespace-nowrap ${field === "openingMinor" ? "border-l" : ""}`}>{row.financial ? formatCurrencyMoney(row.financial[field] / 100, row.currency) : "Non disponible"}</td>)}</tr>)}</tbody><tfoot>{allocationTotals(rows).map(total => <tr key={total.currency} className="font-semibold"><td className="p-2">Total {total.currency}</td><td className="p-2 whitespace-nowrap">{formatCurrencyMoney(total.amountMinor / 100, total.currency)}</td>{(["receivedMinor", ...(operational ? ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const : [])] as const).map(field => { const value = allocationFinancialTotals(rows, field).find(t => t.currency === total.currency)?.value; return <td key={field} className="p-2 whitespace-nowrap">{value === null || value === undefined ? unavailableAllocation : formatCurrencyMoney(value / 100, total.currency)}</td>; })}</tr>)}</tfoot></table></div> : <p className="text-sm text-slate-500">Aucun montant dans ce tableau.</p>}</section>)}
@@ -185,7 +190,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       {detailConfigs.map(config => <section key={config.id} className="my-3 rounded border p-3"><h3 className="mb-2 text-sm font-semibold">{detailWorkspace?.fees.find(f => f.id === config.feeTypeId)?.name ?? 'Frais'} · {allocationClassLabel(config.classOptionKey || config.className)}</h3><div className="flex flex-wrap gap-2"><Action busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(config)}>Consulter les versions</Action>{configurable && !config.currentVersionId && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy} onClick={() => void showVersions(config, true)}>Préparer une version</Action></>}</div></section>)}
       {detailBusy && <p role="status">Vérification serveur…</p>}{versions && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded border p-2 text-sm">Version {version.version} · {version.status} · {version.createdAt.slice(0, 10)} · {version.currency}<ul>{version.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, version.currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></li>)}{!versions.length && <li>Aucune version préparée.</li>}</ul>}
     </AdminDrawer>}
-    {editor && <AllocationEditor workspace={editor.workspace} config={editor.config} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setNotice("Brouillons enregistrés et confirmés par le serveur. Aucune activation financière."); setReload((value) => value + 1); }} />}
+    {editor && <AllocationEditor workspace={editor.workspace} config={editor.config} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setNotice("Brouillons enregistrés et confirmés par le serveur. Aucune activation financière."); void refresh("reload"); }} />}
   </div>;
 }
 

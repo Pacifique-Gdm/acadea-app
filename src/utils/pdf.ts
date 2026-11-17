@@ -875,6 +875,8 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       page-break-inside: auto;
       break-inside: auto;
     }
+    /* Répartition des frais : un espace clair entre les trois tableaux. */
+    .pdf-section.fee-allocation-table-pdf-section { margin-top: 24px; padding-top: 10px; border-top: 1px solid #d8dee6; }
     .medical-record-pdf .pdf-section { margin-bottom: 6px; }
     .medical-record-pdf .pdf-section h2 { margin-bottom: 4px; padding-bottom: 3px; font-size: 9.5pt; }
     .medical-record-pdf .info-grid { gap: 5px 7px; margin-bottom: 3px; }

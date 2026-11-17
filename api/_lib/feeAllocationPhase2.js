@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import { readRubricCatalog } from "./feeAllocationRubrics.js";
+import { readRubricCatalog, rubricCatalogId } from "./feeAllocationRubrics.js";
 import { retryPendingFeeAllocations } from "./feeAllocationPending.js";
 import { FeeAllocationError, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { readFeeAllocationLedger } from "./feeAllocationLedger.js";
-import { evidenceRevisionRef } from './feeAllocationRevision.js';
+import { cashRevisionRef, evidenceRevisionRef } from './feeAllocationRevision.js';
+import { allocationStateId } from './feeAllocationRuntime.js';
 import { forecastSignalId, readAllocationForecast } from './feeAllocationForecast.js';
 
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -22,12 +23,24 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
   if (body.action === 'get-forecast-revision') {
     fields(body, ['action', 'schoolId']);
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
-    const { yearId } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
-    const signal = (await db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`).get()).data();
-    return { schoolId, yearId, revision: signal?.revision ?? null, operational: false };
+    const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
+    // Lot « répartition rapide » : une empreinte de tout ce qui peut changer le drawer, en quelques
+    // petites lectures (jamais les élèves ni le registre) : élèves et frais (signal), paiements,
+    // dépenses et corrections (caisse), répartition (preuves, état), rubriques, répartitions en attente.
+    const [signal, cashUsd, cashCdf, evidence, state, catalog, pending] = await Promise.all([
+      db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`).get(),
+      cashRevisionRef(db, schoolId, yearId, 'USD').get(), cashRevisionRef(db, schoolId, yearId, 'CDF').get(),
+      evidenceRevisionRef(db, schoolId, yearId).get(), db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`).get(),
+      db.doc(`feeAllocationRubricCatalogs/${rubricCatalogId(schoolId, yearId)}`).get(),
+      db.collection('feeAllocationPending').where('schoolId', '==', schoolId).where('status', '==', 'pending').limit(50).get(),
+    ]);
+    const stamp = (snapshot) => snapshot.exists ? snapshot.data()?.revision ?? snapshot.data()?.updatedAt ?? hash(snapshot.data() ?? null) : null;
+    const token = hash([yearId, currency, stamp(signal), stamp(cashUsd), stamp(cashCdf), stamp(evidence), state.exists ? hash(state.data()) : null, stamp(catalog), pending.docs.map((d) => d.id).sort()]);
+    return { schoolId, yearId, revision: signal.data()?.revision ?? null, token, operational: false };
   }
   if (body.action === "get-workspace") {
-    fields(body, ["action", "schoolId", "ledgerPage", "ledgerFingerprint", "ledgerCursor"]);
+    fields(body, ["action", "schoolId", "ledgerPage", "ledgerFingerprint", "ledgerCursor", "fresh"]);
+    if (body.fresh !== undefined && body.fresh !== true) fail(400, "invalid-argument", "Option de relecture invalide.");
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
     const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
     // Lot 27a : reprise des encaissements en attente de répartition (jamais bloquante pour la lecture).
@@ -36,7 +49,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     // Subsequent ledger pages need only their verified scope and cursor. The
     // first page already carries configuration metadata, immutable while active.
     const { fees, configs, forecast } = (body.ledgerPage ?? 0) > 0 ? { fees: { docs: [] }, configs: { docs: [] }, forecast: undefined }
-      : await readAllocationForecast({ db, schoolId, yearId, currency });
+      : await readAllocationForecast({ db, schoolId, yearId, currency, fresh: body.fresh === true });
     return {
       school: { id: schoolId, name: school.name, activeSchoolYearId: yearId },
       year: { id: yearId, schoolId, name: year.name, status: year.status, startsAt: year.startsAt ?? null, endsAt: year.endsAt ?? null },

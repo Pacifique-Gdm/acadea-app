@@ -67,7 +67,7 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
       const rubricId = randomBytes(16).toString("hex");
       const rubric = { id: rubricId, schoolId, schoolYearId: yearId, name, hidden: false, createdAt: now, updatedAt: now, createdBy: caller.uid };
       transaction.create(db.doc(`feeAllocationRubrics/${rubricId}`), rubric);
-      if (!catalog.enabled) transaction.set(markerRef, { schoolId, schoolYearId: yearId, enabledAt: now, enabledBy: caller.uid });
+      if (!catalog.enabled) transaction.set(markerRef, { schoolId, schoolYearId: yearId, enabledAt: now, enabledBy: caller.uid }, { merge: true });
       result = { rubric };
     } else {
       const rubric = catalog.rubrics.find((item) => item.id === body.rubricId);
@@ -88,6 +88,9 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
         result = { deletedId: rubric.id };
       } else fail(400, "invalid-argument", "Action inconnue sur les rubriques.");
     }
+    // Lot « répartition rapide » : chaque changement de rubrique change la révision du catalogue,
+    // pour que les drawers ouverts ou préparés se mettent à jour.
+    if (catalog.enabled || body.action === "create-rubric") transaction.set(markerRef, { schoolId, schoolYearId: yearId, revision: hash([fingerprint, now]) }, { merge: true });
     transaction.create(receiptRef, { schoolId, schoolYearId: yearId, fingerprint, result, createdAt: now });
     return { operational: false, ...result, idempotent: false };
   });

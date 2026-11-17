@@ -80,6 +80,22 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       const tableOne = drawer.getByRole("table", { name: "Tableau 1 — Élèves normalement inscrits" });
       await expect(tableOne.locator("tbody tr")).toHaveCount(4); // Aggregate per rubric, not per reference tariff.
       await expect(drawer.getByRole("table", { name: "Tableau 3 — Ensemble (tableaux 1 et 2 additionnés)" }).locator("tbody tr")).toHaveCount(4);
+      // Espace clair entre les tableaux (écran) : au moins 16 px entre deux blocs.
+      const blocks = await drawer.locator("[data-allocation-table]").evaluateAll((items) => items.map((item) => item.getBoundingClientRect()).map((box) => [box.top, box.bottom]));
+      for (let index = 1; index < blocks.length; index++) expect(blocks[index][0] - blocks[index - 1][1]).toBeGreaterThanOrEqual(16);
+      // Lot « répartition rapide » : réouverture immédiate, sans rechargement complet (seulement la petite vérification).
+      const actions: string[] = [];
+      const track = (request: import("@playwright/test").Request) => { if (request.url().includes("/api/manage-financial-transaction")) actions.push(String((request.postDataJSON() as { action?: string } | null)?.action ?? "")); };
+      await page.getByRole("button", { name: "Fermer Répartition des frais", exact: true }).click();
+      page.on("request", track);
+      const reopenedAt = Date.now();
+      await page.getByRole("button", { name: "Répartition des frais", exact: true }).click();
+      await expect(tableOne.locator("tbody tr")).toHaveCount(4);
+      const displayMs = Date.now() - reopenedAt;
+      await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeEnabled();
+      page.off("request", track);
+      console.info(`[mesure] ${role} : réouverture affichée en ${displayMs} ms ; appels : ${actions.join(", ") || "aucun"}`);
+      expect(actions.filter((action) => action === "get-workspace")).toHaveLength(0);
       await drawer.getByLabel("Filtre", { exact: true }).selectOption("class");
       await drawer.getByLabel("Valeur correspondante", { exact: true }).selectOption(JSON.stringify([f.school, "1ère Secondaire::option::Sciences"]));
       await expect(tableOne.locator("tbody tr")).toHaveCount(4);

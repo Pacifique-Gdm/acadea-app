@@ -8,7 +8,7 @@ const admin = { uid: "a", role: "school_admin", schoolId: "s" };
 const readers = [{ uid: "c", role: "cashier", schoolId: "s" }, { uid: "co", role: "coordination_admin", coordinationId: "co" }, { uid: "sub", role: "sub_coordination_admin", coordinationId: "co", subCoordinationId: "sub" }];
 const rubrics = [{ id: "a".repeat(32), name: "Fonctionnement", mode: "percent", basisPoints: 2000 }, { id: "b".repeat(32), name: "Salaire", mode: "fixed", fixedMinor: 3000 }, { id: "c".repeat(32), name: "Prime", mode: "percent", basisPoints: 2500 }];
 const body = { action: "save-drafts", schoolYearId: "y", baseFeeTypeId: "f1", targets: [{ feeTypeId: "f1", expectedRevision: 0 }, { feeTypeId: "f2", expectedRevision: 0 }], requestId: "request-phase2-1", rubrics };
-function fixture() {
+export function fixture() {
   const records = new Map(Object.entries({
     "users/a": { ...admin, active: true }, "users/c": { ...readers[0], active: true }, "users/co": { ...readers[1], active: true }, "users/sub": { ...readers[2], active: true },
     "schools/s": { name: "Fictive", status: "active", activeSchoolYearId: "y", currency: "USD", activeCoordinationId: "co" },

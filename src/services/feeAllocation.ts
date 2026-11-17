@@ -61,8 +61,9 @@ export async function allocationRequest<T>(action: string, body: object, signal?
   if (!payload || payload.operational !== false) throw new AllocationApiError("Réponse préparatoire invalide ; aucune activation n'est permise.");
   return payload;
 }
-export async function loadAllocationWorkspace(schoolId: string, signal?: AbortSignal) {
-  const result = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId }, signal);
+/** `fresh` : relecture complète côté serveur (sans le prévu gardé), utilisée avant un export PDF. */
+export async function loadAllocationWorkspace(schoolId: string, signal?: AbortSignal, options: { fresh?: boolean } = {}) {
+  const result = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId, ...(options.fresh ? { fresh: true } : {}) }, signal);
   if (result.school?.id !== schoolId || !result.year?.id || !["USD", "CDF"].includes(result.currency)
     || !Array.isArray(result.fees) || !Array.isArray(result.configs)) throw new AllocationApiError("Contexte de répartition incomplet.");
   if (result.forecast?.status !== 'complete' || !Array.isArray(result.forecast.rows)

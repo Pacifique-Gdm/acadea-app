@@ -3,6 +3,11 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.5.0] — 2026-11-17 — Fonctionnalité
+- Répartition des frais : espace clair entre les trois tableaux (écran, téléphone, PDF)
+- Répartition des frais : drawer préparé dès la connexion, affiché tout de suite à chaque ouverture, mis à jour seulement quand quelque chose change réellement
+- Prévu annuel gardé côté serveur : les élèves ne sont relus que s'ils ont changé (beaucoup moins de lectures)
+
 ## [1.4.0] — 2026-11-17 — Fonctionnalité
 - Répartition des frais : trois tableaux avec les mêmes colonnes — élèves normalement inscrits, cas sociaux et prises en charge, ensemble (somme des deux).
 - Ouverture et dépenses d'une rubrique partagées entre les tableaux 1 et 2 à proportion de leurs encaissements ; « Non affecté » dans chaque tableau ; rubrique sans montant cachée.

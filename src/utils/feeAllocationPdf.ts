@@ -27,7 +27,7 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   const tables = buildAllocationTables(rows);
   const section = (title: string, table: AllocationRow[]) => pdfSection(title, table.length
     ? `${pdfTable<AllocationRow>(columns, table, "Aucun montant dans ce tableau.")}${justified(totalLine(table))}`
-    : justified("Aucun montant dans ce tableau."));
+    : justified("Aucun montant dans ce tableau."), { className: "fee-allocation-table-pdf-section" });
   return [pdfInfoGrid([{ label: "Établissement, année et devise", value: context }, { label: "Filtre", value: filterLabel },
     { label: "Statut", value: operational ? "Registre rapproché" : "Préparatoire — aucune activation financière" }]),
   justified("Prévu total de l’année : frais nets des élèves actifs, réductions et exonérations comprises. Un filtre de période ne réduit pas ce prévu annuel. Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. L'ouverture et les dépenses d'une rubrique sont partagées entre les tableaux 1 et 2 à proportion de leurs encaissements ; le tableau 3 additionne les deux."),

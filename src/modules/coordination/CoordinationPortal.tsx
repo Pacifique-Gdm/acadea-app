@@ -21,6 +21,7 @@ import { runRefreshTask } from "../../utils/refreshTask";
 import { coordinationSchoolBatches } from "../../services/coordinationSchoolBatches";
 import { subscribeCoordinationDashboardUpdates } from "../../services/coordinationDashboardUpdates";
 import { KeptTab } from "../../components/layout/KeptTab";
+import { usePrefetchAllocation } from "../../services/feeAllocationStore";
 import { useFrozenWhileHidden, useVisitedTabs } from "../../components/layout/keptTabState";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
@@ -105,6 +106,8 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   }, [refreshToken, user.coordinationId, user.role, user.subCoordinationId]);
 
   const activeSchools = useMemo(() => schools.filter((school) => school.status === "active" && relations.some((relation) => relation.schoolId === school.id)), [relations, schools]);
+  // Lot « répartition rapide » : « Répartition des frais » préparée dès la connexion (mêmes écoles que le menu).
+  usePrefetchAllocation(user, activeSchools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId).map((school) => school.id));
   // Onglets cachés : écoles et école choisie figées (un changement fait ailleurs ne les recharge
   // pas en arrière-plan ; il est pris en compte à leur réouverture).
   const dashboardSchools = useFrozenWhileHidden(tab === "dashboard", activeSchools);
