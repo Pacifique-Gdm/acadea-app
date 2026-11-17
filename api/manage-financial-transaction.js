@@ -16,6 +16,8 @@ import { allocationLifecycleActions, manageFeeAllocationLifecycle, getAllocation
 import { readAllocationActivation } from "./_lib/feeAllocationActivationView.js";
 import { reconciliationActions, manageAllocationReconciliation } from "./_lib/feeAllocationReconciliation.js";
 import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
+import { verifyMaintenanceCaller } from "./_lib/maintenanceAuth.js";
+import { runAllocationMaintenance, runAllocationNightlyCheck } from "./_lib/feeAllocationMaintenance.js";
 
 function parseJsonBody(raw) {
   try { const parsed = JSON.parse(raw || "{}"); if (parsed && typeof parsed === "object") return parsed; }
@@ -58,6 +60,15 @@ export default async function handler(req, res) {
     const authorization = req.headers.authorization ?? "";
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     if (!token) throw new FinancialApiError(401, "unauthenticated", "Authentification requise.");
+    // Lot 27a-bis : maintenance de la répartition, lancée uniquement par les tâches programmées Firebase.
+    if (req.headers["x-acadea-maintenance"] === "1") {
+      await verifyMaintenanceCaller(token);
+      const { db: maintenanceDb } = initAdmin();
+      const maintenanceBody = await readBody(req);
+      if (maintenanceBody.action === "fee-allocation-maintenance") return sendJson(res, 200, await runAllocationMaintenance({ db: maintenanceDb }));
+      if (maintenanceBody.action === "fee-allocation-nightly-check") return sendJson(res, 200, await runAllocationNightlyCheck({ db: maintenanceDb }));
+      throw new FinancialApiError(400, "invalid-argument", "Action de maintenance inconnue.");
+    }
     const { auth, db } = initAdmin();
     const caller = await verifyActorIdToken(auth, token);
     const body = await readBody(req);
