@@ -6,6 +6,8 @@ export type AllocationFilter = { kind: "fee" | "class" | "period"; value: string
 export type AllocationTable = 1 | 2 | 3;
 export type AllocationRow = { key: string; schoolId: string; schoolName: string; yearName: string; feeName: string;
   table?: AllocationTable; rubricId?: string; percentLabel?: string; percentDetail?: string;
+  /** Lot 27c-3a : ligne d'arriéré, regroupée sous « Arriérés AAAA-AAAA ». */
+  arrearsYearName?: string;
   classLabel: string; currency: "USD" | "CDF"; rubricName: string; rubric?: FeeAllocationRubric;
   amountMinor: number; percent: number; config: FeeAllocationConfig; stale: boolean;
   financial?: { receivedMinor: number; spentMinor: number; availableMinor: number; openingMinor: number; arrearsMinor: number;
@@ -151,7 +153,7 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
     return ([1, 2] as const).map((table, index): AllocationRow => ({ key: `${workspace.school.id}/${workspace.year.id}/${table}/${rubric.id}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
       yearName: workspace.year.name, feeName: "Rubrique commune · disponible global", classLabel: "Toutes les classes", currency: workspace.currency,
       rubricName: rubric.name, amountMinor: (expected.get(`${table}|${rubric.id}`) ?? 0) + former[table], percent: 0, config: workspace.configs[0], stale: false,
-      table, rubricId: rubric.id, ...labels,
+      table, rubricId: rubric.id, ...labels, ...("arrearsYearName" in rubric && rubric.arrearsYearName ? { arrearsYearName: rubric.arrearsYearName } : {}),
       financial: { receivedMinor: received[table], spentMinor: spent[index], openingMinor: opening[index],
         cumulativeReceivedMinor: cumulative[table], cumulativeSpentMinor: cumSpent[index], arrearsMinor: arrears[table], formerMinor: former[table],
         availableMinor: opening[index] + cumulative[table] - cumSpent[index] } }));
@@ -183,7 +185,13 @@ export function buildAllocationTables(rows: AllocationRow[]) {
     if (current.financial && row.financial) for (const field of Object.keys(current.financial) as AllocationFinancialField[]) current.financial[field] += row.financial[field];
     else current.financial = undefined;
   }
-  return { one: one.filter((row) => !isEmptyRow(row)), two: two.filter((row) => !isEmptyRow(row)), three: [...sum.values()].filter((row) => !isEmptyRow(row)) };
+  // Rubriques de l'année d'abord, puis une partie par année d'origine des arriérés (« Non affecté » en dernier).
+  const order = (list: AllocationRow[]) => list.filter((row) => !isEmptyRow(row)).map((row, index) => ({ row, index }))
+    .sort((a, b) => (a.row.arrearsYearName ? 1 : 0) - (b.row.arrearsYearName ? 1 : 0)
+      || (a.row.arrearsYearName ?? "").localeCompare(b.row.arrearsYearName ?? "", "fr")
+      || (a.row.arrearsYearName ? Number(a.row.rubricName.startsWith("Non affecté")) - Number(b.row.rubricName.startsWith("Non affecté")) : 0)
+      || a.index - b.index).map(({ row }) => row);
+  return { one: order(one), two: order(two), three: order([...sum.values()]) };
 }
 
 export function allocationFinancialTotals(rows: AllocationRow[], field: AllocationFinancialField) {

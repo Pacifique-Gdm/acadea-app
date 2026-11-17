@@ -211,3 +211,34 @@ describe("paiements du handler, frontières de projet et registre atomique", () 
     expect(pendings(db)).toEqual([expect.objectContaining({ kind: "creation", status: "pending" })]);
   });
 });
+
+describe("lot 27c-3a — arriéré encaissé : sa propre ligne « … (arriéré AAAA-AAAA) »", () => {
+  function arrearsFixture() {
+    const db = fixture();
+    db.records.set("schoolYears/old", { schoolId: "school", status: "archived", currency: "USD", name: "2025-2026" });
+    db.records.set("students/old-student", { id: "old-student", schoolId: "school", schoolYearId: "old", status: "ARCHIVED", className: "1ère", createdAt: "2025-09-02" });
+    db.records.set("feeTypes/old-fee", { id: "old-fee", schoolId: "school", schoolYearId: "old", amount: 80, name: "Minerval", className: "1ère", createdAt: "2025-09-01" });
+    return db;
+  }
+  const arrearsPayment = { id: "arrears-1", schoolId: "school", schoolYearId: "old", collectionSchoolYearId: "year", studentId: "old-student", feeTypeId: "old-fee",
+    currency: "USD", amount: 30, paidAt: "2026-11-12", createdAt: "2026-11-12T09:00:00.000Z", provenance: "financial-api", clientRequestIdHash: "h".repeat(64) };
+  const allocate = (db, payment, requestId = "arrears-request-01") => db.runTransaction(async (transaction) => (await prepareFeeAllocationReceipt({ db, transaction, caller: cashier, payment, requestId, now }))());
+  it("jamais dans le « Non affecté » de l'année : ligne d'arriéré avec son année d'origine et son propre solde", async () => {
+    const db = arrearsFixture();
+    await allocate(db, arrearsPayment);
+    const [movement] = movements(db);
+    expect(movement).toMatchObject({ originSchoolYearId: "old", collectionSchoolYearId: "year", amountMinor: 3000, lines: [{ rubricId: "ARR__old__UNALLOCATED", amountMinor: 3000 }] });
+    const balance = db.records.get(`feeAllocationBalances/${feeAllocationBalanceId("school", "year", "USD", "ARR__old__UNALLOCATED")}`);
+    expect(balance).toMatchObject({ receivedMinor: 3000, rubricId: "ARR__old__UNALLOCATED", arrearsOf: { originSchoolYearId: "old", originYearName: "2025-2026", rubricId: "UNALLOCATED", rubricName: "Non affecté" } });
+    expect(db.records.has(`feeAllocationBalances/${feeAllocationBalanceId("school", "year", "USD", "UNALLOCATED")}`)).toBe(false);
+  });
+  it("une correction reste sur la même ligne d'arriéré", async () => {
+    const db = arrearsFixture();
+    await allocate(db, arrearsPayment);
+    const { sourceDigest } = await import("./feeAllocationReceipts.js");
+    expect(typeof sourceDigest).toBe("function");
+    await db.runTransaction(async (transaction) => (await prepareFeeAllocationReceipt({ db, transaction, caller: admin, payment: { ...arrearsPayment, amount: 20 }, previous: arrearsPayment, requestId: "arrears-request-02", now }))());
+    expect(movements(db).at(-1).lines).toEqual([{ rubricId: "ARR__old__UNALLOCATED", amountMinor: -1000 }]);
+    expect(db.records.get(`feeAllocationBalances/${feeAllocationBalanceId("school", "year", "USD", "ARR__old__UNALLOCATED")}`).receivedMinor).toBe(2000);
+  });
+});

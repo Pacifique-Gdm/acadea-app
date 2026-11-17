@@ -77,3 +77,20 @@ describe("lot 27c-1 : trois tableaux sur le même modèle", () => {
     expect(html.split('class="pdf-section fee-allocation-table-pdf-section"').length - 1).toBe(3);
   });
 });
+
+describe("lot 27c-3a — lignes d'arriérés regroupées sous « Arriérés AAAA-AAAA »", () => {
+  it("après les rubriques de l'année, dans les trois tableaux et le PDF, jamais dans le « Non affecté » de l'année", () => {
+    const w = workspace(), key = "ARR__old__UNALLOCATED";
+    w.ledger!.rubrics.push({ id: key, name: "Non affecté (arriéré 2025-2026)", arrearsYearName: "2025-2026", originSchoolYearId: "old" });
+    w.ledger!.movements.push({ id: "p9", sourceType: "payment", type: "receipt", amountMinor: 3000, lines: [{ rubricId: key, amountMinor: 3000 }], feeTypeId: "old-fee", className: "1ère", classOptionKey: null, originSchoolYearId: "old", postedAt: "2026-11-13", socialCase: false } as never);
+    w.ledger!.balances.push({ rubricId: key, openingMinor: 0, receivedMinor: 3000, spentMinor: 0, reservedMinor: 0, availableMinor: 3000 });
+    const tables = buildAllocationTables(projectAllocations([w], { kind: "fee", value: "", from: "", to: "" }));
+    for (const table of [tables.one, tables.three]) {
+      expect(table.at(-1)).toMatchObject({ rubricName: "Non affecté (arriéré 2025-2026)", arrearsYearName: "2025-2026", financial: { receivedMinor: 3000, availableMinor: 3000, arrearsMinor: 3000 } });
+      expect(table.filter((row) => !row.arrearsYearName).every((row) => row.rubricId !== key)).toBe(true);
+    }
+    const html = feeAllocationPdfSections(projectAllocations([w], { kind: "fee", value: "", from: "", to: "" }), "Tous les frais", "École fictive · 2027-2028 · USD").join("");
+    expect(html).toContain("Arriérés 2025-2026");
+    expect(html).toContain("Non affecté (arriéré 2025-2026)");
+  });
+});

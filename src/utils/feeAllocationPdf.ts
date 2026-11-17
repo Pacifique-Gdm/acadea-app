@@ -25,8 +25,15 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
     const value = allocationFinancialTotals(table, globalFields[i]).find(t => t.currency === total.currency)?.value;
     return `${label.toLowerCase()} ${value === null || value === undefined ? unavailableAllocation : money(value, total.currency)}`; }).join(" · ")}` : ""}`).join(" ; ");
   const tables = buildAllocationTables(rows);
+  // Lot 27c-3a : rubriques de l'année, puis une partie « Arriérés AAAA-AAAA » par année d'origine (mêmes colonnes).
+  const parts = (table: AllocationRow[]) => {
+    const current = table.filter((row) => !row.arrearsYearName);
+    const years = [...new Set(table.filter((row) => row.arrearsYearName).map((row) => row.arrearsYearName!))];
+    return `${current.length ? pdfTable<AllocationRow>(columns, current, "Aucun montant dans ce tableau.") : ""}${years.map((year) =>
+      `<h3 style="margin: 10px 0 4px; font-size: 9pt">Arriérés ${escapePdfHtml(year)}</h3>${pdfTable<AllocationRow>(columns, table.filter((row) => row.arrearsYearName === year), "Aucun montant.")}`).join("")}`;
+  };
   const section = (title: string, table: AllocationRow[]) => pdfSection(title, table.length
-    ? `${pdfTable<AllocationRow>(columns, table, "Aucun montant dans ce tableau.")}${justified(totalLine(table))}`
+    ? `${parts(table)}${justified(totalLine(table))}`
     : justified("Aucun montant dans ce tableau."), { className: "fee-allocation-table-pdf-section" });
   return [pdfInfoGrid([{ label: "Établissement, année et devise", value: context }, { label: "Filtre", value: filterLabel },
     { label: "Statut", value: operational ? "Registre rapproché" : "Préparatoire — aucune activation financière" }]),

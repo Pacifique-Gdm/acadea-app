@@ -170,5 +170,10 @@ export async function getAllocationSpendOptions({ db, caller, body, now = new Da
   const balances = await db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", yearId).where("currency", "==", currency).get();
   const available = new Map(balances.docs.map((doc) => [doc.data().rubricId, (doc.data().openingMinor ?? 0) + (doc.data().receivedMinor ?? 0) - (doc.data().spentMinor ?? 0) - (doc.data().reservedMinor ?? 0)]));
   return { operational: false, required: true, paused: false, currency,
-    rubrics: [...base, { id: "UNALLOCATED", name: "Non affecté", active: true }].map((r) => ({ ...r, availableMinor: available.get(r.id) ?? 0 })) };
+    rubrics: [...base, { id: "UNALLOCATED", name: "Non affecté", active: true },
+      // Lot 27c-3a : lignes d'arriérés (après les rubriques de l'année), avec leur propre disponible.
+      ...balances.docs.map((doc) => doc.data()).filter((b) => b.arrearsOf)
+        .sort((a, b) => String(a.arrearsOf.originYearName).localeCompare(String(b.arrearsOf.originYearName), "fr") || (a.arrearsOf.rubricId === "UNALLOCATED") - (b.arrearsOf.rubricId === "UNALLOCATED") || String(a.arrearsOf.rubricName).localeCompare(String(b.arrearsOf.rubricName), "fr"))
+        .map((b) => ({ id: b.rubricId, name: `${b.arrearsOf.rubricName} (arriéré ${b.arrearsOf.originYearName})`, active: true, arrears: true }))]
+      .map((r) => ({ ...r, availableMinor: available.get(r.id) ?? 0 })) };
 }

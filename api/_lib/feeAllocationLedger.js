@@ -48,7 +48,10 @@ export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, curr
     }
     const hasNext = movements.docs.length > bounded.length;
     if (hasNext && !bounded.length) fail('Page de registre trop volumineuse.');
-    return { status: state.status, cutoffAt: state.cutoffAt, testOnly: state.testOnly, rubrics: [...state.rubrics, { id: "UNALLOCATED", name: "Non affecté" }],
+    return { status: state.status, cutoffAt: state.cutoffAt, testOnly: state.testOnly, rubrics: [...state.rubrics, { id: "UNALLOCATED", name: "Non affecté" },
+        // Lot 27c-3a : lignes d'arriérés, une par rubrique et par année d'origine.
+        ...relevant.filter(b => b.arrearsOf).map(b => ({ id: b.rubricId, name: `${b.arrearsOf.rubricName} (arriéré ${b.arrearsOf.originYearName})`,
+          arrearsYearName: b.arrearsOf.originYearName, originSchoolYearId: b.arrearsOf.originSchoolYearId }))],
       movements: bounded, pagination: { page, hasNext, nextCursor: bounded.at(-1)?.id ?? null, fingerprint: digest },
       metrics: { movementReads: movements.docs.length, movementLimit: 101, transactionDocumentReads: documentReads, transactionAttempts: attempts },
       balances: relevant.map(b => ({ rubricId: b.rubricId, openingMinor: b.openingMinor ?? 0, receivedMinor: b.receivedMinor, spentMinor: b.spentMinor, reservedMinor: b.reservedMinor, availableMinor: b.availableMinor })) };
