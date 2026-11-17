@@ -9,7 +9,7 @@ const api = readFileSync(new URL("../../../api/manage-coordination.js", import.m
 
 describe("alignement Coordination / Administrateur", () => {
   it("affiche les contrôles Élèves dans l'ordre et ouvre la fiche partagée", () => {
-    const labels = ["Rechercher", "Tous", "Toutes les classes", "Toutes les options", "Exporter PDF"];
+    const labels = ["Rechercher", "studentStatusChoices", "Toutes les classes", "Toutes les options", "Exporter PDF"];
     labels.reduce((cursor, label) => { const next = students.indexOf(label, cursor + 1); expect(next).toBeGreaterThan(cursor); return next; }, -1);
     expect(students).toContain("CoordinationStudentRecord");
   });

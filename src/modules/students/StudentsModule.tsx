@@ -19,7 +19,8 @@ import type { SchoolClassRecord } from "../../types";
 import { formatOperationalStudentClassName, resolveStudentParentClass, schoolClassOptionKey, studentSchoolClassOptionKey, subscribeToSchoolClasses, validateStudentAcademicSelection } from "../../services/schoolSubclasses";
 import { canonicalAnnualClassName, isEligibleForAnnualTransition, isImmediatelyPreviousArchivedYear, studentImportKey } from "../../utils/studentYearTransition.js";
 import { useStudentPage } from "../../hooks/useStudentPage";
-import { loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, type StudentQueryFilters } from "../../services/studentPagination";
+import { countStudentStatusesWithFallback, loadAllStudentResults, STUDENT_SOURCE_PAGE_SIZE, studentQueryKey, type StudentArchiveFilter, type StudentQueryFilters } from "../../services/studentPagination";
+import { missingSexNotice, studentStatusLabel, useStudentStatusCounts } from "../../hooks/useStudentStatusCounts";
 import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
 import { failureKind, plainFailureMessage, publicServerMessage } from "../../services/requestFailure";
 import { discardUploadedPhotoIfUnused, findSavedStudent } from "../../services/studentSaveVerification";
@@ -79,7 +80,7 @@ export function StudentsModule({
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
   const [classFilter, setClassFilter] = useState("");
   const [optionFilter, setOptionFilter] = useState("");
-  const [archiveFilter, setArchiveFilter] = useState<"active" | "archived" | "all">("all");
+  const [archiveFilter, setArchiveFilter] = useState<StudentArchiveFilter>("all");
   const [form, setForm] = useState<Student>(() => emptyStudent(school.id, year.id));
   const [quickParent, setQuickParent] = useState<QuickParentForm>(() => emptyQuickParent());
   const [quickParentFeedback, setQuickParentFeedback] = useState("");
@@ -178,6 +179,8 @@ export function StudentsModule({
     allowedSections: allowedSectionsKey ? allowedSectionsKey.split("|") as SchoolSection[] : undefined,
   }), [allowedSectionsKey, archiveFilter, classFilter, deferredQuery, effectiveOptionFilter, school.id, sectionFilter, year.id]);
   const studentPage = useStudentPage(studentFilters, yearData.students);
+  // Nombre d'élèves pour chaque choix (Tous, Actifs, Archivés, Filles, Garçons), avec les autres filtres.
+  const statusCounts = useStudentStatusCounts(studentQueryKey({ ...studentFilters, archive: "all" }), () => countStudentStatusesWithFallback(studentFilters, yearData.students));
   const students = studentPage.students;
   const visibleStudents = students;
   const page = studentPage.page;
@@ -595,7 +598,7 @@ export function StudentsModule({
     pdfExportLock.current = true;
     const filters = [
       `Recherche: ${query || "Toutes"}`,
-      `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : "Tous"}`,
+      `Statut: ${archiveFilter === "active" ? "Actifs" : archiveFilter === "archived" ? "Archivés" : archiveFilter === "girls" ? "Filles (actives)" : archiveFilter === "boys" ? "Garçons (actifs)" : "Tous"}`,
       `Section: ${sectionFilter === "all" ? "Toutes les sections" : schoolSectionLabels[sectionFilter]}`,
       `Classe: ${classFilter || "Toutes les classes"}`,
       `Option: ${effectiveOptionFilter || "Toutes les options"}`,
@@ -630,9 +633,11 @@ export function StudentsModule({
             <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher" className="min-w-0 flex-1 outline-none" />
           </label>
           <select value={archiveFilter} onChange={(event) => setArchiveFilter(event.target.value as typeof archiveFilter)} className="min-w-0 w-full rounded border border-slate-200 bg-white px-3 py-2 lg:flex-1 lg:basis-0">
-            <option value="active">Actifs</option>
-            <option value="archived">Archivés</option>
-            <option value="all">Tous</option>
+            <option value="active">{studentStatusLabel("active", statusCounts)}</option>
+            <option value="archived">{studentStatusLabel("archived", statusCounts)}</option>
+            <option value="all">{studentStatusLabel("all", statusCounts)}</option>
+            <option value="girls">{studentStatusLabel("girls", statusCounts)}</option>
+            <option value="boys">{studentStatusLabel("boys", statusCounts)}</option>
           </select>
           <select
             value={sectionFilter}
@@ -667,6 +672,7 @@ export function StudentsModule({
         </div>
         {structuredClassesLoaded && filterOptionChoices.length === 0 && <p role="status" className="mb-3 text-sm text-slate-600">{classFilter ? "Aucune option disponible pour la classe sélectionnée." : sectionFilter !== "all" ? "Aucune option disponible pour cette section." : "Aucune option disponible pour les classes accessibles."}</p>}
         {pdfError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{pdfError}</p>}
+        {missingSexNotice(statusCounts) && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{missingSexNotice(statusCounts)}</p>}
         {studentPage.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Impossible de charger les élèves : {studentPage.error}</p>}
         {studentPage.loading && <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Chargement des élèves…</p>}
         <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white">

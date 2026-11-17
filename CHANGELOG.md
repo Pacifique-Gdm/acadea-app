@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.7.0] — 2026-11-17 — Fonctionnalité
+- Onglet Élèves : filtres « Filles » et « Garçons » (élèves actifs), nombre d'élèves pour chaque choix et signalement des fiches sans sexe renseigné
+
 ## [1.6.0] — 2026-11-17 — Fonctionnalité
 - Anciens élèves : chaque paiement compte du même montant dans le prévu et dans l'encaissé (tableaux de bord Administrateur et Caissier, Coordination, Sous-coordination, rapport financier, Répartition des frais et PDF), avec la mention « dont anciens élèves »
 

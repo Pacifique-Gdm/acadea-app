@@ -12,6 +12,8 @@ import { classFilterReadyForPage } from "./classFilterReadiness";
 import type { CoordinationStudentStatus } from "../../utils/coordinationSupervision";
 import { COORDINATION_ACTIVE_YEAR, COORDINATION_STUDENT_PAGE_SIZE, coordinationYearChoices, loadCoordinationStudentPage, loadCoordinationStudentYears, type CoordinationStudentCursor, type CoordinationStudentFilters, type CoordinationStudentPage } from "../../services/coordinationStudentPagination";
 import { CoordinationStudentRecord } from "./CoordinationStudentRecord";
+import { countCoordinationStudentStatuses } from "../../services/coordinationStudentPagination";
+import { missingSexNotice, studentStatusChoices, studentStatusLabel, useStudentStatusCounts } from "../../hooks/useStudentStatusCounts";
 
 const emptyPage: CoordinationStudentPage = { students: [], fetchedDocuments: 0, queryCount: 0 };
 
@@ -77,6 +79,9 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
   // (non couverte par l’écoute en temps réel) ; l’année active suit la version des données.
   const pastYearReturn = selectedYearId === COORDINATION_ACTIVE_YEAR ? 0 : returnCount;
   const filterKey = JSON.stringify({ schools: schoolIdsKey, activeYearKey, years: years.map((year) => year.id).sort(), selectedSchoolId, selectedYearId, search, status, classKey, optionKey, allowedSections, refreshToken, pastYearReturn });
+  // Nombre d'élèves pour chaque choix du statut ; recalculé seulement si un AUTRE filtre change.
+  const countKey = classFilterReady && !yearsLoading ? filterKey.replace(`"status":"${status}"`, '"status":""') : "";
+  const statusCounts = useStudentStatusCounts(countKey, () => countKey ? countCoordinationStudentStatuses(filters) : Promise.reject(new Error("Filtres en préparation.")));
   const currentPageKey = `${filterKey}|${pageIndex}`;
   const students = pageKey === currentPageKey ? page.students : [];
 
@@ -133,13 +138,14 @@ export function CoordinationStudents({ user, coordination, schools, selectedScho
     <div><h2 className="text-lg font-bold">Élèves</h2><p className="text-sm text-slate-600">Consultation en lecture seule · page {pageIndex + 1} · {students.length} élève(s) affiché(s).</p></div>
     <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
       <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2"><Search className="h-4 w-4 shrink-0 text-slate-400"/><input className="min-w-0 flex-1 outline-none" placeholder="Rechercher" value={search} onChange={(event) => setSearch(event.target.value)}/></label>
-      <select aria-label="Statut des élèves" className="input min-w-0 w-full" value={status} onChange={(event) => setStatus(event.target.value as CoordinationStudentStatus)}><option value="all">Tous</option><option value="active">Actifs</option><option value="archived">Archivés</option></select>
+      <select aria-label="Statut des élèves" className="input min-w-0 w-full" value={status} onChange={(event) => setStatus(event.target.value as CoordinationStudentStatus)}>{studentStatusChoices.map((choice) => <option key={choice} value={choice}>{studentStatusLabel(choice, statusCounts)}</option>)}</select>
       <select aria-label="Classe" className="input min-w-0 w-full" value={classKey} disabled={!classChoicesReady} onChange={(event) => { setClassKey(event.target.value); setOptionKey(""); }}><option value="">Toutes les classes</option>{classes.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
       <select aria-label="Option" className="input min-w-0 w-full" value={optionKey} disabled={!classChoicesReady || options.length === 0} onChange={(event) => setOptionKey(event.target.value)}><option value="">{options.length ? "Toutes les options" : "Aucune option disponible"}</option>{options.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select>
       <button type="button" className="pdf-export-button min-w-0 w-full xl:w-auto" disabled={!students.length || exporting} onClick={() => void exportPdf()}><Download className="h-4 w-4"/> {exporting ? "Export…" : "Exporter PDF"}</button>
     </div>
     {classChoicesReady && options.length === 0 && <p role="status" className="text-sm text-slate-600">{classKey ? "Aucune option disponible pour la classe sélectionnée." : "Aucune option disponible pour les classes accessibles."}</p>}
     {!classChoicesReady && !classMetadataError && <p role="status" className="text-sm text-slate-600">Chargement des choix de classes…</p>}
+    {missingSexNotice(statusCounts) && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{missingSexNotice(statusCounts)}</p>}
     {(yearsLoading || loading || (!classMetadataError && !classFilterReady)) && <p role="status" className="rounded bg-blue-50 p-3 text-sm text-blue-700">Chargement des élèves…</p>}
     {(yearsError || classMetadataError || loadError || exportError) && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{yearsError || classMetadataError || loadError || exportError}</p>}
     {!yearsLoading && !loading && classFilterReady && !yearsError && !loadError && <div className="max-w-full overflow-x-auto rounded border border-slate-200 bg-white"><table className="w-full min-w-[780px] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr><th className="p-3">Matricule</th><th className="p-3">Nom complet</th><th className="p-3">École</th><th className="p-3">Statut</th><th className="p-3">Sexe</th><th className="p-3">Classe</th></tr></thead><tbody>{students.map((student) => <tr key={student.id} className="border-t"><td className="p-3 font-semibold">{student.matricule}</td><td className="p-3"><button type="button" className="text-left font-semibold text-blue-700 hover:underline" onClick={() => { setSelectedStudent(student); setSelectedStudentScope(filterKey); }}>{student.nom} {student.postnom} {student.prenom}</button></td><td className="p-3">{schools.find((school) => school.id === student.schoolId)?.name ?? student.schoolId}</td><td className="p-3">{isArchivedStudent(student) ? "Archivé" : "Actif"}</td><td className="p-3">{student.sexe}</td><td className="p-3">{formatStudentClassName(student)}</td></tr>)}</tbody></table>{students.length === 0 && <p className="p-5 text-sm text-slate-500">Aucun élève dans le périmètre sélectionné.</p>}</div>}
