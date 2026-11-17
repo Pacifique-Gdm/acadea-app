@@ -33,7 +33,6 @@
   },
   "dependencies": {
     "@tesseract.js-data/fra": "1.0.0",
-    "@vitejs/plugin-react": "^5.0.4",
     "@vvo/tzdb": "6.201.1",
     "firebase": "12.19.0",
     "firebase-admin": "14.2.0",
@@ -92,6 +91,7 @@
     "@types/node": "^24.7.2",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
+    "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
     "dotenv": "^17.4.2",
     "esbuild": "0.28.1",

@@ -76,13 +76,16 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeEnabled();
       await expect(drawer.getByRole("button", { name: "+ Ajouter", exact: true })).toHaveCount(role === "school_admin" ? 1 : 0);
       await expect(drawer.getByLabel("Filtre", { exact: true }).locator("option")).toHaveText(["Frais", "Classe", "Période"]);
-      await expect(drawer.locator("tbody tr")).toHaveCount(4); // Aggregate per rubric, not per reference tariff.
+      // Lot 27c-1 : trois tableaux ; une ligne par rubrique dans le tableau 1 (élèves normaux) et dans le tableau 3 (ensemble).
+      const tableOne = drawer.getByRole("table", { name: "Tableau 1 — Élèves normalement inscrits" });
+      await expect(tableOne.locator("tbody tr")).toHaveCount(4); // Aggregate per rubric, not per reference tariff.
+      await expect(drawer.getByRole("table", { name: "Tableau 3 — Ensemble (tableaux 1 et 2 additionnés)" }).locator("tbody tr")).toHaveCount(4);
       await drawer.getByLabel("Filtre", { exact: true }).selectOption("class");
       await drawer.getByLabel("Valeur correspondante", { exact: true }).selectOption(JSON.stringify([f.school, "1ère Secondaire::option::Sciences"]));
-      await expect(drawer.locator("tbody tr")).toHaveCount(4);
+      await expect(tableOne.locator("tbody tr")).toHaveCount(4);
       await drawer.getByLabel("Filtre", { exact: true }).selectOption("period");
       await drawer.getByLabel("Valeur correspondante", { exact: true }).selectOption("today");
-      await expect(drawer.locator("tbody tr")).toHaveCount(4);
+      await expect(tableOne.locator("tbody tr")).toHaveCount(4);
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
