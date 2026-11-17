@@ -37,6 +37,17 @@ describe("lot 27c-1 : trois tableaux sur le même modèle", () => {
     expect(t3.financial).toMatchObject({ receivedMinor: 45333, spentMinor: 30000, availableMinor: 15333 });
     expect(t3.amountMinor).toBe(60000 + 6667 + 4000);
   });
+  it("prévu à 0 sans argent : rubrique cachée ; prévu à 0 mais encaissé, dépense ou disponible : toujours affichée", () => {
+    const w = workspace();
+    // « Entretien » : prévu 0, mais 5 $ encaissés (par exemple un arriéré) : elle doit rester visible.
+    w.ledger!.movements.push({ id: "p3", sourceType: "payment", type: "payment", amountMinor: 500, lines: [{ rubricId: upkeep, amountMinor: 500 }], feeTypeId: "minerval", className: "1ère", classOptionKey: null, originSchoolYearId: "old", postedAt: "2026-11-13", socialCase: false });
+    w.ledger!.balances[1] = { ...w.ledger!.balances[1], receivedMinor: 500, availableMinor: 500 };
+    const shown = buildAllocationTables(projectAllocations([w], { kind: "fee", value: "", from: "", to: "" }));
+    expect(shown.one.map((row) => row.rubricName)).toContain("Entretien");
+    expect(shown.three.find((row) => row.rubricName === "Entretien")!.financial!.availableMinor).toBe(500);
+    // Tableau 2 : aucun cas social sur cette rubrique, ni prévu ni argent : cachée.
+    expect(shown.two.map((row) => row.rubricName)).not.toContain("Entretien");
+  });
   it("une rubrique sans aucun montant n'apparaît pas", () => {
     const tables = buildAllocationTables(projectAllocations([workspace()], { kind: "fee", value: "", from: "", to: "" }));
     expect([...tables.one, ...tables.two, ...tables.three].map((row) => row.rubricName)).not.toContain("Entretien");

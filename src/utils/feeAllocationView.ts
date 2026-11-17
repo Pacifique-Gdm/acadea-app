@@ -152,9 +152,17 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
   });
 }
 
-// Répartition active : une rubrique sans aucun montant est cachée. En préparation (aucun registre), une rubrique
-// configurée reste visible même à 0, pour que l'Administrateur puisse ouvrir son détail et préparer sa version.
-const isEmptyRow = (row: AllocationRow) => row.amountMinor === 0 && (row.financial ? Object.values(row.financial).every((value) => value === 0) : row.table === 2 || !row.percentLabel);
+// Règle du propriétaire : une rubrique est cachée quand son PRÉVU vaut 0. Sécurité : jamais si elle a un encaissé,
+// une dépense ou un disponible différent de 0 (l'argent n'échappe jamais aux tableaux). En préparation (aucun
+// registre), une rubrique configurée reste visible même à 0 pour que l'Administrateur ouvre son détail.
+const isEmptyRow = (row: AllocationRow) => {
+  if (row.amountMinor !== 0) return false;
+  if (row.financial) {
+    const f = row.financial;
+    return [f.receivedMinor, f.cumulativeReceivedMinor, f.spentMinor, f.cumulativeSpentMinor, f.availableMinor].every((value) => value === 0);
+  }
+  return row.table === 2 || !row.percentLabel;
+};
 
 /** Trois tableaux sur le même modèle : 1, 2 et 3 = somme rubrique par rubrique et colonne par colonne.
  * Une rubrique sans aucun montant n'apparaît pas dans le tableau concerné. */
