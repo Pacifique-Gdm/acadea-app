@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.8.0] — 2026-11-17 — Fonctionnalité
+- Répartition des frais : chaque arriéré encaissé va dans sa propre ligne « … (arriéré AAAA-AAAA) » avec son disponible, regroupée sous « Arriérés AAAA-AAAA » dans les trois tableaux et le PDF ; le Caissier peut y imputer une dépense ou un paiement du personnel dans la limite du disponible
+
 ## [1.7.0] — 2026-11-17 — Fonctionnalité
 - Onglet Élèves : filtres « Filles » et « Garçons » (élèves actifs), nombre d'élèves pour chaque choix et signalement des fiches sans sexe renseigné
 

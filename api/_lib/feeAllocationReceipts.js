@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, assertFeeAllocationMovement, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, arrearsRubricKey, assertFeeAllocationMovement, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { allocationSupportedProject, readOperationalAllocation } from "./feeAllocationRuntime.js";
@@ -190,6 +190,19 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     if (!sameShares(shares, version.shares)) fail("Poids historiques altérés.");
     versionDigest = hash([version.id, version.feeAmountMinor, validated.rubrics, shares, version.effectiveFrom]);
   }
+  // Lot 27c-3a : un arriéré (dette d'une année passée) va dans les lignes « … (arriéré AAAA-AAAA) », jamais dans les
+  // rubriques ni dans le « Non affecté » de l'année d'encaissement. Les parts restent celles de l'année d'origine.
+  const arrears = source.schoolYearId !== collectionYear;
+  const arrearsNames = new Map();
+  if (arrears) {
+    const originNames = anchor.configVersionId ? new Map(((await transaction.get(db.doc(`feeAllocationVersions/${anchor.configVersionId}`))).data()?.rubrics ?? []).map(r => [r.id, r.name])) : new Map();
+    shares = shares.map(share => {
+      const key = arrearsRubricKey(source.schoolYearId, share.rubricId);
+      arrearsNames.set(key, { originSchoolYearId: source.schoolYearId, originYearName: String(year.name ?? source.schoolYearId), rubricId: share.rubricId,
+        rubricName: share.rubricId === UNALLOCATED_RUBRIC_ID ? "Non affecté" : String(originNames.get(share.rubricId) ?? "Rubrique") });
+      return { ...share, rubricId: key };
+    });
+  }
   const total = totalSnap.data();
   if (total && (total.anchorId !== anchorId || total.schoolId !== source.schoolId || total.versionDigest !== versionDigest || !safe(total.amountMinor))) fail("Cumul historique incohérent.");
   const oldMinor = previous ? toMoneyMinor(previous.amount) : 0;
@@ -208,6 +221,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     const openingMinor = balance?.openingMinor ?? 0;
     if (!safe(openingMinor) || !safe(receivedMinor) || !safe(openingMinor + receivedMinor) || openingMinor + receivedMinor < (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0)) fail("Correction incompatible avec des fonds déjà imputés ou réservés.");
     return { ref, value: { schoolId: source.schoolId, collectionSchoolYearId: collectionYear, currency: source.currency, rubricId: line.rubricId,
+      ...(arrearsNames.has(line.rubricId) ? { arrearsOf: arrearsNames.get(line.rubricId) } : {}),
       receivedMinor, openingMinor, spentMinor: balance?.spentMinor ?? 0, reservedMinor: balance?.reservedMinor ?? 0, operational: !!operational,
       ...(operational ? { availableMinor: openingMinor + receivedMinor - (balance?.spentMinor ?? 0) - (balance?.reservedMinor ?? 0) } : {}), updatedAt: now } };
   }));

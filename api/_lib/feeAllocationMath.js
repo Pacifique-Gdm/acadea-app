@@ -1,5 +1,13 @@
 const RUBRIC_ID = /^[a-f0-9]{32}$/;
 export const UNALLOCATED_RUBRIC_ID = "UNALLOCATED";
+/** Lot 27c-3a : ligne d'arriéré = rubrique à part entière, par année d'origine (« Non affecté (arriéré 2025-2026) »).
+ * Son identifiant garde l'année d'origine et la rubrique de cette année ; son solde est distinct de l'année en cours. */
+const ARREARS_KEY = /^ARR__([A-Za-z0-9_-]{1,120})__(UNALLOCATED|[a-f0-9]{32})$/;
+export const arrearsRubricKey = (originSchoolYearId, rubricId) => `ARR__${originSchoolYearId}__${rubricId}`;
+export function parseArrearsRubricKey(key) {
+  const match = typeof key === "string" ? ARREARS_KEY.exec(key) : null;
+  return match ? { originSchoolYearId: match[1], rubricId: match[2] } : null;
+}
 
 export class FeeAllocationError extends Error {
   constructor(status, code, message) {
@@ -73,7 +81,7 @@ export function validateFeeAllocationOpeningProposal({ cutoffAt, cashAvailableMi
 
 export function assertFeeAllocationMovement(movement) {
   if (!movement || !["payment", "expense"].includes(movement.sourceType) || !movement.sourceId || !movement.sourceRevision || !safeMinor(Math.abs(movement.amountMinor)) || !Array.isArray(movement.lines) || movement.lines.length === 0) invalid("Mouvement de répartition invalide.");
-  if (!movement.lines.every((line) => line && typeof line.rubricId === "string" && (line.rubricId === UNALLOCATED_RUBRIC_ID || RUBRIC_ID.test(line.rubricId)) && Number.isSafeInteger(line.amountMinor))) invalid("Ligne de mouvement invalide.");
+  if (!movement.lines.every((line) => line && typeof line.rubricId === "string" && (line.rubricId === UNALLOCATED_RUBRIC_ID || RUBRIC_ID.test(line.rubricId) || parseArrearsRubricKey(line.rubricId)) && Number.isSafeInteger(line.amountMinor))) invalid("Ligne de mouvement invalide.");
   // A movement already has one source/revision and one configuration version.
   // Its line key is therefore rubricId, including the reserved UNALLOCATED line.
   if (new Set(movement.lines.map((line) => line.rubricId)).size !== movement.lines.length) invalid("Une rubrique ne peut apparaître qu'une fois par mouvement.");

@@ -1,5 +1,5 @@
 import { toMoneyMinor } from "./money.js";
-import { assertFeeAllocationMovement } from "./feeAllocationMath.js";
+import { assertFeeAllocationMovement, parseArrearsRubricKey } from "./feeAllocationMath.js";
 import { allocationBalanceId, allocationFail as fail, allocationHash as hash, allocationIdentifier as id,
   allocationMinor as minor, readOperationalAllocation } from "./feeAllocationRuntime.js";
 
@@ -19,7 +19,9 @@ export async function prepareFeeAllocationExpense({ db, transaction, caller, exp
   const rubricId = previous?.allocationRubricId ?? expense?.allocationRubricId;
   const catalogMarker = await transaction.get(db.doc(`feeAllocationRubricCatalogs/${source.schoolId}__${source.schoolYearId}`));
   if (!id(rubricId)) fail("Sélectionnez une rubrique active de cet établissement.");
-  if (rubricId !== "UNALLOCATED") {
+  // Lot 27c-3a : une ligne d'arriéré est choisie par son identifiant ; elle doit exister avec un solde (vérifié plus bas).
+  const arrearsLine = parseArrearsRubricKey(rubricId);
+  if (rubricId !== "UNALLOCATED" && !arrearsLine) {
     if (catalogMarker.exists) {
       // Lot 27b : liste des rubriques de l'école et de l'année ; masquée = refusée pour une nouvelle dépense seulement.
       const entry = (await transaction.get(db.doc(`feeAllocationRubrics/${rubricId}`))).data();
@@ -37,7 +39,7 @@ export async function prepareFeeAllocationExpense({ db, transaction, caller, exp
   // Lot 27b : une rubrique du catalogue qui n'a encore rien reçu a un disponible nul.
   if (!balance && expense && !previous) fail("Solde disponible de la rubrique insuffisant.", "allocation-insufficient-funds");
   if (!balance || balance.schoolId !== source.schoolId || balance.collectionSchoolYearId !== source.schoolYearId
-    || balance.currency !== source.currency || balance.rubricId !== rubricId
+    || balance.currency !== source.currency || balance.rubricId !== rubricId || (arrearsLine && balance.arrearsOf?.originSchoolYearId !== arrearsLine.originSchoolYearId)
     || ![balance.openingMinor ?? 0, balance.receivedMinor, balance.spentMinor, balance.reservedMinor].every(minor)) fail("Solde de rubrique introuvable ou incohérent.");
   const delta = (expense ? toMoneyMinor(expense.amount) : 0) - (previous ? toMoneyMinor(previous.amount) : 0);
   const spentMinor = balance.spentMinor + delta;

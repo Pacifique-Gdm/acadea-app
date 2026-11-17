@@ -12,7 +12,7 @@ export type AllocationWorkspace = {
     rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; studentsCount: number;
       /** Lot 27c-1 : tableau 1 (élèves normaux) ou 2 (cas sociaux) ; part de la rubrique dans le tarif. */
       table?: 1 | 2; rubricShare?: number; tariffMinor?: number; rubricMode?: "percent" | "fixed" | null; basisPoints?: number | null }[] };
-  ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string }[];
+  ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string; arrearsYearName?: string; originSchoolYearId?: string }[];
     pagination?: { page: number; hasNext: boolean; nextCursor: string | null; fingerprint: string };
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
