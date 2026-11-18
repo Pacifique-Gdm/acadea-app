@@ -3,6 +3,7 @@ import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestE
 import { collection, deleteDoc, doc, documentId, getDoc, getDocs, limit, orderBy, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { coordinationSchoolBatches } from "../../src/services/coordinationSchoolBatches";
+import { currentSchoolYearStart, schoolYearDatesFromName } from "../../api/_lib/schoolYearOpening.js";
 
 let environment: RulesTestEnvironment;
 const coordinationId = "coord-a";
@@ -161,7 +162,13 @@ describe("SEC — isolation Coordination", () => {
     await assertFails(setDoc(doc(admin, "schoolYears", "bypass-year"), { id: "bypass-year", schoolId: schoolA, status: "draft" }));
     await assertFails(updateDoc(doc(admin, "coordinations", coordinationId), { yearGovernance: null }));
     await assertFails(updateDoc(doc(admin, "schools", schoolA), { activeCoordinationId: null }));
-    await assertSucceeds(setDoc(doc(independent, "schoolYears", "independent-year"), { id: "independent-year", schoolId: schoolB, status: "draft" }));
+    const current = currentSchoolYearStart(), name = `${current}-${current + 1}`, early = `${current + 1}-${current + 2}`;
+    await assertSucceeds(setDoc(doc(independent, "schoolYears", "independent-year"), { id: "independent-year", schoolId: schoolB, status: "draft", ...schoolYearDatesFromName(name), name }));
+    // Lot 15 : école libre — année en avance, dates libres ou nom invalide refusés par les règles.
+    const july = new Date(Date.now() + 3600_000).getUTCMonth() + 1 === 7;
+    if (!july) await assertFails(setDoc(doc(independent, "schoolYears", "early-year"), { id: "early-year", schoolId: schoolB, status: "draft", ...schoolYearDatesFromName(early), name: early }));
+    await assertFails(setDoc(doc(independent, "schoolYears", "wrong-dates"), { id: "wrong-dates", schoolId: schoolB, status: "draft", name, startsAt: `${current}-08-01`, endsAt: `${current + 1}-07-31` }));
+    await assertFails(setDoc(doc(independent, "schoolYears", "no-name"), { id: "no-name", schoolId: schoolB, status: "draft" }));
   });
 
   it("limite le Sous-coordinateur aux seules écoles activement déléguées", async () => {

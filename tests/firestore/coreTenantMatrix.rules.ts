@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { currentSchoolYearStart, schoolYearDatesFromName } from "../../api/_lib/schoolYearOpening.js";
 
 const projectId = "demo-acadea-core-tenant-matrix";
 const schoolA = "school-a";
@@ -143,7 +144,8 @@ describe("SEC-015 — matrice centrale d'isolation tenant", () => {
     await assertFails(setDoc(doc(auth("secretary-a", "secretary"), "schools", "school-c"), { id: "school-c", status: "active" }));
 
     const admin = auth("admin-a", "school_admin");
-    await assertSucceeds(setDoc(doc(admin, "schoolYears", "year-a-2"), { id: "year-a-2", schoolId: schoolA, status: "active" }));
+    const yearName = `${currentSchoolYearStart()}-${currentSchoolYearStart() + 1}`;
+    await assertSucceeds(setDoc(doc(admin, "schoolYears", "year-a-2"), { id: "year-a-2", schoolId: schoolA, status: "active", name: yearName, ...schoolYearDatesFromName(yearName) }));
     await assertSucceeds(updateDoc(doc(admin, "schoolYears", "year-a-2"), { label: "2027-2028" }));
     await assertFails(setDoc(doc(admin, "schoolYears", "year-b-2"), { id: "year-b-2", schoolId: schoolB, status: "active" }));
     await assertFails(deleteDoc(doc(admin, "schoolYears", "year-a-2")));

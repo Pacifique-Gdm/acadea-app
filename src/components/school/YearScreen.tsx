@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { currentSchoolYearStart, normalizeSchoolYearName } from "../../../api/_lib/schoolYearOpening.js";
 import { LogOut, Plus } from "lucide-react";
 import { EnvironmentBanner } from "../layout/EnvironmentBanner";
 import type { AppUser, SchoolYear } from "../../types";
@@ -24,7 +25,7 @@ export function YearScreen({
   currency: "USD" | "CDF";
   governance?: { closed: boolean; loading: boolean; error: string };
 }) {
-  const [name, setName] = useState("2026-2027");
+  const [name, setName] = useState(() => `${currentSchoolYearStart()}-${currentSchoolYearStart() + 1}`);
   const canEdit = user.role === "school_admin" && !governance?.closed && !governance?.loading && !governance?.error;
 
   return (
@@ -64,9 +65,10 @@ export function YearScreen({
                 onCreate({
                   id: createId("year"),
                   schoolId: user.schoolId ?? "",
-                  name,
-                  startsAt: `${name.slice(0, 4)}-09-01`,
-                  endsAt: `${name.slice(5)}-07-15`,
+                  name: normalizeSchoolYearName(name),
+                  // Lot 15 : dates calculées depuis le nom, comme partout (1er septembre → 31 juillet).
+                  startsAt: `${normalizeSchoolYearName(name).slice(0, 4)}-09-01`,
+                  endsAt: `${normalizeSchoolYearName(name).slice(5)}-07-31`,
                   status: "draft",
                   currency,
                 })

@@ -1,4 +1,5 @@
 import { SocialSupportDrawer } from "./SocialSupportDrawer";
+import { schoolYearOpeningDecision } from "../../../api/_lib/schoolYearOpening.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Fragment, type ReactNode } from "react";
 import { Banknote, BarChart3, BookOpen, CalendarRange, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, Trash2, UserRound, UsersRound, X } from "lucide-react";
@@ -472,12 +473,10 @@ export function MenuModule({
       setNewYearError("Veuillez saisir exactement CREER UNE NOUVELLE ANNEE pour confirmer.");
       return;
     }
-    if (!newYearForm.name.trim() || !newYearForm.startsAt || !newYearForm.endsAt) {
-      setNewYearError("Veuillez renseigner le nom, la date de début et la date de fin de la nouvelle année.");
-      return;
-    }
-    if (years.some((year) => year.name.trim().toLowerCase() === newYearForm.name.trim().toLowerCase())) {
-      setNewYearError("Une année scolaire avec ce nom existe déjà.");
+    // Lot 15 : seulement le nom ; les dates en sont calculées ; année en avance, passée ou existante refusée.
+    const decision = schoolYearOpeningDecision(newYearForm.name, { existingNames: years.map((year) => year.name) });
+    if (!decision.ok) {
+      setNewYearError(decision.message);
       return;
     }
 
@@ -492,9 +491,9 @@ export function MenuModule({
     const nextYear: SchoolYear = {
       id: newYearId,
       schoolId: school.id,
-      name: newYearForm.name.trim(),
-      startsAt: newYearForm.startsAt,
-      endsAt: newYearForm.endsAt,
+      name: decision.name,
+      startsAt: decision.startsAt,
+      endsAt: decision.endsAt,
       status: "active",
       currency: school.currency === "CDF" ? "CDF" : "USD",
     };
@@ -1005,10 +1004,7 @@ export function MenuModule({
               </div>
               {newYearError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{newYearError}</p>}
               <Field label="Nom de la nouvelle année" value={newYearForm.name} onChange={(value) => setNewYearForm({ ...newYearForm, name: value })} />
-              <div className="grid min-w-0 gap-2 sm:grid-cols-2">
-                <Field label="Date de début" value={newYearForm.startsAt} onChange={(value) => setNewYearForm({ ...newYearForm, startsAt: value })} type="date" />
-                <Field label="Date de fin" value={newYearForm.endsAt} onChange={(value) => setNewYearForm({ ...newYearForm, endsAt: value })} type="date" />
-              </div>
+              <p className="text-xs text-slate-500">Seulement le nom, par exemple 2026-2027. L'année suivante peut être ouverte à partir du 1er juillet.</p>
               <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
                 Confirmation obligatoire
                 <input value={newYearConfirmation} onChange={(event) => setNewYearConfirmation(event.target.value)} className="input" placeholder="CREER UNE NOUVELLE ANNEE" />

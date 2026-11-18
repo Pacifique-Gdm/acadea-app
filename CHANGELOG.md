@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.9.0] — 2026-11-18 — Fonctionnalité
+- Ouverture d'une année scolaire : seulement le nom (dates calculées), année en avance ou passée refusée avec un message clair (bascule le 1er août, année suivante dès le 1er juillet, heure de Kinshasa), pour le Coordinateur comme pour l'Administrateur d'une école libre ; identifiant différent si l'ancien existe déjà
+
 ## [1.8.1] — 2026-11-17 — Correction
 - Onglet Élèves : « Tous » en premier dans le filtre (Tous, Actifs, Archivés, Filles, Garçons), à l'école comme en Coordination et Sous-coordination
 
