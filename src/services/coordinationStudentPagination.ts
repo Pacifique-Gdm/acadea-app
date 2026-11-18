@@ -3,6 +3,8 @@ import { db } from "../firebase";
 import type { FeeType, Payment, School, SchoolSection, SchoolYear, Student } from "../types";
 import { canonicalSchoolOption } from "../utils/schoolOptions";
 import { normalizeStudentSearch } from "../utils/studentSearch.js";
+import { isHiddenSchoolYear } from "../utils/schoolYears";
+import { schoolYearStartOf } from "../../api/_lib/schoolYearOpening.js";
 import type { CoordinationStudentStatus } from "../utils/coordinationSupervision";
 import { mapCoordinationSchoolBatches } from "./coordinationSchoolBatches";
 
@@ -72,12 +74,23 @@ export function coordinationStudentSources(filters: CoordinationStudentFilters) 
     });
 }
 
+/** Libellé du premier choix, qui suit automatiquement l'année active : « 2026-2027 (année active) ». */
+export function coordinationActiveYearLabel(years: readonly SchoolYear[], schools: readonly School[]) {
+  const ids = new Set(schools.map((school) => school.activeSchoolYearId).filter(Boolean));
+  const labels = [...new Set(years.filter((year) => ids.has(year.id)).map((year) => coordinationYearPeriod(year).label))];
+  return labels.length === 1 ? `${labels[0]} (année active)` : labels.length ? `${labels.join(" / ")} (années actives)` : "Année active";
+}
+
 export function coordinationYearChoices(years: readonly SchoolYear[], schools: readonly School[]) {
   const allowed = new Set(schools.map((school) => school.id));
   const active = new Set(schools.map((school) => school.activeSchoolYearId).filter(Boolean));
   const choices = new Map<string, ReturnType<typeof coordinationYearPeriod>>();
-  for (const year of years.filter((item) => allowed.has(item.schoolId))
-    .sort((a, b) => Number(active.has(b.id)) - Number(active.has(a.id)) || (b.startsAt ?? "").localeCompare(a.startsAt ?? "") || (b.name ?? "").localeCompare(a.name ?? "", "fr") || a.schoolId.localeCompare(b.schoolId) || a.id.localeCompare(b.id))) {
+  // Ordre : de la plus récente à la plus ancienne (d'après le nom) ; années cachées jamais proposées.
+  // « Année active » et « Toutes les années » encadrent cette liste dans les écrans.
+  const start = (year: SchoolYear) => schoolYearStartOf(year.name) ?? Number((year.startsAt ?? "").slice(0, 4) || 0);
+  // L'année active n'est pas répétée ici : elle forme le premier choix « 2026-2027 (année active) ».
+  for (const year of years.filter((item) => allowed.has(item.schoolId) && !active.has(item.id) && !isHiddenSchoolYear(item))
+    .sort((a, b) => start(b) - start(a) || (b.name ?? "").localeCompare(a.name ?? "", "fr") || a.schoolId.localeCompare(b.schoolId) || a.id.localeCompare(b.id))) {
     const choice = coordinationYearPeriod(year);
     if (!choices.has(choice.value)) choices.set(choice.value, choice);
   }
@@ -107,7 +120,8 @@ export async function loadCoordinationStudentYears(schoolIds: readonly string[],
   if (!db || schoolIds.length === 0) return [];
   const database = db as unknown as Firestore;
   const results = await mapCoordinationSchoolBatches(schoolIds, isDelegate, (ids) => getDocs(query(collection(database, "schoolYears"), where("schoolId", "in", ids))));
-  return results.flatMap((snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as SchoolYear)));
+  // Années cachées (« … (ne pas utiliser) ») : jamais proposées ni lues par « Toutes les années » ; l'année active reste toujours.
+  return results.flatMap((snapshot) => snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as SchoolYear))).filter((year) => year.status === "active" || !isHiddenSchoolYear(year));
 }
 
 export async function loadCoordinationStudentFinancialDetails(student: Student): Promise<{ feeTypes: FeeType[]; payments: Payment[] }> {

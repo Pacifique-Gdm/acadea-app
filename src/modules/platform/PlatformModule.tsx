@@ -1413,7 +1413,7 @@ export function PlatformModule({
               Année scolaire consultée
               <select aria-label="Année scolaire consultée" className="input" value={drawerYear?.id ?? ""} onChange={(event) => changeDrawerYear(event.target.value)}>
                 {orderSchoolYears(data.schoolYears.filter((year) => year.schoolId === drawerSchool.id && (year.status === "active" || year.status === "archived")), drawerSchool.activeSchoolYearId).map((year) => (
-                  <option key={year.id} value={year.id}>{year.name}{year.status === "archived" ? " — Archivée" : " — Active"}</option>
+                  <option key={year.id} value={year.id}>{year.name}{year.status === "archived" ? " — Archivée" : " (année active)"}</option>
                 ))}
               </select>
             </label>

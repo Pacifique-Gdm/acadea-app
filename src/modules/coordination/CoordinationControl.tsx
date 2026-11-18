@@ -22,7 +22,7 @@ import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { loadCoordinationStudentArrearsDetailsBatch } from "../../services/coordinationService";
 import type { HistoricalDebt } from "../../services/financialTransactions";
 import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
-import { COORDINATION_ACTIVE_YEAR, coordinationYearChoices, coordinationYearMatches } from "../../services/coordinationStudentPagination";
+import { COORDINATION_ACTIVE_YEAR, coordinationActiveYearLabel, coordinationYearChoices, coordinationYearMatches } from "../../services/coordinationStudentPagination";
 import { arrearsFilterForCriterion } from "../../utils/arrearsFilter";
 import { collectPayrollHistoryForExport, personnelPayrollHistoryPdfSections } from "../../utils/personnelPayrollHistoryExport";
 import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
@@ -201,7 +201,7 @@ export function CoordinationControl({ user, coordination, schools, selectedSchoo
   return <section className="grid min-w-0 gap-4">
     <div className="grid min-w-0 grid-cols-2 gap-2 rounded border border-blue-100 bg-blue-50 p-3 text-sm sm:p-4">
       <label className="grid min-w-0 gap-1"><span className="font-bold">École</span><select className="input min-w-0 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => onSchoolChange(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({schools.length})</option>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>
-      <label className="grid min-w-0 gap-1"><span className="font-bold">Année scolaire</span><select className="input min-w-0 w-full" aria-label="Année scolaire" value={page.selectedYearId} onChange={(event) => page.setSelectedYearId(event.target.value)}><option value={COORDINATION_ACTIVE_YEAR}>Année active</option>{coordinationYearChoices(page.years, schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId)).map((year) => <option key={year.value} value={year.value}>{year.label}</option>)}<option value="">Toutes les années</option></select></label>
+      <label className="grid min-w-0 gap-1"><span className="font-bold">Année scolaire</span><select className="input min-w-0 w-full" aria-label="Année scolaire" value={page.selectedYearId} onChange={(event) => page.setSelectedYearId(event.target.value)}><option value={COORDINATION_ACTIVE_YEAR}>{coordinationActiveYearLabel(page.years, schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId))}</option>{coordinationYearChoices(page.years, schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId)).map((year) => <option key={year.value} value={year.value}>{year.label}</option>)}<option value="">Toutes les années</option></select></label>
     </div>
     <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants en lecture seule."/>
     <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[repeat(3,minmax(5rem,1fr))_minmax(7rem,1.2fr)_minmax(4rem,.7fr)_repeat(3,max-content)]">

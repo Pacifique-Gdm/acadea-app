@@ -51,18 +51,20 @@ describe("pagination serveur Coordination / Sous-coordination", () => {
     expect(coordinationStudentSources(active)).toEqual([{ schoolId: "school-b", schoolYearId: "year-b" }, { schoolId: "school-a", schoolYearId: "year-a" }]);
     expect(coordinationStudentSources({ ...active, selectedYearId: "old-a" })).toEqual([{ schoolId: "school-a", schoolYearId: "old-a" }]);
     expect(coordinationStudentSources({ ...active, selectedSchoolId: "school-b", selectedYearId: "old-a" })).toEqual([]);
-    expect(coordinationYearChoices([...nextYears, { ...year("future-a", "school-a"), startsAt: "2027-09-01" }], active.schools).map((item) => item.label)).toEqual(["year-b", "year-a", "future-a", "2024-2025"]);
+    expect(coordinationYearChoices([...nextYears, { ...year("future-a", "school-a"), startsAt: "2027-09-01" }], active.schools).map((item) => item.label)).toEqual(["future-a", "2024-2025"]);
+    // L'année active n'est plus répétée : elle forme le premier choix « … (année active) ».
   });
 
   it("regroupe la même année de trois écoles sans perdre aucune source de données", () => {
     const threeSchools = [school("school-a", "active"), school("school-b", "active"), school("school-c", "active")];
-    const threeYears = [year("year-school-a", "school-a"), year("year-school-b", "school-b"), year("year-school-c", "school-c")]
-      .map((item, index) => ({ ...item, name: ["2025-2026", "2025 / 2026", "2025–2026"][index], startsAt: "2025-09-01" }));
+    // Années passées (l'année active forme le premier choix « … (année active) », hors de cette liste).
+    const threeYears = [year("old-school-a", "school-a"), year("old-school-b", "school-b"), year("old-school-c", "school-c")]
+      .map((item, index) => ({ ...item, name: ["2025-2026", "2025 / 2026", "2025–2026"][index], startsAt: "2025-09-01", status: "archived" as const }));
     const choices = coordinationYearChoices(threeYears, threeSchools);
     expect(choices).toEqual([{ value: "period:2025-2026", label: "2025-2026" }]);
     const selected = { ...filters, schools: threeSchools, years: threeYears, selectedYearId: choices[0].value };
     expect(coordinationStudentSources(selected)).toEqual(threeYears.map((item) => ({ schoolId: item.schoolId, schoolYearId: item.id })));
-    expect(coordinationStudentSources({ ...selected, selectedSchoolId: "school-b" })).toEqual([{ schoolId: "school-b", schoolYearId: "year-school-b" }]);
+    expect(coordinationStudentSources({ ...selected, selectedSchoolId: "school-b" })).toEqual([{ schoolId: "school-b", schoolYearId: "old-school-b" }]);
     expect(coordinationYearChoices(threeYears, threeSchools.slice(0, 1))).toEqual(choices);
   });
 
