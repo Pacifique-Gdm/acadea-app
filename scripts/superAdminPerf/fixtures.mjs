@@ -3,10 +3,11 @@
 //   TOKEN=$(gcloud auth print-access-token) node scripts/superAdminPerf/fixtures.mjs creer 500
 //   TOKEN=$(gcloud auth print-access-token) node scripts/superAdminPerf/fixtures.mjs effacer            (essai à blanc)
 //   TOKEN=$(gcloud auth print-access-token) node scripts/superAdminPerf/fixtures.mjs effacer --confirmer
+//   TOKEN=$(gcloud auth print-access-token) node scripts/superAdminPerf/fixtures.mjs verifier            (aucun reste, toutes collections)
 // « creer N » complète jusqu'à N écoles fictives au total (les numéros déjà présents sont gardés).
 import { Firestore } from "@google-cloud/firestore";
 import { GoogleAuth, OAuth2Client } from "google-auth-library";
-import { assertStagingProject, buildFixtureSchool, FIXTURE_COLLECTIONS, FIXTURE_TAG, isFixtureDocument, parseSchoolTotal, STAGING_PROJECT } from "./fixtureSafety.mjs";
+import { assertStagingProject, buildFixtureSchool, FIXTURE_COLLECTIONS, FIXTURE_PREFIX, FIXTURE_TAG, isFixtureDocument, parseSchoolTotal, STAGING_PROJECT } from "./fixtureSafety.mjs";
 
 const [command, argument] = process.argv.slice(2);
 const projectId = process.env.ACADEA_FIXTURE_PROJECT ?? STAGING_PROJECT;
@@ -60,11 +61,25 @@ async function retire(confirmed) {
   else console.log(`${total} document(s) fictif(s) effacé(s). Reste : ${JSON.stringify(await count())}`);
 }
 
+// Cherche, dans TOUTES les collections, un document lié aux écoles fictives
+// (identifiant ou schoolId qui commence par le préfixe) : rien ne doit rester.
+async function verify() {
+  const end = `${FIXTURE_PREFIX}`;
+  const leftovers = [];
+  for (const collectionRef of await db.listCollections()) {
+    const byId = await collectionRef.where("__name__", ">=", collectionRef.doc(FIXTURE_PREFIX)).where("__name__", "<", collectionRef.doc(end)).limit(5).select().get();
+    const bySchool = await collectionRef.where("schoolId", ">=", FIXTURE_PREFIX).where("schoolId", "<", end).limit(5).select().get().catch(() => ({ size: 0, docs: [] }));
+    if (byId.size || bySchool.size) leftovers.push(`${collectionRef.id} : ${byId.size + bySchool.size} document(s) (ex. ${[...byId.docs, ...bySchool.docs][0].id})`);
+  }
+  console.log(leftovers.length ? `Restes trouvés :\n${leftovers.join("\n")}` : "Aucun document lié aux écoles fictives, dans aucune collection.");
+}
+
 try {
-  if (command === "compter") console.log(JSON.stringify(await count()));
+  if (command === "verifier") await verify();
+  else if (command === "compter") console.log(JSON.stringify(await count()));
   else if (command === "creer") { await create(parseSchoolTotal(argument)); console.log(JSON.stringify(await count())); }
   else if (command === "effacer") await retire(argument === "--confirmer");
-  else console.log("Commandes : compter | creer <nombre> | effacer [--confirmer]");
+  else console.log("Commandes : compter | creer <nombre> | effacer [--confirmer] | verifier");
 } finally {
   await db.terminate();
 }
