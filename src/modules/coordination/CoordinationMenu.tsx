@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { schoolYearOpeningDecision } from "../../../api/_lib/schoolYearOpening.js";
 import type { ReactNode } from "react";
 import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, HeartPulse, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
 import { AdminDrawer, ImageUploadField, LogoutButton } from "../../components/ui";
@@ -153,8 +154,10 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     if (yearLock.current || !yearStatusReady) return;
     if (user.role !== "coordination_admin") { setError("La gouvernance annuelle reste réservée au Coordinateur principal."); return; }
     if (action !== "open" && (yearConfirmation?.action !== action || yearConfirmation.value !== YEAR_CONFIRMATIONS[action])) return;
-    const dates = action === "open" ? schoolYearDatesFromName(yearName) : null;
-    if (action === "open" && !dates) { setError("Le libellé doit respecter le format 2027-2028."); return; }
+    // Lot 15 : même règle que le serveur (année en avance ou passée refusée, avec un message clair).
+    const opening = action === "open" ? schoolYearOpeningDecision(yearName) : null;
+    if (opening && !opening.ok) { setError(opening.message); return; }
+    const dates = opening?.ok ? { startsAt: opening.startsAt, endsAt: opening.endsAt } : null;
     yearLock.current = true;
     setYearBusy(true); setError("");
     try {

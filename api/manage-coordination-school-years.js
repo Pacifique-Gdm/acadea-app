@@ -2,6 +2,7 @@ import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { chunks, coordinationHttpError, requireActiveCoordinationActor, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
 import { createHash } from "node:crypto";
+import { schoolYearOpeningDecision } from "./_lib/schoolYearOpening.js";
 
 const CONFIRMATIONS = { close: "CLOTURER LES ANNEES SCOLAIRES", reactivate: "REACTIVER LES ANNEES SCOLAIRES" };
 
@@ -82,10 +83,24 @@ async function mutateYears(db, caller, input, action) {
       governance = { ...previous, status: "reactivated", reactivatedAt: now, reactivatedBy: caller.uid };
       results = previous.years.map((year) => ({ ...year, status: "reactivated" }));
     } else {
-      const name = text(input.name, 40); const startsAt = text(input.startsAt, 20); const endsAt = text(input.endsAt, 20);
-      if (!/^\d{4}\s*[-–]\s*\d{4}$/.test(name) || !/^\d{4}-\d{2}-\d{2}$/.test(startsAt) || !/^\d{4}-\d{2}-\d{2}$/.test(endsAt) || startsAt >= endsAt) throw coordinationHttpError(400, "invalid-argument", "Année et période scolaire valides requises.");
+      // Lot 15 : seulement le nom ; dates calculées ; refus d'une année en avance, passée ou déjà existante (heure de Kinshasa).
+      const requested = text(input.name, 40);
       if (rows.some((row) => row.activeYear)) throw coordinationHttpError(409, "active-year-conflict", "Clôturez les années actives avant d’ouvrir la nouvelle année. Aucune année n’a été créée.");
-      results = rows.map((row) => ({ schoolId: row.schoolId, schoolYearId: `${row.schoolId}__${name.replace(/\s+/g, "").replace("–", "-")}`, status: "opened" }));
+      const existing = await Promise.all(rows.map((row) => transaction.get(db.collection("schoolYears").where("schoolId", "==", row.schoolId))));
+      const decision = schoolYearOpeningDecision(requested, { now: new Date(now) });
+      if (!decision.ok) throw coordinationHttpError(409, decision.code, `${decision.message} Aucune année n’a été créée.`);
+      for (const [index, row] of rows.entries()) {
+        const check = schoolYearOpeningDecision(requested, { now: new Date(now), existingNames: existing[index].docs.map((item) => item.data().name) });
+        if (!check.ok) throw coordinationHttpError(409, check.code, `${row.schoolName} : ${check.message} Aucune année n’a été créée.`);
+      }
+      const { name, startsAt, endsAt } = decision;
+      // Identifiant différent si l'ancien existe déjà (par exemple une année mal nommée autrefois).
+      const suffix = createHash("sha256").update(String(input.requestId ?? now)).digest("hex").slice(0, 6);
+      results = rows.map((row, index) => {
+        const ids = new Set(existing[index].docs.map((item) => item.id));
+        const base = `${row.schoolId}__${name}`;
+        return { schoolId: row.schoolId, schoolYearId: ids.has(base) ? `${base}__${suffix}` : base, status: "opened" };
+      });
       const candidates = await transaction.getAll(...results.map((item) => db.doc(`schoolYears/${item.schoolYearId}`)));
       if (candidates.some((snapshot) => snapshot.exists)) throw coordinationHttpError(409, "year-already-exists", "Cette année existe déjà dans une école. Aucune année n’a été créée.");
       newYear = { name, startsAt, endsAt, status: "active", createdAt: now, createdBy: caller.uid };

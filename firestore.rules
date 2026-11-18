@@ -620,8 +620,20 @@ service cloud.firestore {
     }
 
     match /schoolYears/{yearId} {
+      // Lot 15 : école libre — seulement le nom « AAAA-AAAA » ; dates calculées (1er septembre → 31 juillet) ;
+      // année en cours (bascule le 1er août) ou suivante à partir du 1er juillet, heure de Kinshasa (UTC+1).
+      function openableSchoolYearName() {
+        let name = request.resource.data.name;
+        let local = request.time + duration.value(1, 'h');
+        let current = local.month() >= 8 ? local.year() : local.year() - 1;
+        return name is string && name.matches('^[0-9]{4}-[0-9]{4}$')
+          && int(name.split('-')[1]) == int(name.split('-')[0]) + 1
+          && request.resource.data.startsAt == name.split('-')[0] + '-09-01'
+          && request.resource.data.endsAt == name.split('-')[1] + '-07-31'
+          && (int(name.split('-')[0]) == current || (local.month() == 7 && int(name.split('-')[0]) == local.year()));
+      }
       allow read: if superAdmin() || coordinatorSchool(resource.data.schoolId) || sameTenantResource() || disciplineTenantResource() || (studyDirector() && resource.data.schoolId == tenantSchoolId()) || teacherTenantResource();
-      allow create: if schoolAdmin() && sameTenantCreate() && !schoolUnderActiveCoordination(tenantSchoolId());
+      allow create: if schoolAdmin() && sameTenantCreate() && !schoolUnderActiveCoordination(tenantSchoolId()) && openableSchoolYearName();
       allow update: if schoolAdmin() && sameTenantUpdate() && sameYearUpdate()
         && !request.resource.data.diff(resource.data).affectedKeys().hasAny(["currency"])
         && !schoolUnderActiveCoordination(tenantSchoolId());

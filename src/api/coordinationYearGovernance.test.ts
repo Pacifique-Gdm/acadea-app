@@ -123,11 +123,42 @@ describe("gouvernance Coordination — régression clôture/réactivation", () =
     expect(state.commits).toBe(0);
   });
   it("ouvre la nouvelle année après clôture et termine l’état de blocage", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2027-08-15T10:00:00.000Z"));
     await call("close");
     expect((await call("open", { name: "2027-2028", startsAt: "2027-09-01", endsAt: "2028-07-31" })).statusCode).toBe(200);
     expect(governance().status).toBe("superseded");
     expect(state.records.get("schoolYears/school-a__2027-2028")?.status).toBe("active");
     expect(state.records.get("schoolYears/year-a")?.status).toBe("archived");
     expect((await call("reactivate", { operationId: governance()?.operationId })).statusCode).toBe(409);
+    vi.useRealTimers();
+  });
+  // Lot 15 — règle d'ouverture : seulement le nom, année en avance refusée, identifiant différent si l'ancien existe.
+  it("en novembre 2026, « 2027-2028 » est refusée avec un message clair ; aucune année créée", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-18T10:00:00.000Z"));
+    await call("close");
+    const response = await call("open", { name: "2027-2028" });
+    expect(response.statusCode).toBe(409);
+    expect(response.body.message ?? response.body.error).toContain("Impossible d'ouvrir l'année 2027-2028 maintenant : l'année en cours est 2026-2027. L'année 2027-2028 pourra être ouverte à partir du 1er juillet 2027.");
+    expect([...state.records.keys()].some((key) => key.startsWith("schoolYears/school-a__2027"))).toBe(false);
+    vi.useRealTimers();
+  });
+  it("le 1er juillet 2027 (Kinshasa), « 2027-2028 » est acceptée, dates calculées depuis le nom ; un identifiant déjà pris est remplacé", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2027-06-30T23:30:00.000Z"));
+    state.records.set("schoolYears/school-b__2027-2028", { id: "school-b__2027-2028", schoolId: "school-b", name: "Doublon vide (ne pas utiliser)", status: "archived" });
+    await call("close");
+    expect((await call("open", { name: "2027-2028" })).statusCode).toBe(200);
+    expect(state.records.get("schoolYears/school-a__2027-2028")).toMatchObject({ name: "2027-2028", startsAt: "2027-09-01", endsAt: "2028-07-31", status: "active" });
+    const created = [...state.records].find(([key, data]) => key.startsWith("schoolYears/school-b__2027-2028__") && data.status === "active");
+    expect(created?.[1]).toMatchObject({ name: "2027-2028", status: "active" });
+    expect(state.records.get("schools/school-b")?.activeSchoolYearId).toBe(created?.[0].split("/")[1]);
+    vi.useRealTimers();
+  });
+  it("une année qui porte déjà ce nom dans une école est refusée", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] }); vi.setSystemTime(new Date("2026-11-18T10:00:00.000Z"));
+    await call("close");
+    const response = await call("open", { name: "2026-2027" });
+    expect(response.statusCode).toBe(409);
+    expect(JSON.stringify(response.body)).toContain("existe déjà");
+    vi.useRealTimers();
   });
 });
