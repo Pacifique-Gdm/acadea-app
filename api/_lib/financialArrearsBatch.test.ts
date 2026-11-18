@@ -23,18 +23,26 @@ function fixture(count = 1) {
   }
   const snapshot = (path: string) => ({ id: path.split("/")[1], exists: data.has(path), data: () => data.get(path) });
   let reads = 0;
-  type Query = { collection: string; field: string; operator: string; value: unknown };
+  type Filter = { field: string; operator: string; value: unknown };
+  type Query = Filter & { collection: string; and?: Filter[] };
   const transaction = {
     getAll: async (...paths: string[]) => { reads++; return paths.map(snapshot); },
     get: async (value: string | Query) => {
       reads++;
       if (typeof value === "string") return snapshot(value);
-      const values = value.operator === "in" ? value.value as unknown[] : [value.value];
-      expect(values.length).toBeLessThanOrEqual(30);
-      return { docs: [...data.keys()].filter((path) => path.startsWith(`${value.collection}/`) && values.includes(data.get(path)![value.field])).map(snapshot) };
+      const filters = [value, ...(value.and ?? [])];
+      return { docs: [...data.keys()].filter((path) => path.startsWith(`${value.collection}/`) && filters.every((filter) => {
+        const values = filter.operator === "in" ? filter.value as unknown[] : [filter.value];
+        expect(values.length).toBeLessThanOrEqual(30);
+        return values.includes(data.get(path)![filter.field]);
+      })).map(snapshot) };
     },
   };
-  const db = { doc: (path: string) => path, collection: (collection: string) => ({ where: (field: string, operator: string, value: unknown) => ({ collection, field, operator, value }) }), runTransaction: <T>(fn: (tx: typeof transaction) => T) => fn(transaction) };
+  const db = { doc: (path: string) => path, collection: (collection: string) => ({ where: (field: string, operator: string, value: unknown) => {
+    // Filtres enchaînés (ex. école puis matricule) : le premier filtre, puis les suivants dans « and ».
+    const query: Query & { where: (f: string, o: string, v: unknown) => typeof query } = { collection, field, operator, value, and: [], where: (f, o, v) => { query.and!.push({ field: f, operator: o, value: v }); return query; } };
+    return query;
+  } }), runTransaction: <T>(fn: (tx: typeof transaction) => T) => fn(transaction) };
   return { db, data, reads: () => reads, ids: Array.from({ length: count }, (_, i) => `current${i}`) };
 }
 
@@ -48,6 +56,25 @@ describe("canonical grouped historical arrears", () => {
     const detailed = await listScopedStudentArrearsBatch({ db: f.db, schoolIds: ["a"], studentIds: f.ids, includeDetails: true });
     expect(detailed.details.current0.map((debt: { remaining: number }) => debt.remaining).sort((a: number, b: number) => a - b)).toEqual([0, 65, 9000]);
     expect(detailed.details.current0.find((debt: { feeName: string }) => debt.feeName === "Frais" && debt.currency === "USD")).toMatchObject({ expected: 100, paid: 35, remaining: 65 });
+  });
+  it("fiche d'un élève : frais et paiements de toutes les années lus en une requête chacun, en lecture seule", async () => {
+    const f = fixture();
+    const options: unknown[] = [];
+    const runTransaction = f.db.runTransaction;
+    const db = { ...f.db, runTransaction: <T>(fn: Parameters<typeof runTransaction>[0], option?: unknown) => { options.push(option); return runTransaction(fn as never) as T; } };
+    const individual = await listScopedStudentArrears({ db, schoolIds: ["a"], studentId: "current0" });
+    expect(individual.debts.map((debt: { remaining: number }) => debt.remaining).sort((a: number, b: number) => a - b)).toEqual([65, 9000]);
+    expect(individual.settled).toHaveLength(1);
+    // élève, école, année, 2 ancêtres, matricule, années de l'école, frais (2 années ensemble), paiements (2 fiches ensemble)
+    expect(f.reads()).toBe(9);
+    expect(options).toEqual([{ readOnly: true }]);
+    // Une année passée de plus ne coûte aucune requête de frais ou de paiements en plus.
+    const g = fixture();
+    g.data.set("schoolYears/oldest", { schoolId: "a", status: "archived", startsAt: "2023", currency: "USD" });
+    g.data.get("students/older0")!.importedFromStudentId = "oldest0";
+    g.data.set("students/oldest0", { schoolId: "a", schoolYearId: "oldest", matricule: "M0", nom: "Nom0" });
+    await listScopedStudentArrears({ db: g.db, schoolIds: ["a"], studentId: "current0" });
+    expect(g.reads()).toBe(10); // seulement l'ancêtre de plus
   });
   it("groups 50 students without N+1 queries", async () => {
     const f = fixture(50);
