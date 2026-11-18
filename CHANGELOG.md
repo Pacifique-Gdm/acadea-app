@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.3] — 2026-11-18 — Correction
+- Logo de l'école rangé à part : les écrans lisent des données d'école beaucoup plus légères, le logo est lu seulement quand il s'affiche
+
 ## [1.11.2] — 2026-11-18 — Correction
 - Dashboards : les vérifications (devises historiques, arriérés, actualisation) se font discrètement, sans bandeau temporaire ni saut de page ; des squelettes gris gardent la place des chiffres, jamais un chiffre provisoire.
 

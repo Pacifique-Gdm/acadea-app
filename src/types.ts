@@ -61,7 +61,10 @@ export interface School {
   phone: string;
   email: string;
   currency?: "USD" | "CDF";
+  /** Ancien emplacement du logo (avant qu'il soit rangé dans `schoolLogos`). */
   logoUrl?: string;
+  /** Repère du logo rangé dans `schoolLogos/{id}` ; vide s'il n'y a pas de logo. */
+  logoVersion?: string;
   acronym?: string;
   timeZone?: string;
   educationLevels?: string[];

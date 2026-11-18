@@ -1,8 +1,9 @@
-import { doc, runTransaction } from "firebase/firestore";
+import { deleteField, doc, runTransaction } from "firebase/firestore";
 import { db } from "../firebase";
 import type { School } from "../types";
 import { canonicalSchoolOption, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, schoolOptionDisplayName } from "../utils/schoolOptions";
 import { getSchoolEducationLevels, toggleSchoolEducationLevel } from "../utils/schoolConfig";
+import { SCHOOL_LOGO_COLLECTION, computeSchoolLogoVersion, primeSchoolLogo } from "./schoolLogo";
 
 export async function persistSchoolOption(schoolId: string, option: string) {
   if (!db) throw new Error("Persistance Firestore indisponible.");
@@ -22,10 +23,18 @@ export async function persistSchoolOption(schoolId: string, option: string) {
   });
 }
 
-export async function persistSchoolSettings(currentSchool: School, baselineOptions: unknown, desiredSchool: School) {
+/**
+ * `logoChange` n'est donné que si l'administrateur a changé le logo : le logo
+ * est alors rangé à part dans `schoolLogos/{id}` et l'école ne garde que son
+ * repère `logoVersion` (l'ancien champ `logoUrl` est retiré).
+ */
+export async function persistSchoolSettings(currentSchool: School, baselineOptions: unknown, desiredSchool: School, logoChange?: { logoUrl: string; updatedBy?: string }) {
   if (!db) throw new Error("Persistance Firestore indisponible.");
-  const schoolRef = doc(db, "schools", currentSchool.id);
-  return runTransaction(db, async (transaction) => {
+  const database = db;
+  const schoolRef = doc(database, "schools", currentSchool.id);
+  const logoUrl = logoChange?.logoUrl ?? "";
+  const logoVersion = logoChange ? await computeSchoolLogoVersion(logoUrl) : "";
+  const saved = await runTransaction(database, async (transaction) => {
     const snapshot = await transaction.get(schoolRef);
     if (!snapshot.exists()) throw new Error("École introuvable.");
     const latest = { id: currentSchool.id, ...snapshot.data() } as School;
@@ -36,15 +45,27 @@ export async function persistSchoolSettings(currentSchool: School, baselineOptio
       address: desiredSchool.address,
       phone: desiredSchool.phone,
       email: desiredSchool.email,
-      logoUrl: desiredSchool.logoUrl ?? "",
       acronym: desiredSchool.acronym ?? "",
       schoolOptions: normalizeSchoolOptions(schoolOptions),
       activeSchoolYearId: desiredSchool.activeSchoolYearId,
     } satisfies Partial<School>;
-    const savedSchool: School = { ...latest, ...settings };
-    transaction.update(schoolRef, settings);
+    if (!logoChange) {
+      transaction.update(schoolRef, settings);
+      return { ...latest, ...settings } as School;
+    }
+    const logoRef = doc(database, SCHOOL_LOGO_COLLECTION, currentSchool.id);
+    if (logoUrl) {
+      transaction.set(logoRef, { schoolId: currentSchool.id, logoUrl, logoVersion, updatedAt: new Date().toISOString(), updatedBy: logoChange.updatedBy ?? "" });
+    } else {
+      transaction.delete(logoRef);
+    }
+    transaction.update(schoolRef, { ...settings, logoUrl: deleteField(), logoVersion });
+    const savedSchool: School = { ...latest, ...settings, logoVersion };
+    delete savedSchool.logoUrl;
     return savedSchool;
   });
+  if (logoChange) primeSchoolLogo(currentSchool.id, logoVersion, logoUrl);
+  return saved;
 }
 
 export async function persistSchoolEducationLevel(schoolId: string, level: string, wasChecked: boolean): Promise<School> {

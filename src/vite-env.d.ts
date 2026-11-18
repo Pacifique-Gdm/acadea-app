@@ -106,5 +106,7 @@ declare module "firebase/firestore" {
     get(ref: unknown): Promise<{ exists(): boolean; data(): Record<string, unknown> | undefined }>;
     set(ref: unknown, data: unknown, options?: { merge?: boolean }): void;
     update(ref: unknown, data: Record<string, unknown>): void;
+    delete(ref: unknown): void;
   }) => Promise<T>): Promise<T>;
+  export function deleteField(): unknown;
 }

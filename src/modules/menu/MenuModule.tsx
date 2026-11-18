@@ -37,6 +37,7 @@ import { FeeAllocationEntry } from "./FeeAllocationDrawer";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
+import { useSchoolLogo } from "../../hooks/useSchoolLogo";
 
 type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
 
@@ -106,6 +107,9 @@ export function MenuModule({
 }: MenuModuleProps) {
   type MenuSection = "socialSupport" | "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
+  // Logo rangé à part : null = logo inchangé (il n'est pas réécrit).
+  const [schoolLogoDraft, setSchoolLogoDraft] = useState<string | null>(null);
+  const currentSchoolLogo = useSchoolLogo(school);
   const [cashierArchiveOpen, setCashierArchiveOpen] = useState(false);
   const [schoolSaveStatus, setSchoolSaveStatus] = useState<"success" | "error" | "">("");
   const [schoolSaveMessage, setSchoolSaveMessage] = useState("");
@@ -364,10 +368,12 @@ export function MenuModule({
     const nextMotto = schoolForm.motto?.trim();
     const existingMotto = school.motto?.trim();
     const desiredSchool = { ...schoolForm, motto: nextMotto || existingMotto || "", schoolOptions: normalizeSchoolOptions(schoolForm.schoolOptions) };
+    const logoChange = schoolLogoDraft !== null && schoolLogoDraft !== currentSchoolLogo ? { logoUrl: schoolLogoDraft, updatedBy: user.id } : undefined;
     try {
       const savedSchool = canUseFirestoreData()
-        ? await persistSchoolSettings(school, school.schoolOptions, desiredSchool)
-        : desiredSchool;
+        ? await persistSchoolSettings(school, school.schoolOptions, desiredSchool, logoChange)
+        : logoChange ? { ...desiredSchool, logoUrl: logoChange.logoUrl } : desiredSchool;
+      setSchoolLogoDraft(null);
       const nextSchools = data.schools.map((item) => (item.id === school.id ? savedSchool : item));
       updateData({ schools: nextSchools }, { persist: false });
       setSchoolForm(savedSchool);
@@ -873,7 +879,7 @@ export function MenuModule({
     if (sectionId === "school") {
       return (
         <div className="grid min-w-0 gap-4">
-          <ImageUploadField label="Logo de l'école" value={schoolForm.logoUrl ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, logoUrl: value })} maxWidth={600} maxBytes={200 * 1024} disabled={!canAdmin} />
+          <ImageUploadField label="Logo de l'école" value={schoolLogoDraft ?? currentSchoolLogo} onChange={(value) => setSchoolLogoDraft(value)} maxWidth={600} maxBytes={200 * 1024} disabled={!canAdmin} />
           <Field label="Nom de l'école" value={schoolForm.name} onChange={(value) => setSchoolForm({ ...schoolForm, name: value })} disabled={!canAdmin} />
           <Field label="Devise" value={schoolForm.motto ?? ""} onChange={(value) => setSchoolForm({ ...schoolForm, motto: value })} disabled={!canAdmin} />
           <Field label="Adresse" value={schoolForm.address} onChange={(value) => setSchoolForm({ ...schoolForm, address: value })} disabled={!canAdmin} />
@@ -1390,7 +1396,7 @@ export function MenuModule({
             onClick={() => {
               clearMenuMessages(); if (section.id === "medicalRecords") setMedicalRecordsOpen(true);
               else {
-                if (section.id === "school") { setSchoolForm({ ...school, schoolOptions: normalizeSchoolOptions(school.schoolOptions) }); closeSchoolSectionConfirmation(); }
+                if (section.id === "school") { setSchoolForm({ ...school, schoolOptions: normalizeSchoolOptions(school.schoolOptions) }); setSchoolLogoDraft(null); closeSchoolSectionConfirmation(); }
                 setActiveMenuSection(section.id);
               }
             }}

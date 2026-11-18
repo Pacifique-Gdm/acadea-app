@@ -456,6 +456,10 @@ service cloud.firestore {
         && activeSchoolYearBelongsToSchool(request.resource.data.schoolYearId, tenantSchoolId());
     }
 
+    function schoolReadable(schoolId) {
+      return superAdmin() || coordinatorSchool(schoolId) || (request.auth != null && activeActorProfile() && schoolId == tenantSchoolId()) || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
+    }
+
     function schoolSettingsUpdate(schoolId) {
       return schoolAdmin()
         && schoolId == tenantSchoolId()
@@ -470,6 +474,7 @@ service cloud.firestore {
           "phone",
           "email",
           "logoUrl",
+          "logoVersion",
           "acronym",
           "educationLevels",
           "schoolOptions",
@@ -548,10 +553,30 @@ service cloud.firestore {
     }
 
     match /schools/{schoolId} {
-      allow read: if superAdmin() || coordinatorSchool(schoolId) || (request.auth != null && activeActorProfile() && schoolId == tenantSchoolId()) || (schoolUser() && schoolId == tenantSchoolId()) || (disciplineDirector() && schoolId == tenantSchoolId()) || (studyDirector() && schoolId == tenantSchoolId()) || (activeTeacher() && schoolId == tenantSchoolId());
+      allow read: if schoolReadable(schoolId);
       allow create: if superAdmin();
       allow update: if superAdminAiAssistantUpdate() || schoolSettingsUpdate(schoolId) || secretarySchoolOptionsUpdate(schoolId);
       allow delete: if superAdmin();
+    }
+
+    // Logo de l'école rangé à part : mêmes lecteurs que l'école. Écriture par le
+    // Super Administrateur ou l'administrateur de l'école, avec le même repère
+    // logoVersion que l'école après l'enregistrement (écriture groupée).
+    match /schoolLogos/{schoolId} {
+      allow read: if schoolReadable(schoolId);
+      allow create, update: if (superAdmin() || (schoolAdmin() && schoolId == tenantSchoolId()))
+        && request.resource.data.keys().hasOnly(["schoolId", "logoUrl", "logoVersion", "updatedAt", "updatedBy"])
+        && request.resource.data.schoolId == schoolId
+        && request.resource.data.logoUrl is string
+        && request.resource.data.logoUrl.size() > 0
+        && request.resource.data.logoUrl.size() <= 300000
+        && request.resource.data.logoUrl.matches("^(data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+|https://.+)$")
+        && request.resource.data.logoVersion is string
+        && request.resource.data.logoVersion.size() > 0
+        && request.resource.data.logoVersion.size() <= 64
+        && existsAfter(/databases/$(database)/documents/schools/$(schoolId))
+        && getAfter(/databases/$(database)/documents/schools/$(schoolId)).data.logoVersion == request.resource.data.logoVersion;
+      allow delete: if superAdmin() || (schoolAdmin() && schoolId == tenantSchoolId());
     }
 
     match /schools/{schoolId}/aiUsageReservations/{reservationId} {
