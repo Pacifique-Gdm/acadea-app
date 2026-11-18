@@ -21,7 +21,9 @@ export function subscribeToRealtimeCoordinations(
 
 export function useRealtimeCoordinations() {
   const [coordinations, setCoordinations] = useState<Coordination[]>([]);
+  // Lot SA-3 : vrai seulement après la première réponse, pour ne jamais afficher « 0 » provisoire.
+  const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => subscribeToRealtimeCoordinations(db as Firestore | null, setCoordinations, setError), []);
-  return { coordinations, error };
+  useEffect(() => subscribeToRealtimeCoordinations(db as Firestore | null, (items) => { setCoordinations(items); setLoaded(true); }, setError), []);
+  return { coordinations, loaded, error };
 }
