@@ -14,6 +14,7 @@ import { FeeAllocationError } from "./_lib/feeAllocationMath.js";
 import { manageFeeAllocationPhase1 } from "./_lib/feeAllocationPhase1.js";
 import { manageFeeAllocationPhase2 } from "./_lib/feeAllocationPhase2.js";
 import { manageSocialPart, socialPartActions } from "./_lib/feeAllocationSocialPart.js";
+import { manageFeeAllocationSharing, sharingActions } from "./_lib/feeAllocationSharing.js";
 import { allocationLifecycleActions, manageFeeAllocationLifecycle, getAllocationSpendOptions } from "./_lib/feeAllocationLifecycle.js";
 import { readAllocationActivation } from "./_lib/feeAllocationActivationView.js";
 import { reconciliationActions, manageAllocationReconciliation } from "./_lib/feeAllocationReconciliation.js";
@@ -95,14 +96,15 @@ export default async function handler(req, res) {
         ? await requireActiveCoordinationActor(auth, db, token)
         : await requireActiveApiUser(db, caller);
       const allocationAction = requestedAction.slice("fee-allocation.".length);
-      const mutation = ["save-draft", "save-drafts", "prepare-version", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "publish-social-part"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
+      const mutation = ["save-draft", "save-drafts", "prepare-version", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "publish-social-part", "set-rubric-share", "revoke-share"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
       await enforceApiRateLimit({ db, actorId: actor.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
         action: requestedAction, idempotencyKey: mutation ? body.requestId : undefined,
         // Bounded ledger pages share a 60/min budget with financial creation;
         // retain a finite budget while allowing a 3,001-row export to finish.
-        ...(mutation || ['get-workspace', 'get-forecast-revision'].includes(allocationAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
+        ...(mutation || ['get-workspace', 'get-forecast-revision', 'get-shared-workspace', 'get-shared-revision'].includes(allocationAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
       const manage = rubricActions.has(allocationAction) ? manageFeeAllocationRubrics
         : socialPartActions.has(allocationAction) ? manageSocialPart
+        : sharingActions.has(allocationAction) ? manageFeeAllocationSharing
         : reconciliationActions.has(allocationAction) ? manageAllocationReconciliation
         : allocationLifecycleActions.has(allocationAction) ? manageFeeAllocationLifecycle
         : ["get-activation", "get-history-proofs"].includes(allocationAction) ? readAllocationActivation

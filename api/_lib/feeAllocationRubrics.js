@@ -43,10 +43,26 @@ async function rubricUsage(db, transaction, schoolId, schoolYearId, rubricId) {
     || balances.docs.some((doc) => doc.data().rubricId === rubricId);
 }
 
+/** Identifiants des rubriques déjà mentionnées par un brouillon, une version ou un solde (même règle que la suppression). */
+async function usedRubricIds(db, schoolId, schoolYearId) {
+  const [configs, versions, balances] = await Promise.all([
+    db.collection("feeAllocationConfigs").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get(),
+    db.collection("feeAllocationVersions").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get(),
+    db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", schoolYearId).get(),
+  ]);
+  return new Set([...configs.docs.flatMap((d) => (d.data().draft?.rubrics ?? []).map((r) => r.id)),
+    ...versions.docs.flatMap((d) => (d.data().rubrics ?? []).map((r) => r.id)), ...balances.docs.map((d) => d.data().rubricId)]);
+}
+
 export async function manageFeeAllocationRubrics({ db, caller, body, now = new Date().toISOString() }) {
   const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
   const { yearId } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
-  if (body.action === "list-rubrics") return { operational: false, schoolId, schoolYearId: yearId, ...(await readRubricCatalog(db, schoolId, yearId)) };
+  if (body.action === "list-rubrics") {
+    const catalog = await readRubricCatalog(db, schoolId, yearId);
+    // Lot « Deux onglets » : « Supprimer » ne s'affiche que pour une rubrique qui n'a jamais servi.
+    const used = isAdmin(caller.role) ? await usedRubricIds(db, schoolId, yearId) : new Set();
+    return { operational: false, schoolId, schoolYearId: yearId, ...catalog, rubrics: catalog.rubrics.map((r) => ({ ...r, used: used.has(r.id) })) };
+  }
   if (!isAdmin(caller.role) || caller.schoolId !== schoolId) fail(403, "permission-denied", "Seul l'Administrateur gère les rubriques.");
   if (!id(body.requestId) || body.requestId.length < 12) fail(400, "invalid-argument", "Clé de requête invalide.");
   const receiptRef = db.doc(`feeAllocationRequests/rubric_${hash([caller.uid, schoolId, body.requestId])}`);
