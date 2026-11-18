@@ -1095,6 +1095,14 @@
         { "fieldPath": "sortName", "order": "ASCENDING" },
         { "fieldPath": "__name__", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "students",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "matricule", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

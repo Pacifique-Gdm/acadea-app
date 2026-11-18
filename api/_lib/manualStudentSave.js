@@ -168,12 +168,26 @@ export async function saveManualStudent({ db, caller, body }) {
         if (oldLockSnapshot.exists && oldLockSnapshot.data()?.studentId === id && !oldKeyHolders.docs.some((snapshot) => snapshot.id !== id && studentIdentityKey(snapshot.data()) === oldKey)) transaction.delete(oldLockRef);
       }
     }
-    let sequence;
+    let sequence, matriculePrefixCounter = null;
     if (!existing) {
       const yearName = yearSnapshot.data()?.name;
       if (typeof yearName !== "string" || !/^\d{4}/.test(yearName)) reject("Année scolaire invalide.", 409, "failed-precondition");
       const prefix = `ACD-${yearName.slice(2, 4)}-`;
-      const counterSnapshot = await transaction.get(counterRef);
+      // Un seul compteur par école et par préfixe, toutes années confondues : deux inscriptions simultanées
+      // se disputent ce document (l'une est rejouée par Firestore) ; un matricule n'est jamais donné deux fois.
+      const prefixCounterRef = db.doc(`studentMatriculeCounters/${schoolId}__prefix__${prefix.slice(0, -1)}`);
+      const [counterSnapshot, prefixCounterSnapshot] = await Promise.all([transaction.get(counterRef), transaction.get(prefixCounterRef)]);
+      // Première utilisation de ce préfixe : plus grand numéro de toute l'école (toutes années), lu une seule fois.
+      // Lecture ciblée (index école + matricule) : seulement les matricules de ce préfixe, jamais toute l'école.
+      const schoolHighest = prefixCounterSnapshot.exists ? 0 : (await transaction.get(db.collection("students").where("schoolId", "==", schoolId)
+        .where("matricule", ">=", prefix).where("matricule", "<", `${prefix}\uf8ff`))).docs
+        .reduce((maximum, snapshot) => {
+          const matricule = snapshot.data().matricule;
+          if (typeof matricule !== "string" || !matricule.startsWith(prefix)) return maximum;
+          const suffix = matricule.slice(prefix.length);
+          return /^\d+$/.test(suffix) ? Math.max(maximum, Number(suffix)) : maximum;
+        }, 0);
+      const prefixLast = prefixCounterSnapshot.exists ? prefixCounterSnapshot.data()?.lastAllocated : 0;
       // École migrée : seuls les matricules de l'année sont lus (pas les photos).
       const sameYear = indexed
         ? (await transaction.get(db.collection("students").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).select("matricule"))).docs
@@ -185,8 +199,10 @@ export async function saveManualStudent({ db, caller, body }) {
         return /^\d+$/.test(suffix) ? Math.max(maximum, Number(suffix)) : maximum;
       }, 0);
       const lastAllocated = counterSnapshot.exists ? counterSnapshot.data()?.lastAllocated : 0;
-      sequence = Math.max(sameYear.length, highestExisting, Number.isSafeInteger(lastAllocated) && lastAllocated >= 0 ? lastAllocated : 0) + 1;
+      sequence = Math.max(sameYear.length, highestExisting, schoolHighest, Number.isSafeInteger(lastAllocated) && lastAllocated >= 0 ? lastAllocated : 0,
+        Number.isSafeInteger(prefixLast) && prefixLast >= 0 ? prefixLast : 0) + 1;
       next.matricule = `${prefix}${String(sequence).padStart(4, "0")}`;
+      matriculePrefixCounter = { ref: prefixCounterRef, value: { schoolId, prefix: prefix.slice(0, -1), lastAllocated: sequence, updatedAt: new Date().toISOString() } };
     }
     const student = studentForPersistence(next);
     // Financial projection is exclusively maintained by the support transaction.
@@ -195,6 +211,7 @@ export async function saveManualStudent({ db, caller, body }) {
     if (existing) transaction.set(studentRef, student);
     else transaction.create(studentRef, student);
     if (!existing) transaction.set(counterRef, { schoolId, schoolYearId, lastAllocated: sequence });
+    if (matriculePrefixCounter) transaction.set(matriculePrefixCounter.ref, matriculePrefixCounter.value);
     if (identityChanged) transaction.set(newLockRef, { schoolId, studentId: id, key: newKey });
     if (receiptRef) transaction.create(receiptRef, { actorId: caller.uid, schoolId, schoolYearId,
       operationId, fingerprint, studentId: id, createdAt: new Date().toISOString() });

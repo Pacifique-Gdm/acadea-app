@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.9.2] — 2026-11-18 — Correction
+- Matricules des élèves : numéro calculé sur toute l'école, toutes années confondues, avec un compteur unique par école et par préfixe ; un matricule ne peut plus être donné deux fois, même lors d'inscriptions simultanées
+
 ## [1.9.1] — 2026-11-18 — Correction
 - Listes « Année scolaire » (tous les rôles) : années « (ne pas utiliser) » cachées partout sans être supprimées ; un seul premier choix « 2026-2027 (année active) », sélectionné par défaut, puis les années passées de la plus récente à la plus ancienne, puis « Toutes les années »
 
