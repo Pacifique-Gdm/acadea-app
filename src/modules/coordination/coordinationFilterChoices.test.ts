@@ -18,12 +18,14 @@ const records = [
 
 describe("filtres Coordination en cascade", () => {
   it("conserve les classes des deux écoles quand une année logique commune est choisie", () => {
-    const matchingYears = [{ ...years[1], name: "2025-2026" }, { ...years[2], name: "2025 / 2026" }];
+    // Une année passée commune (l'année active forme le premier choix « … (année active) », hors de cette liste).
+    const matchingYears = [{ ...years[0], name: "2025-2026", status: "archived" }, { id: "year-b0", schoolId: "school-b", name: "2025 / 2026", status: "archived" }] as SchoolYear[];
+    const pastRecords = [...records, parent("b-old", "school-b", "year-b0", "3ème Humanité"), option("b-old-option", "school-b", "year-b0", "b-old", "Littéraire")];
     const selected = coordinationYearChoices(matchingYears, schools)[0].value;
-    const choices = coordinationFilterChoices(schools, matchingYears, records, "", selected, ["Secondaire"], "");
+    const choices = coordinationFilterChoices(schools, matchingYears, pastRecords, "", selected, ["Secondaire"], "");
     expect(choices.classes.some((item) => item.schoolId === "school-a")).toBe(true);
     expect(choices.classes.some((item) => item.schoolId === "school-b")).toBe(true);
-    expect(choices.options).toEqual(["Littéraire", "Sciences"]);
+    expect(choices.options).toEqual(["Commerciale", "Littéraire"]);
   });
   it("borne classes et options à chaque école et à son année active propre", () => {
     const all = coordinationFilterChoices(schools, years, records, "", COORDINATION_ACTIVE_YEAR, ["Secondaire"], "");

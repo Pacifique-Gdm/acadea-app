@@ -9,6 +9,11 @@ export function resolveDefaultSchoolYear(school: School | undefined, schoolYears
   return schoolYears.find((year) => year.status === "active");
 }
 
+/** Année cachée partout (sans être supprimée) : marquée `hidden`, ou renommée « … (ne pas utiliser) ». */
+export function isHiddenSchoolYear(year: Pick<SchoolYear, "name"> & { hidden?: boolean }) {
+  return year.hidden === true || /\(ne pas utiliser\)\s*$/i.test(year.name ?? "");
+}
+
 function schoolYearStart(year: SchoolYear) {
   const named = year.name.match(/(?:^|\D)(\d{4})\s*[-–/]\s*(\d{4})(?:\D|$)/);
   if (named) return Number(named[1]);
@@ -21,7 +26,7 @@ export function orderSchoolYears(years: readonly SchoolYear[], activeYearId?: st
     ?? years.find((year) => year.status === "active");
   const activeStart = active ? schoolYearStart(active) : Number.NEGATIVE_INFINITY;
   const group = (year: SchoolYear) => year.id === active?.id ? 0 : schoolYearStart(year) > activeStart ? 1 : 2;
-  return [...years].sort((left, right) => {
+  return years.filter((year) => year.id === active?.id || !isHiddenSchoolYear(year)).sort((left, right) => {
     const groupDifference = group(left) - group(right);
     if (groupDifference) return groupDifference;
     const yearDifference = group(left) === 2

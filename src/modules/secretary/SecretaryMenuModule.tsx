@@ -102,7 +102,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
     <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
       Année scolaire
       <select aria-label="Année scolaire" className="input w-full min-w-0" value={year.id} onChange={(event) => onYearChange(event.target.value)}>
-        {orderSchoolYears(data.schoolYears.filter((item) => item.schoolId === school.id && (item.status === "active" || item.status === "archived")), school.activeSchoolYearId).map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "archived" ? " — Archivée (lecture seule)" : " — Active"}</option>)}
+        {orderSchoolYears(data.schoolYears.filter((item) => item.schoolId === school.id && (item.status === "active" || item.status === "archived")), school.activeSchoolYearId).map((item) => <option key={item.id} value={item.id}>{item.name}{item.status === "active" ? " (année active)" : ""}{item.status === "archived" ? " — Archivée (lecture seule)" : " — Active"}</option>)}
       </select>
     </label>
     {year.status === "archived" && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Vous consultez une année scolaire archivée en lecture seule.</p>}
