@@ -5,6 +5,7 @@ import { coordinationHttpError, requireActiveCoordinationActor, requireActiveCoo
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { listScopedStudentArrears, listScopedStudentArrearsBatch } from "./_lib/financialTransactions.js";
 import { manageCoordinationAdministrator } from "./_lib/coordinationAdministrators.js";
+import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
 
 export const maxDuration = 300;
 
@@ -134,7 +135,7 @@ async function manageSubCoordination({ res, auth, db, token, input, action }) {
     const schoolIds = validateOptionalSchoolIds(input.schoolIds);
     if (!name || !phone || !email || !email.includes("@") || password.length < 6 || !circumscription) throw coordinationHttpError(400, "invalid-argument", "Identité, téléphone, e-mail, mot de passe et Circonscription sont requis.");
     const subCoordinationRef = db.collection("subCoordinations").doc();
-    const authUser = await auth.createUser({ email, password, displayName: name, disabled: false });
+    const authUser = await createAuthUserOnce(auth, db, { email, password, displayName: name, disabled: false });
     try {
       await auth.setCustomUserClaims(authUser.uid, { role: "sub_coordination_admin", coordinationId: caller.coordinationId, subCoordinationId: subCoordinationRef.id });
       await db.runTransaction(async (transaction) => {
@@ -419,7 +420,7 @@ export default async function handler(req, res) {
       const existingRelations = await activeCoordinationRelations(db, schoolIds);
       if (existingRelations.length || schoolSnapshots.some((snapshot) => typeof snapshot.data()?.activeCoordinationId === "string" && snapshot.data().activeCoordinationId)) throw Object.assign(new Error("Une école appartient déjà à une Coordination active."), { statusCode: 409, code: "already-exists" });
       const coordinationRef = db.collection("coordinations").doc();
-      const authUser = await auth.createUser({ email, password, displayName: coordinatorName, disabled: false });
+      const authUser = await createAuthUserOnce(auth, db, { email, password, displayName: coordinatorName, disabled: false });
       const userRef = db.doc(`users/${authUser.uid}`);
       try {
         await auth.setCustomUserClaims(authUser.uid, { role: "coordination_admin", coordinationId: coordinationRef.id });

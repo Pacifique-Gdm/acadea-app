@@ -5,6 +5,7 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
+import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 const schoolLevels = new Map([
@@ -202,7 +203,7 @@ export default async function handler(req, res) {
     await db.doc(`schoolYears/${yearId}`).create(year);
     createdRefs.push(`schoolYears/${yearId}`);
 
-    const adminUserRecord = await auth.createUser({
+    const adminUserRecord = await createAuthUserOnce(auth, db, {
       email: adminEmail,
       password: adminPassword,
       displayName: adminName,

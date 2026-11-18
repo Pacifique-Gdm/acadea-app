@@ -11,6 +11,7 @@ import { createSchoolSubclasses } from "./_lib/schoolSubclassCreation.js";
 import { saveManualStudent } from "./_lib/manualStudentSave.js";
 import { saveStudyAssignments, setStudyAssignmentActive } from "./_lib/studyAssignmentGrants.js";
 import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
+import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -486,8 +487,8 @@ export async function linkParentToStudent({ db, caller, body }) {
   });
 }
 
-async function createAuthUser(auth, { email, password, displayName }) {
-  return auth.createUser({
+async function createAuthUser(auth, db, { email, password, displayName }) {
+  return createAuthUserOnce(auth, db, {
     email,
     password,
     displayName,
@@ -1016,7 +1017,7 @@ export default async function handler(req, res) {
     if (previousResult) { sendJson(res, 200, previousResult); return; }
     const parentStudentSnapshots = role === "parent" ? await loadParentStudents(db, { studentIds, schoolId, schoolYearId, parentId }) : [];
 
-    const authUser = await createAuthUser(auth, {
+    const authUser = await createAuthUser(auth, db, {
       email,
       password,
       displayName: name,

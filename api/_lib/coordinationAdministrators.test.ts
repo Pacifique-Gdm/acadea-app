@@ -17,7 +17,14 @@ function writer() {
   };
 }
 const db = {
-  doc(path: string): Ref { return { path, id: path.split("/").at(-1)!, get: async () => ({ exists: rows.has(path), data: () => rows.get(path) }) }; },
+  doc(path: string): Ref {
+    return {
+      path, id: path.split("/").at(-1)!, get: async () => ({ exists: rows.has(path), data: () => rows.get(path) }),
+      // verrou de création de compte par adresse e-mail
+      create: async (row: Row) => { if (rows.has(path)) throw Object.assign(new Error("already exists"), { code: 6 }); rows.set(path, row); },
+      delete: async () => { rows.delete(path); },
+    } as Ref;
+  },
   collection(name: string) { return { doc: () => db.doc(`${name}/${++sequence}`) }; },
   batch: writer,
   async runTransaction<T>(run: (transaction: ReturnType<typeof writer>) => Promise<T>) { const transaction = writer(); const result = await run(transaction); await transaction.commit(); return result; },

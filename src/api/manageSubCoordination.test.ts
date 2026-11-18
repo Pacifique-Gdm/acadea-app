@@ -20,7 +20,7 @@ vi.mock("../../api/_lib/coordination.js", () => ({
 
 import handler from "../../api/manage-coordination.js";
 
-type Ref = { id: string; path: string; kind?: "query"; get?: () => Promise<unknown> };
+type Ref = { id: string; path: string; kind?: "query"; get?: () => Promise<unknown>; create?: () => Promise<unknown>; delete?: () => Promise<unknown> };
 
 function response() {
   return { statusCode: 0, body: {} as Record<string, unknown>, setHeader: vi.fn(), end(value: string) { this.body = JSON.parse(value) as Record<string, unknown>; } };
@@ -41,7 +41,7 @@ describe("API Sous-coordination", () => {
     mocks.auth.revokeRefreshTokens.mockResolvedValue(undefined);
     mocks.batch.commit.mockResolvedValue(undefined);
     mocks.db.batch.mockReturnValue(mocks.batch);
-    mocks.db.doc.mockImplementation((path: string): Ref => ({ id: path.split("/").at(-1) ?? path, path, get: vi.fn(async () => ({ exists: false })) }));
+    mocks.db.doc.mockImplementation((path: string): Ref => ({ id: path.split("/").at(-1) ?? path, path, create: vi.fn(async () => undefined), delete: vi.fn(async () => undefined), get: vi.fn(async () => ({ exists: false })) }));
     mocks.db.collection.mockImplementation((name: string) => ({
       doc: vi.fn((): Ref => ({ id: name === "subCoordinations" ? "sub-new" : "audit-new", path: `${name}/${name === "subCoordinations" ? "sub-new" : "audit-new"}` })),
       where: vi.fn((): Ref => ({ id: `${name}-query`, path: name, kind: "query" })),
@@ -97,6 +97,8 @@ describe("API Sous-coordination", () => {
     mocks.db.doc.mockImplementation((path: string): Ref => ({
       id: path.split("/").at(-1) ?? path,
       path,
+      // verrou de création de compte par adresse e-mail
+      create: vi.fn(async () => undefined), delete: vi.fn(async () => undefined),
       get: vi.fn(async () => path === "subCoordinations/sub-a"
         ? { exists: true, data: () => ({ coordinationId: "coord-a", coordinatorUserId: "sub-user", active: true, status: "active" }) }
         : { exists: false }),
@@ -112,6 +114,8 @@ describe("API Sous-coordination", () => {
     mocks.db.doc.mockImplementation((path: string): Ref => ({
       id: path.split("/").at(-1) ?? path,
       path,
+      // verrou de création de compte par adresse e-mail
+      create: vi.fn(async () => undefined), delete: vi.fn(async () => undefined),
       get: vi.fn(async () => path === "subCoordinations/sub-a"
         ? { exists: true, data: () => ({ coordinationId: "coord-a", coordinatorUserId: "sub-user", active: true, status: "active" }) }
         : { exists: false }),
@@ -133,6 +137,8 @@ describe("API Sous-coordination", () => {
     mocks.db.doc.mockImplementation((path: string): Ref => ({
       id: path.split("/").at(-1) ?? path,
       path,
+      // verrou de création de compte par adresse e-mail
+      create: vi.fn(async () => undefined), delete: vi.fn(async () => undefined),
       get: vi.fn(async () => path === "subCoordinations/sub-a"
         ? { exists: true, data: () => ({ coordinationId: "coord-a", coordinatorUserId: "sub-user", active: true, status: "active" }) }
         : { exists: false }),
@@ -158,6 +164,8 @@ describe("API Sous-coordination", () => {
     mocks.db.doc.mockImplementation((path: string): Ref => ({
       id: path.split("/").at(-1) ?? path,
       path,
+      // verrou de création de compte par adresse e-mail
+      create: vi.fn(async () => undefined), delete: vi.fn(async () => undefined),
       get: vi.fn(async () => path === "subCoordinations/sub-a"
         ? { exists: true, data: () => ({ coordinationId: "coord-a", coordinatorUserId: "sub-user", active: initiallyActive, status: initiallyActive ? "active" : "archived" }) }
         : { exists: false }),

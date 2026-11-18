@@ -27,9 +27,9 @@ export function completeAllocationFixture() {
     "feeAllocationVersions/version": { id: "version", configId, schoolId: "school", schoolYearId: "year", feeTypeId: "fee", className: "1ère", currency: "USD", version: 1, feeAmountMinor: 10000, status: "prepared", effectiveFrom: null, rubrics, shares: validateFeeAllocationRubrics(rubrics, 10000).shares },
   }));
   const snapshot = path => ({ id: path.split("/").at(-1), exists: records.has(path), data: () => structuredClone(records.get(path)) });
-  const query = (collection, filters = [], limit = Infinity, after = "") => ({ where: (k, op, v) => { expect(op).toBe("=="); return query(collection, [...filters, [k, v]], limit, after); },
+  const query = (collection, filters = [], limit = Infinity, after = "") => ({ where: (k, op, v) => { expect(["==", ">=", "<"]).toContain(op); return query(collection, [...filters, [k, v, op]], limit, after); },
     select: () => query(collection, filters, limit, after), orderBy: () => query(collection, filters, limit, after), startAfter: doc => query(collection, filters, limit, typeof doc === 'string' ? doc : doc.id),
-    limit: n => query(collection, filters, n, after), get: async () => ({ docs: [...records].filter(([p, d]) => p.startsWith(`${collection}/`) && p.split("/").length === collection.split('/').length + 1 && p.split("/").at(-1) > after && filters.every(([k, v]) => d[k] === v)).sort(([a], [b]) => a < b ? -1 : 1).slice(0, limit).map(([p]) => snapshot(p)) }) });
+    limit: n => query(collection, filters, n, after), get: async () => ({ docs: [...records].filter(([p, d]) => p.startsWith(`${collection}/`) && p.split("/").length === collection.split('/').length + 1 && p.split("/").at(-1) > after && filters.every(([k, v, op]) => op === ">=" ? d[k] >= v : op === "<" ? d[k] < v : d[k] === v)).sort(([a], [b]) => a < b ? -1 : 1).slice(0, limit).map(([p]) => snapshot(p)) }) });
   const db = { projectId: "demo-acadea", records, doc: path => ({ path, id: path.split("/").at(-1), get: async () => snapshot(path) }), collection: query,
     runTransaction: async fn => {
       let writing = false; const changes = [];
@@ -154,5 +154,25 @@ describe("activation isolée, ouverture prouvée et dépenses", () => {
     await action(db, "approve-opening", { openingId: result.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" });
     await action(db, "activate", { openingId: result.openingId, confirmation: "ACTIVER LA REPARTITION FICTIVE" });
     expect(balance(db).availableMinor).toBe(120100);
+  });
+});
+
+describe("numéros de reçus uniques dans toute l'école", () => {
+  const receipts = db => [...db.records].filter(([p]) => p.startsWith("payments/")).map(([, d]) => d.receiptNumber).sort();
+  it("continue après le plus grand numéro du même préfixe, même s'il vient d'une autre année", async () => {
+    const db = completeAllocationFixture(); await activate(db);
+    // Reçu déjà émis sous REC-2026 dans une AUTRE année (ex. année renommée) : il ne doit jamais être redonné.
+    db.records.set("payments/ancien", { id: "ancien", schoolId: "school", schoolYearId: "autre-annee", receiptNumber: "REC-2026-0018", amount: 5 });
+    db.records.set("payments/autre-ecole", { id: "autre-ecole", schoolId: "ecole-voisine", schoolYearId: "x", receiptNumber: "REC-2026-0090", amount: 5 });
+    await pay(db, { amount: 10 });
+    await pay(db, { amount: 10, clientRequestId: "payment-request-002" });
+    expect(receipts(db)).toEqual(["REC-2026-0018", "REC-2026-0019", "REC-2026-0020", "REC-2026-0090"]);
+    expect(db.records.get("financialCounters/school_prefix_REC-2026")).toMatchObject({ schoolId: "school", prefix: "REC-2026", lastReceiptNumber: 20 });
+  });
+  it("le compteur de l'école prime : un numéro n'est jamais réutilisé même si le reçu le plus haut a disparu", async () => {
+    const db = completeAllocationFixture(); await activate(db);
+    db.records.set("financialCounters/school_prefix_REC-2026", { schoolId: "school", prefix: "REC-2026", kind: "receipt-prefix", lastReceiptNumber: 41 });
+    await pay(db, { amount: 10 });
+    expect(receipts(db)).toEqual(["REC-2026-0042"]);
   });
 });
