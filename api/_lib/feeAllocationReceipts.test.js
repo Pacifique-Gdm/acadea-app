@@ -427,3 +427,16 @@ describe("correction 27c-4 : changement de partie 2", () => {
     expect(read.paidWithCurrent).toBe(1); expect(JSON.stringify(read)).not.toContain("student");
   });
 });
+
+describe("correction du prévu : signal de recalcul", () => {
+  const signals = db => [...db.records].filter(([p]) => p.startsWith("feeAllocationForecastSignals/")).map(([, d]) => d);
+  it("le premier paiement réparti d'un cas social fait recalculer le prévu ; pas celui d'un élève normal", async () => {
+    const normal = fixture(); await create(normal, 40);
+    expect(signals(normal)).toHaveLength(0);
+    const db = fixture(); reduce(db, 5000); await create(db, 20);
+    expect(signals(db)).toHaveLength(1);
+    expect(signals(db)[0]).toMatchObject({ schoolId: "school", schoolYearId: "year" });
+    const first = signals(db)[0].revision; await create(db, 10, "payment-request-002");
+    expect(signals(db)[0].revision).toBe(first);
+  });
+});
