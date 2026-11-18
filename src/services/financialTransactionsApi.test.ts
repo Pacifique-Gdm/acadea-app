@@ -3,7 +3,7 @@ import { executeFinancialOperation, FinancialApiError, listStudentArrears, listS
 
 type StoredDocument = Record<string, unknown>;
 type Reference = { path: string };
-type Query = { collectionName: string; filters: Array<[string, unknown]>; where(field: string, operator: string, value: unknown): Query };
+type Query = { collectionName: string; filters: Array<[string, unknown, string?]>; where(field: string, operator: string, value: unknown): Query };
 
 function fakeDb(seed: Record<string, StoredDocument>) {
   const documents = new Map(Object.entries(seed));
@@ -15,7 +15,7 @@ function fakeDb(seed: Record<string, StoredDocument>) {
       const query: Query = {
         collectionName,
         filters: [],
-        where(field, _operator, value) { this.filters.push([field, value]); return this; },
+        where(field, operator, value) { this.filters.push([field, value, operator]); return this; },
       };
       return query;
     },
@@ -36,7 +36,7 @@ function fakeDb(seed: Record<string, StoredDocument>) {
             }
             const prefix = `${target.collectionName}/`;
             const docs = [...documents.entries()]
-              .filter(([path, value]) => path.startsWith(prefix) && target.filters.every(([field, expected]) => value[field] === expected))
+              .filter(([path, value]) => path.startsWith(prefix) && target.filters.every(([field, expected, operator]) => operator === "in" ? (expected as unknown[]).includes(value[field]) : value[field] === expected))
               .map(([path, value]) => ({ id: path.slice(prefix.length), data: () => value }));
             return { docs, empty: docs.length === 0, size: docs.length };
           },

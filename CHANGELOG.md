@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.9.5] — 2026-11-18 — Correction
+- Dettes des années antérieures : affichage plus rapide (lectures groupées, lecture seule), gardées en mémoire par élève et recalculées seulement si un paiement d'arriéré ou la fiche change ; indicateur de chargement sur cette section seulement
+
 ## [1.9.4] — 2026-11-18 — Correction
 - Contrôle (Coordination) : « Toutes les années » retiré (écran financier) ; Cas sociaux : l'année active est choisie par défaut
 

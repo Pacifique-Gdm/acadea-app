@@ -14,6 +14,7 @@ import { usePaginatedControlHistory } from "../../hooks/usePaginatedControlHisto
 import { createExpenseTransaction, createPaymentTransaction, deleteFinancialTransaction, loadStudentArrears, updateExpenseTransaction, updatePaymentTransaction } from "../../services/financialTransactions";
 import type { HistoricalDebt } from "../../services/financialTransactions";
 import { loadStudentArrearsBatch, loadStudentArrearsDetailsBatch } from "../../services/financialTransactions";
+import { cachedHistoricalArrears, historicalArrearsFingerprint, historicalArrearsKey, peekHistoricalArrears } from "../../services/historicalArrearsCache";
 import { PaidAmountDropdown } from "../../components/PaidAmountDropdown";
 import { arrearsFilterActive, arrearsFilterForCriterion, matchesArrearsFilter, type ArrearsTotals } from "../../utils/arrearsFilter";
 import { createAuditLog } from "../../utils/audit";
@@ -134,6 +135,8 @@ export function ControlModule({
   const [selectedHistoryStudentId, setSelectedHistoryStudentId] = useState("");
   const [paymentArrears, setPaymentArrears] = useState<HistoricalDebt[]>([]);
   const [historyArrears, setHistoryArrears] = useState<HistoricalDebt[]>([]);
+  const [historyArrearsLoading, setHistoryArrearsLoading] = useState(false);
+  const [historyArrearsError, setHistoryArrearsError] = useState("");
   const [historyPdfLoading, setHistoryPdfLoading] = useState(false);
   const [historyPdfError, setHistoryPdfError] = useState("");
   const [arrearsError, setArrearsError] = useState("");
@@ -277,29 +280,43 @@ export function ControlModule({
     remaining: selectedPaymentFeeRemaining,
   };
   const isPaymentEntryDisabled = (!selectedPaymentFee && !selectedPaymentDebt) || selectedPaymentFeeRemaining <= 0;
+  // Dettes des années passées : gardées en mémoire et recalculées seulement si un paiement d'arriéré ou la fiche
+  // de l'élève change (empreinte). Les années passées sont archivées : leurs frais et inscriptions ne changent plus.
+  const paymentArrearsFingerprint = useMemo(() => historicalArrearsFingerprint(yearData.students.find((item) => item.id === studentId), yearData.payments, year.id), [studentId, yearData.students, yearData.payments, year.id]);
+  const historyArrearsFingerprint = useMemo(() => historicalArrearsFingerprint(yearData.students.find((item) => item.id === selectedHistoryStudentId), yearData.payments, year.id), [selectedHistoryStudentId, yearData.students, yearData.payments, year.id]);
   useEffect(() => {
     const requestId = ++paymentStudentRequestRef.current;
     if (!studentId || year.status !== "active") { setPaymentArrears([]); setArrearsError(""); return; }
     let cancelled = false;
-    setPaymentArrears([]);
-    setArrearsLoading(true);
+    const key = historicalArrearsKey(user.id, year.id, studentId);
+    const known = peekHistoricalArrears(key, paymentArrearsFingerprint);
+    setPaymentArrears(known?.debts ?? []);
+    setArrearsLoading(!known);
     setArrearsError("");
-    void loadStudentArrears({ schoolYearId: year.id, studentId }).then((result) => {
+    if (known) return;
+    void cachedHistoricalArrears(key, paymentArrearsFingerprint, () => loadStudentArrears({ schoolYearId: year.id, studentId })).then((result) => {
       if (!cancelled && requestId === paymentStudentRequestRef.current) setPaymentArrears(result.debts);
     }).catch((error) => {
       if (!cancelled && requestId === paymentStudentRequestRef.current) setArrearsError(error instanceof Error ? error.message : "Chargement des arriérés impossible.");
     }).finally(() => { if (!cancelled && requestId === paymentStudentRequestRef.current) setArrearsLoading(false); });
     return () => { cancelled = true; };
-  }, [studentId, year.id, year.status]);
+  }, [studentId, year.id, year.status, user.id, paymentArrearsFingerprint]);
   useEffect(() => {
-    if (!selectedHistoryStudentId || year.status !== "active") { setHistoryArrears([]); return; }
+    if (!selectedHistoryStudentId || year.status !== "active") { setHistoryArrears([]); setHistoryArrearsLoading(false); setHistoryArrearsError(""); return; }
     let cancelled = false;
-    setHistoryArrears([]);
-    void loadStudentArrears({ schoolYearId: year.id, studentId: selectedHistoryStudentId }).then((result) => {
+    const key = historicalArrearsKey(user.id, year.id, selectedHistoryStudentId);
+    const known = peekHistoricalArrears(key, historyArrearsFingerprint);
+    // La fiche s'affiche tout de suite ; seule cette section attend son calcul.
+    setHistoryArrears(known ? [...known.debts, ...known.settled] : []);
+    setHistoryArrearsLoading(!known);
+    setHistoryArrearsError("");
+    if (known) return;
+    void cachedHistoricalArrears(key, historyArrearsFingerprint, () => loadStudentArrears({ schoolYearId: year.id, studentId: selectedHistoryStudentId })).then((result) => {
       if (!cancelled) setHistoryArrears([...result.debts, ...result.settled]);
-    }).catch(() => { if (!cancelled) setHistoryArrears([]); });
+    }).catch(() => { if (!cancelled) { setHistoryArrears([]); setHistoryArrearsError("Les dettes des années antérieures ne sont pas disponibles pour le moment."); } })
+      .finally(() => { if (!cancelled) setHistoryArrearsLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedHistoryStudentId, year.id, year.status]);
+  }, [selectedHistoryStudentId, year.id, year.status, user.id, historyArrearsFingerprint]);
   const expenseAmountValue = Number(expenseAmount);
   const expenseDebitCents = (() => { try { return toMoneyMinor(expenseAmountValue); } catch { return 0; } })();
   const expenseCashInsufficient = expenseCashBalance !== undefined && Number.isFinite(expenseDebitCents)
@@ -1290,7 +1307,9 @@ export function ControlModule({
 
         <div className="min-w-0 rounded border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <h2 className="text-lg font-bold text-ink">Dettes des années antérieures</h2>
-          {historyArrears.length === 0 && <p className="mt-2 text-sm text-slate-600">Aucune créance historique trouvée pour cet élève.</p>}
+          {historyArrearsLoading && <p role="status" className="mt-2 text-sm text-slate-600">Chargement des dettes des années antérieures…</p>}
+          {!historyArrearsLoading && historyArrearsError && <p role="alert" className="mt-2 text-sm text-red-700">{historyArrearsError}</p>}
+          {!historyArrearsLoading && !historyArrearsError && historyArrears.length === 0 && <p className="mt-2 text-sm text-slate-600">Aucune créance historique trouvée pour cet élève.</p>}
           <div className="mt-2 grid gap-2">
             {historyArrears.map((debt) => <div key={`${debt.schoolYearId}:${debt.feeTypeId}`} className="min-w-0 rounded border border-amber-200 bg-white p-3 text-sm">
               <p className="break-words font-semibold">{debt.feeName} · {debt.yearName} {debt.remaining === 0 ? "· Soldée" : "· À payer"}</p>

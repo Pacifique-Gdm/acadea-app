@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Download } from "lucide-react";
 import { StudentDetailPage } from "../../components/students/StudentDetailPage";
 import { loadCoordinationStudentArrears, loadCoordinationStudentParent } from "../../services/coordinationService";
+import { cachedHistoricalArrears, historicalArrearsFingerprint, historicalArrearsKey, peekHistoricalArrears } from "../../services/historicalArrearsCache";
+
+const COORDINATION_ARREARS_MAX_AGE_MS = 5 * 60 * 1000;
 import type { HistoricalDebt } from "../../services/financialTransactions";
 import { historicalArrearsPdfSection } from "../control/historicalArrearsPdf";
 import { formatCurrencyMoney, resolveSchoolCurrency, resolveSchoolYearCurrency } from "../../utils/currency";
@@ -33,13 +36,18 @@ export function CoordinationStudentRecord({ student, user, coordination, schools
   const [parentError, setParentError] = useState("");
   useEffect(() => {
     let cancelled = false;
-    setParent(null); setFinancial({ feeTypes: [], payments: [] }); setArrears([]); setLoading(true); setDetailError("");
-    setArrearsLoading(true); setArrearsError(""); setParentLoading(true); setParentError("");
+    // Dettes des années passées : gardées en mémoire. La Coordination ne reçoit pas les paiements en direct,
+    // donc le résultat est aussi recalculé au-delà de 5 minutes (un paiement d'arriéré a pu être encaissé entre-temps).
+    const arrearsKey = historicalArrearsKey(user.id, "coordination", student.id);
+    const arrearsFingerprint = historicalArrearsFingerprint(student, [], student.schoolYearId);
+    const knownArrears = peekHistoricalArrears(arrearsKey, arrearsFingerprint, COORDINATION_ARREARS_MAX_AGE_MS);
+    setParent(null); setFinancial({ feeTypes: [], payments: [] }); setArrears(knownArrears ? [...knownArrears.debts, ...knownArrears.settled] : []); setLoading(true); setDetailError("");
+    setArrearsLoading(!knownArrears); setArrearsError(""); setParentLoading(true); setParentError("");
     loadCoordinationStudentFinancialDetails(student)
       .then((value) => { if (!cancelled) setFinancial(value); })
       .catch(() => { if (!cancelled) setDetailError("Les données financières ne sont pas disponibles."); })
       .finally(() => { if (!cancelled) setLoading(false); });
-    loadCoordinationStudentArrears(student.id)
+    if (!knownArrears) cachedHistoricalArrears(arrearsKey, arrearsFingerprint, () => loadCoordinationStudentArrears(student.id), { maxAgeMs: COORDINATION_ARREARS_MAX_AGE_MS })
       .then((historical) => { if (!cancelled) setArrears([...historical.debts, ...historical.settled]); })
       .catch(() => { if (!cancelled) setArrearsError("Les arriérés ne sont pas disponibles."); })
       .finally(() => { if (!cancelled) setArrearsLoading(false); });
@@ -48,7 +56,7 @@ export function CoordinationStudentRecord({ student, user, coordination, schools
       .catch(() => { if (!cancelled) setParentError("Les informations du parent ne sont pas disponibles."); })
       .finally(() => { if (!cancelled) setParentLoading(false); });
     return () => { cancelled = true; };
-  }, [student]);
+  }, [student, user.id]);
   const model = useMemo<CoordinationDashboardReadModel>(() => ({ students: [student], feeTypes: financial.feeTypes, payments: financial.payments, expenses: [], personnel: [], schoolYears: years }), [financial, student, years]);
   const data = useMemo(() => detailData(model, parent ? [parent] : []), [model, parent]);
   const schoolsById = useMemo(() => new Map(schools.map((item) => [item.id, item])), [schools]);
