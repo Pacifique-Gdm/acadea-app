@@ -38,15 +38,16 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       if (index) await editor.getByRole("button", { name: "+ Ajouter une ligne", exact: true }).click();
       await editor.getByLabel(`Rubrique ${index + 1}`, { exact: true }).selectOption("__new__");
       await editor.getByLabel("Nom de la nouvelle rubrique", { exact: true }).fill(name);
-      await editor.getByRole("button", { name: "Créer", exact: true }).click();
-      // Attendre la réponse du serveur : le champ se referme et la nouvelle rubrique est choisie sur cette ligne.
-      // (Avant, « pas vide » passait tout de suite avec « __new__ », et la réponse tardive refermait le champ de la ligne suivante.)
+      // Lot « Deux onglets » : la rubrique est seulement ajoutée à la liste ; elle sera créée avec la répartition.
+      await editor.getByRole("button", { name: "Ajouter à la liste", exact: true }).click();
       await expect(editor.getByLabel("Nom de la nouvelle rubrique", { exact: true })).toHaveCount(0);
       await expect(editor.getByLabel(`Rubrique ${index + 1}`, { exact: true }).locator("option:checked")).toHaveText(name);
       await editor.getByRole("combobox", { name: "Mode", exact: true }).nth(index).selectOption(mode);
       await editor.locator('input[inputmode="decimal"]').nth(index).fill(value);
     }
     await expect(editor.getByText(/Non affecté :/)).toHaveCount(2);
+    // Aucune rubrique n'est encore enregistrée : elles ne le seront qu'avec la répartition.
+    expect((await f.db.collection("feeAllocationRubrics").where("schoolId", "==", f.school).get()).size).toBe(0);
     let lost: Record<string, unknown> | undefined;
     await page.route("**/api/manage-financial-transaction", async route => {
       const input = route.request().postDataJSON();
@@ -62,6 +63,7 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
     await expect(editor).toHaveCount(0);
     const configs = () => f.db.collection("feeAllocationConfigs").where("schoolId", "==", f.school).get();
     expect((await configs()).size).toBe(2);
+    expect((await f.db.collection("feeAllocationRubrics").where("schoolId", "==", f.school).get()).size).toBe(3);
     expect((await invoke(handler, adminToken, lost)).payload.idempotent).toBe(true);
     // Lot 27c-1 : le pourcentage suit le nom de la rubrique (« Fonctionnement (20 %) »).
     await page.getByRole("button", { name: /^Fonctionnement \(20 %\)$/ }).first().click();

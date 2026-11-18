@@ -11,6 +11,7 @@ import { NewSanctionDrawer } from "../../components/discipline/NewSanctionDrawer
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { AdminDrawer } from "../../components/ui";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
+import { FeeAllocationEntry } from "../menu/FeeAllocationDrawer";
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { completeDisciplineSanction, createDisciplineSanction, saveDisciplineAuditLog } from "../../services/discipline";
@@ -728,7 +729,7 @@ export function DisciplinePortal({
         )}
         {activeDisciplineTab === "menu" && (
           <section className="grid min-w-0 gap-3">
-            <OwnPayrollEntry user={user} school={school} />
+            <OwnPayrollEntry user={user} school={school} /><FeeAllocationEntry user={user} schools={[school]} />
             {renderPublishedTimetable?.()}
             {disciplineMenuSections.map((section) => {
               const Icon = section.icon;

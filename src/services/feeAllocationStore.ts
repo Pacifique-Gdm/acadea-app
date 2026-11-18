@@ -10,6 +10,10 @@ export type AllocationSnapshot = { workspaces: AllocationWorkspace[]; tokens: Re
 type Entry = { snapshot?: AllocationSnapshot; started?: number; pending?: Promise<AllocationSnapshot> };
 
 const store = new Map<string, Entry>();
+/** Lot « Deux onglets » : comptes du personnel qui lisent la vue partagée (réduite à leurs rubriques). */
+const STAFF_ROLES = new Set(["discipline_director", "study_director", "secretary", "teacher"]);
+const sharedUsers = new Set<string>();
+export function markAllocationAccess(user: { id: string; role: string }) { if (STAFF_ROLES.has(user.role)) sharedUsers.add(user.id); else sharedUsers.delete(user.id); }
 export const allocationStoreKey = (userId: string, schoolIds: string[]) => `${userId}:${[...schoolIds].sort().join("|")}`;
 const usedKey = (userId: string) => `acadea:repartition-utilisee:${userId}`;
 
@@ -18,8 +22,8 @@ async function inBatches<T>(ids: string[], load: (id: string) => Promise<T>) {
   for (let index = 0; index < ids.length; index += 4) results.push(...await Promise.all(ids.slice(index, index + 4).map(load)));
   return results;
 }
-export async function readAllocationTokens(schoolIds: string[], signal?: AbortSignal) {
-  const answers = await inBatches(schoolIds, (schoolId) => allocationRequest<{ schoolId: string; token?: string }>("get-forecast-revision", { schoolId }, signal));
+export async function readAllocationTokens(schoolIds: string[], signal?: AbortSignal, shared = false) {
+  const answers = await inBatches(schoolIds, (schoolId) => allocationRequest<{ schoolId: string; token?: string }>(shared ? "get-shared-revision" : "get-forecast-revision", { schoolId }, signal));
   const tokens: Record<string, string | null> = {};
   answers.forEach((answer, index) => {
     if (answer.schoolId !== schoolIds[index]) throw new Error("Contexte de vérification invalide.");
@@ -39,8 +43,9 @@ export function loadAllocationSnapshot(userId: string, schoolIds: string[], forc
   const ids = [...schoolIds].sort(), started = ++sequence;
   const self: { pending?: Promise<AllocationSnapshot> } = {};
   const pending = (async () => {
-    const tokens = await readAllocationTokens(ids);
-    const workspaces = await inBatches(ids, (id) => loadAllocationWorkspace(id));
+    const shared = sharedUsers.has(userId);
+    const tokens = await readAllocationTokens(ids, undefined, shared);
+    const workspaces = await inBatches(ids, (id) => loadAllocationWorkspace(id, undefined, { shared }));
     const snapshot = { workspaces, tokens, loadedAt: Date.now() };
     const current = store.get(key);
     if (!current?.snapshot || (current.started ?? 0) <= started) store.set(key, { snapshot, started, ...(current?.pending && current.pending !== self.pending ? { pending: current.pending } : {}) });
@@ -59,7 +64,7 @@ export const pendingAllocationSnapshot = (userId: string, schoolIds: string[]) =
 export async function allocationSnapshotIsCurrent(snapshot: AllocationSnapshot, signal?: AbortSignal) {
   const ids = Object.keys(snapshot.tokens).sort();
   if (!ids.length || ids.some((id) => !snapshot.tokens[id])) return false;
-  const current = await readAllocationTokens(ids, signal);
+  const current = await readAllocationTokens(ids, signal, snapshot.workspaces.some((w) => Array.isArray(w.sharedRubricIds)));
   return ids.every((id) => current[id] === snapshot.tokens[id]);
 }
 
@@ -81,7 +86,7 @@ export function prefetchAllocationSnapshot(userId: string, schoolIds: string[]) 
   void loadAllocationSnapshot(userId, schoolIds).catch(() => undefined);
 }
 
-const prefetchRoles = new Set(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"]);
+const prefetchRoles = new Set(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin", ...STAFF_ROLES]);
 /** À appeler dès que le compte et ses écoles sont connus : préparation discrète, après l'affichage. */
 export function usePrefetchAllocation(user: { id: string; role: string } | null | undefined, schoolIds: string[]) {
   const key = user && prefetchRoles.has(user.role) ? allocationStoreKey(user.id, schoolIds.filter(Boolean)) : "";
@@ -91,6 +96,7 @@ export function usePrefetchAllocation(user: { id: string; role: string } | null 
   useEffect(() => {
     if (!key || !user) return;
     const ids = key.slice(user.id.length + 1).split("|").filter(Boolean);
+    markAllocationAccess(user);
     const timer = window.setTimeout(() => prefetchAllocationSnapshot(user.id, ids), 2500);
     return () => window.clearTimeout(timer);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
