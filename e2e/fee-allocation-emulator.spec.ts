@@ -39,7 +39,10 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       await editor.getByLabel(`Rubrique ${index + 1}`, { exact: true }).selectOption("__new__");
       await editor.getByLabel("Nom de la nouvelle rubrique", { exact: true }).fill(name);
       await editor.getByRole("button", { name: "Créer", exact: true }).click();
-      await expect(editor.getByLabel(`Rubrique ${index + 1}`, { exact: true })).not.toHaveValue("");
+      // Attendre la réponse du serveur : le champ se referme et la nouvelle rubrique est choisie sur cette ligne.
+      // (Avant, « pas vide » passait tout de suite avec « __new__ », et la réponse tardive refermait le champ de la ligne suivante.)
+      await expect(editor.getByLabel("Nom de la nouvelle rubrique", { exact: true })).toHaveCount(0);
+      await expect(editor.getByLabel(`Rubrique ${index + 1}`, { exact: true }).locator("option:checked")).toHaveText(name);
       await editor.getByRole("combobox", { name: "Mode", exact: true }).nth(index).selectOption(mode);
       await editor.locator('input[inputmode="decimal"]').nth(index).fill(value);
     }

@@ -240,7 +240,9 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
     try {
       const { rubric } = await createRubric(workspace.school.id, newName.value);
       setCatalog((items) => [...(items ?? []), rubric].sort((a, b) => a.name.localeCompare(b.name, "fr")));
-      update(index, { id: rubric.id, name: rubric.name }); setNewName(null);
+      update(index, { id: rubric.id, name: rubric.name });
+      // Ne ferme que le champ de cette ligne : si une autre ligne a ouvert « + Nouvelle rubrique… » entre-temps, son champ reste ouvert.
+      setNewName((current) => current?.index === index ? null : current);
     } catch (cause) { setError(message(cause)); } finally { setCreating(false); }
   }
   const update = (index: number, changes: Partial<RubricInput>) => setRubrics((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...changes } : row));
