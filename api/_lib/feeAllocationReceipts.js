@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, allocateFeeReceiptCumulative, arrearsRubricKey, socialCaseShares, socialCumulativeLines, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, allocateFeeReceiptCumulative, arrearsRubricKey, assertFeeAllocationMovement, socialCaseShares, socialCumulativeLines, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { allocationSupportedProject, readOperationalAllocation } from "./feeAllocationRuntime.js";

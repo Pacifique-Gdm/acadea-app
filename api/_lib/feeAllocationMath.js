@@ -140,7 +140,9 @@ export function socialCaseShares(part1Rubrics, part2Rubrics, grossMinor, netMino
   if (!safeMinor(netMinor) || netMinor > grossMinor) invalid("Montant net du cas social invalide.");
   const ids = new Set(part1.rubrics.map((rubric) => rubric.id));
   if (part2Rubrics.length !== ids.size || part2Rubrics.some((rubric) => !ids.has(rubric?.id))) invalid("La partie 2 doit reprendre les rubriques de la partie 1.");
-  const part2 = validateFeeAllocationRubrics(part2Rubrics, grossMinor).rubrics;
+  // Les noms viennent toujours de la partie 1 (mêmes rubriques).
+  const part2 = validateFeeAllocationRubrics(part2Rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, name: part1.rubrics.find((r) => r.id === id).name, mode,
+    ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) })), grossMinor).rubrics;
   if (netMinor === 0) return part1.shares.map((share) => ({ rubricId: share.rubricId, amountMinor: 0 }));
   const scale = 10000n;
   const raw = part2.map((rubric) => ({ rubricId: rubric.id, weight: rubric.mode === "fixed" ? BigInt(rubric.fixedMinor) * scale : BigInt(netMinor) * BigInt(rubric.basisPoints) }));
@@ -150,8 +152,8 @@ export function socialCaseShares(part1Rubrics, part2Rubrics, grossMinor, netMino
     return shares;
   }
   // Plus que le net : réduction à proportion de chaque ligne, « Non affecté » à zéro.
-  const divisor = raw.reduce((g, item) => { let a = g, b = item.weight; while (b) [a, b] = [b, a % b]; return a; }, 0n) || 1n;
-  const weights = raw.map((item) => ({ rubricId: item.rubricId, amountMinor: Number(item.weight / divisor) }));
+  // Poids non simplifiés : leur somme dépasse toujours le net, condition du partage cumulatif.
+  const weights = raw.map((item) => ({ rubricId: item.rubricId, amountMinor: Number(item.weight) }));
   if (weights.some((item) => !Number.isSafeInteger(item.amountMinor))) invalid("Partie 2 hors limites.");
   const positive = weights.filter((item) => item.amountMinor > 0);
   const reduced = allocateFeeReceiptCumulative(positive, netMinor);

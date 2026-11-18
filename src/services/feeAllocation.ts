@@ -1,6 +1,6 @@
 import { resolveApiUrl } from "../config/apiUrl";
 import { getCurrentFirebaseIdToken } from "./auth";
-import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationVersion } from "../types/feeAllocation";
+import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationSocialVersion, FeeAllocationVersion } from "../types/feeAllocation";
 
 export type AllocationFee = { id: string; name: string; className: string; classOptionKey: string | null; amount: number };
 export type AllocationWorkspace = {
@@ -127,3 +127,17 @@ export const createRubric = (schoolId: string, name: string) => allocationReques
 export const renameRubric = (schoolId: string, rubricId: string, name: string) => allocationRequest<{ rubric: AllocationCatalogRubric }>("rename-rubric", { schoolId, rubricId, name, requestId: rubricRequestId() });
 export const setRubricHidden = (schoolId: string, rubricId: string, hidden: boolean) => allocationRequest<{ rubric: AllocationCatalogRubric }>("set-rubric-hidden", { schoolId, rubricId, hidden, requestId: rubricRequestId() });
 export const deleteRubric = (schoolId: string, rubricId: string) => allocationRequest<{ deletedId: string }>("delete-rubric", { schoolId, rubricId, requestId: rubricRequestId() });
+
+/** Lot 27c-4 : partie 2 (cas sociaux) d'un frais dont la partie 1 est publiée. */
+export async function loadSocialPart(schoolId: string, feeTypeId: string) {
+  const result = await allocationRequest<{ partOne: FeeAllocationVersion | null; social: FeeAllocationSocialVersion | null; history: FeeAllocationSocialVersion[] }>("get-social-part", { schoolId, feeTypeId });
+  if (!("partOne" in result) || !Array.isArray(result.history)) throw new AllocationApiError("Partie 2 non confirmée.");
+  return result;
+}
+export type PublishSocialPart = { feeTypeId: string; requestId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null;
+  rubrics: Array<{ id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number }> };
+export async function publishSocialPart(request: PublishSocialPart) {
+  const result = await allocationRequest<{ social: FeeAllocationSocialVersion }>("publish-social-part", request);
+  if (!result.social || result.social.feeTypeId !== request.feeTypeId || result.social.partOneVersionId !== request.expectedPartOneVersionId) throw new AllocationApiError("Publication non confirmée. Vérifiez la même demande avant de recommencer.");
+  return result.social;
+}

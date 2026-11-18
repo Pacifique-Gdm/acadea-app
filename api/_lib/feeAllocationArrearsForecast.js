@@ -4,7 +4,7 @@
 import { supportBalance } from "./socialSupportMath.js";
 import { feeAppliesToHistoricalStudent } from "./financialTransactions.js";
 import { allocateFeeReceiptCumulative } from "./feeAllocationReceipts.js";
-import { UNALLOCATED_RUBRIC_ID, arrearsRubricKey, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { UNALLOCATED_RUBRIC_ID, arrearsRubricKey, socialCaseShares, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { readAllocationPages } from "./feeAllocationPagination.js";
 import { allocationHash } from "./feeAllocationRuntime.js";
 import { toMoneyMinor } from "./money.js";
@@ -45,7 +45,7 @@ export function linkHistoricalRecords(activeStudents, historicalStudents) {
 /** years : [{ year, fees, payments, configs, versions }] — années archivées antérieures à l'année active, même devise. */
 export function calculateArrearsForecast({ activeYearId, linkedRecords, years }) {
   const rows = new Map();
-  for (const { year, fees, payments, configs, versions } of years) {
+  for (const { year, fees, payments, configs, versions, socialVersions = [] } of years) {
     const records = linkedRecords.filter((s) => s.schoolYearId === year.id);
     if (!records.length) continue;
     for (const fee of fees) {
@@ -57,6 +57,8 @@ export function calculateArrearsForecast({ activeYearId, linkedRecords, years })
       const checked = usable ? validateFeeAllocationRubrics(version.rubrics, tariff) : null;
       const shares = checked ? checked.shares : [{ rubricId: UNALLOCATED_RUBRIC_ID, amountMinor: tariff }];
       const names = new Map((checked?.rubrics ?? []).map((r) => [r.id, r.name]));
+      // Lot 27c-4 : un arriéré de cas social suit la partie 2 de son année d'origine, si elle a été publiée.
+      const social = checked && config?.socialVersionId ? socialVersions.find((v) => v.id === config.socialVersionId && v.partOneVersionId === version.id) ?? null : null;
       for (const student of records) {
         if (!feeAppliesToHistoricalStudent(fee, student)) continue;
         const balance = supportBalance(student, fee);
@@ -67,7 +69,8 @@ export function calculateArrearsForecast({ activeYearId, linkedRecords, years })
         const remaining = Math.max(net - paid, 0);
         if (!remaining) continue;
         const table = balance.reduction > 0 ? 2 : 1;
-        for (const share of allocateFeeReceiptCumulative(shares, remaining)) {
+        const used = table === 2 && social ? socialCaseShares(checked.rubrics, social.rubrics, tariff, net) : shares;
+        for (const share of allocateFeeReceiptCumulative(used, remaining)) {
           const rubricId = arrearsRubricKey(year.id, share.rubricId), key = `${table}|${rubricId}`;
           const row = rows.get(key) ?? { feeTypeId: fee.id, className: "", classOptionKey: null, table, rubricId, arrearsYearName: String(year.name ?? year.id),
             rubricName: `${share.rubricId === UNALLOCATED_RUBRIC_ID ? "Non affecté" : names.get(share.rubricId) ?? "Rubrique"} (arriéré ${year.name ?? year.id})`,
@@ -106,7 +109,8 @@ export async function readArrearsForecast({ db, schoolId, yearId, currency, acti
     const data = (result) => result.docs.map((d) => ({ ...d.data(), id: d.id }));
     const configRows = data(configs);
     const versions = await Promise.all(configRows.filter((c) => c.currentVersionId).map(async (c) => ({ ...(await tx.get(db.doc(`feeAllocationVersions/${c.currentVersionId}`))).data(), id: c.currentVersionId })));
-    return { year, students: data(students), fees: data(fees), payments: data(payments), configs: configRows, versions };
+    const socialVersions = await Promise.all(configRows.filter((c) => c.socialVersionId).map(async (c) => ({ ...(await tx.get(db.doc(`feeAllocationSocialVersions/${c.socialVersionId}`))).data(), id: c.socialVersionId })));
+    return { year, students: data(students), fees: data(fees), payments: data(payments), configs: configRows, versions, socialVersions };
   })), { readOnly: true });
   const linkedRecords = linkHistoricalRecords(activeStudents, years.flatMap((y) => y.students));
   const rows = calculateArrearsForecast({ activeYearId: yearId, linkedRecords, years });

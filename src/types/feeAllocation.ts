@@ -38,6 +38,15 @@ export interface FeeAllocationConfig {
   draftRevision: number;
   draft?: { rubrics: FeeAllocationRubric[]; feeAmountMinor: number; updatedAt: string; updatedBy: string };
   currentVersionId?: string;
+  /** Lot 27c-4 : partie 2 publiée, propre aux cas sociaux. */
+  socialVersionId?: string;
+}
+
+/** Lot 27c-4 : partie 2 de la répartition (cas sociaux), mêmes rubriques que la partie 1. */
+export interface FeeAllocationSocialVersion {
+  id: string; configId: string; schoolId: string; schoolYearId: string; feeTypeId: string; currency: FeeAllocationCurrency;
+  partOneVersionId: string; feeAmountMinor: number; version: number; rubrics: FeeAllocationRubric[];
+  copyOfPartOne: boolean; status: "published" | "superseded"; effectiveFrom: string; publishedBy: string; createdAt: string;
 }
 
 export interface FeeAllocationVersion {
