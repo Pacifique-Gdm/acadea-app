@@ -1,4 +1,5 @@
 import { coordinationHttpError } from "./coordination.js";
+import { createAuthUserOnce } from "./accountEmailLock.js";
 
 const fail = (status, code, message) => { throw coordinationHttpError(status, code, message); };
 const text = (value, max = 160) => typeof value === "string" && value.trim().length <= max ? value.trim() : "";
@@ -36,7 +37,7 @@ export async function manageCoordinationAdministrator({ auth, db, caller, input,
     const values = identity(input);
     if (typeof input.password !== "string" || input.password.length < 6 || input.password.length > 128) fail(400, "invalid-argument", "Mot de passe temporaire invalide.");
     let user;
-    try { user = await auth.createUser({ email: values.email, password: input.password, displayName: values.name, disabled: false }); }
+    try { user = await createAuthUserOnce(auth, db, { email: values.email, password: input.password, displayName: values.name, disabled: false }); }
     catch (error) { if (error.code === "auth/email-already-exists") fail(409, "already-exists", "Cet e-mail est déjà utilisé."); throw error; }
     try {
       await auth.setCustomUserClaims(user.uid, { role: "coordination_admin", coordinationId });

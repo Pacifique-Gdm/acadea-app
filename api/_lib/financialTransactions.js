@@ -569,8 +569,19 @@ async function createPayment(transaction, db, caller, body, hash, now) {
       .reduce((maximum, payment) => Math.max(maximum, receiptSequence(payment.receiptNumber)), historicalMaximum);
   }
   const storedSequence = counterSnapshot.exists ? Number(counterSnapshot.data()?.lastReceiptNumber || 0) : 0;
-  const sequence = Math.max(historicalMaximum, storedSequence) + 1;
-  const receiptNumber = `${receiptPrefix(year)}-${String(sequence).padStart(4, "0")}`;
+  // Un seul compteur par école et par préfixe (REC-2026…), toutes années confondues : un numéro de reçu n'est
+  // jamais redonné, même si une année change de nom ou si deux paiements sont enregistrés au même moment.
+  const prefix = receiptPrefix(year);
+  const prefixCounterRef = db.doc(`financialCounters/${caller.schoolId}_prefix_${prefix}`);
+  const prefixCounterSnapshot = await transaction.get(prefixCounterRef);
+  // Première utilisation du préfixe : plus grand numéro de toute l'école, lu par une requête ciblée (index école + numéro).
+  const schoolHighest = prefixCounterSnapshot.exists ? 0 : (await transaction.get(db.collection("payments").where("schoolId", "==", caller.schoolId)
+    .where("receiptNumber", ">=", `${prefix}-`).where("receiptNumber", "<", `${prefix}-\uf8ff`))).docs
+    .map((document) => document.data()).filter((payment) => payment.schoolId === caller.schoolId && String(payment.receiptNumber ?? "").startsWith(`${prefix}-`))
+    .reduce((maximum, payment) => Math.max(maximum, receiptSequence(payment.receiptNumber)), 0);
+  const prefixLast = prefixCounterSnapshot.exists ? Number(prefixCounterSnapshot.data()?.lastReceiptNumber || 0) : 0;
+  const sequence = Math.max(historicalMaximum, storedSequence, schoolHighest, prefixLast) + 1;
+  const receiptNumber = `${prefix}-${String(sequence).padStart(4, "0")}`;
   const paymentId = `pay_${hash.slice(0, 24)}`;
   const payment = {
     id: paymentId,
@@ -601,6 +612,7 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   writeAllocation();
   transaction.set(db.doc(`payments/${paymentId}`), payment);
   transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
+  transaction.set(prefixCounterRef, { schoolId: caller.schoolId, prefix, kind: "receipt-prefix", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
   transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, resourceType: "payment", resourceId: paymentId, metadata: { receiptNumber, amount, ...(debt ? { debtSchoolYearId, feeTypeId } : {}), ...(formerStudentId ? { formerStudent: true, formerStudentId } : {}) } }));
   if (typeof currentStudent.parentId === "string" && currentStudent.parentId) {

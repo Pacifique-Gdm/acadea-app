@@ -30,7 +30,7 @@ function fixture(configured = true) {
     records.set("feeAllocationVersions/version", { id: "version", configId, schoolId: "school", schoolYearId: "year", feeTypeId: "fee", className: "1ère", currency: "USD", feeAmountMinor: 10000, status: "published", effectiveFrom: "2026-09-01", rubrics: structuredClone(rubrics), shares: structuredClone(shares) });
   }
   const snap = path => ({ id: path.split("/").at(-1), exists: records.has(path), data: () => structuredClone(records.get(path)) });
-  const query = (name, filters = []) => ({ where: (k, op, v) => { expect(op).toBe("=="); return query(name, [...filters, [k, v]]); }, get: async () => ({ docs: [...records].filter(([p, d]) => p.startsWith(`${name}/`) && filters.every(([k, v]) => d[k] === v)).map(([p]) => snap(p)) }) });
+  const query = (name, filters = []) => ({ where: (k, op, v) => { expect(["==", ">=", "<"]).toContain(op); return query(name, [...filters, [k, v, op]]); }, get: async () => ({ docs: [...records].filter(([p, d]) => p.startsWith(`${name}/`) && filters.every(([k, v, op]) => op === ">=" ? d[k] >= v : op === "<" ? d[k] < v : d[k] === v)).map(([p]) => snap(p)) }) });
   const db = { projectId: "demo-acadea", records, doc: path => ({ path }), collection: query, interrupt: false,
     runTransaction: async fn => {
       let writing = false; const changes = [];

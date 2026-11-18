@@ -1103,6 +1103,14 @@
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "matricule", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "payments",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "schoolId", "order": "ASCENDING" },
+        { "fieldPath": "receiptNumber", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
