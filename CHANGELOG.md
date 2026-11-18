@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.4] — 2026-11-18 — Correction
+- Répartition des frais : créer deux rubriques à la suite ne referme plus le champ de la seconde ; test e2e fiabilisé
+
 ## [1.11.3] — 2026-11-18 — Correction
 - Logo de l'école rangé à part : les écrans lisent des données d'école beaucoup plus légères, le logo est lu seulement quand il s'affiche
 
