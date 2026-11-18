@@ -7,3 +7,8 @@ export function validateFeeAllocationRubrics(rubrics: FeeAllocationRubric[], fee
 export function assertFeeAllocationMovement(movement: FeeAllocationMovement): FeeAllocationMovement;
 export function assertFeeAllocationActivationBlocked(): never;
 export function validateFeeAllocationOpeningProposal(proposal: FeeAllocationOpeningProposal): { approved: false; eligibleForReview: boolean };
+export type FeeAllocationShare = { rubricId: string; amountMinor: number };
+export function allocateFeeReceiptCumulative(shares: FeeAllocationShare[], totalMinor: number): FeeAllocationShare[];
+export function sameAllocationRubrics(part1: FeeAllocationRubric[], part2: FeeAllocationRubric[]): boolean;
+export function socialCaseShares(part1Rubrics: FeeAllocationRubric[], part2Rubrics: FeeAllocationRubric[] | null | undefined, grossMinor: number, netMinor: number): FeeAllocationShare[];
+export function socialCumulativeLines(part1Shares: FeeAllocationShare[], socialShares: FeeAllocationShare[], socialNetMinor: number, totalMinor: number): FeeAllocationShare[];

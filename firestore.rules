@@ -1039,6 +1039,8 @@ service cloud.firestore {
     match /feeAllocationStates/{id} { allow read, write: if false; }
     match /feeAllocationConfigs/{id} { allow read, write: if false; }
     match /feeAllocationVersions/{id} { allow read, write: if false; }
+    // Lot 27c-4 : partie 2 (cas sociaux), écrite uniquement par le serveur.
+    match /feeAllocationSocialVersions/{id} { allow read, write: if false; }
     match /feeAllocationFeeGuards/{id} { allow read, write: if false; }
     match /feeAllocationRequests/{id} { allow read, write: if false; }
     match /feeAllocationOpeningAudits/{id} { allow read, write: if false; }

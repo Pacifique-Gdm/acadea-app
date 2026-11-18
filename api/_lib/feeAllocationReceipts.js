@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, arrearsRubricKey, assertFeeAllocationMovement, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, allocateFeeReceiptCumulative, arrearsRubricKey, socialCaseShares, socialCumulativeLines, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { allocationSupportedProject, readOperationalAllocation } from "./feeAllocationRuntime.js";
+import { supportBalance } from "./socialSupportMath.js";
+import { assertSocialVersionBinding } from "./feeAllocationSocialPart.js";
 
 const hash = (parts) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const fail = (message) => { throw new FeeAllocationError(409, "allocation-reconciliation-required", message); };
@@ -25,28 +27,8 @@ export const feeAllocationAnchorId = (p) => hash([p.schoolId, p.schoolYearId, p.
 export const feeAllocationStateId = (school, year, currency) => hash([school, year, currency]);
 export const feeAllocationBalanceId = (school, year, currency, rubric) => hash([school, year, currency, rubric]);
 
-/** Monotone highest-averages apportionment, using exact BigInt comparisons.
- * Start at lower quotas, then assign at most k-1 units by w/(allocated+1).
- * Unlike largest remainders on successive partial receipts, this cannot take
- * a cent away from a rubric when the cumulative amount increases (Alabama
- * paradox). At the complete tariff, every fixed/percentage share is exact.
- */
-export function allocateFeeReceiptCumulative(shares, totalMinor) {
-  if (!Array.isArray(shares) || shares.length < 1 || shares.length > 41 || !safe(totalMinor)
-    || shares.some(s => !s || !safe(s.amountMinor)) || new Set(shares.map(s => s.rubricId)).size !== shares.length) fail("Poids de répartition invalides.");
-  assertFeeAllocationMovement({ sourceType: "payment", sourceId: "validation", sourceRevision: "1", amountMinor: 0,
-    lines: shares.map(s => ({ rubricId: s.rubricId, amountMinor: 0 })) });
-  const denominator = shares.reduce((n, s) => n + BigInt(s.amountMinor), 0n);
-  if (denominator <= 0n || denominator > BigInt(Number.MAX_SAFE_INTEGER) || BigInt(totalMinor) > denominator) fail("Cumul hors tarif ancré.");
-  const rows = [...shares].sort((a, b) => a.rubricId < b.rubricId ? -1 : 1).map(s => ({ ...s, allocated: Number(BigInt(totalMinor) * BigInt(s.amountMinor) / denominator) }));
-  let left = totalMinor - rows.reduce((n, s) => n + s.allocated, 0);
-  while (left-- > 0) {
-    let best = rows[0];
-    for (const row of rows) if (BigInt(row.amountMinor) * BigInt(best.allocated + 1) > BigInt(best.amountMinor) * BigInt(row.allocated + 1)) best = row;
-    best.allocated++;
-  }
-  return rows.map(s => ({ rubricId: s.rubricId, amountMinor: s.allocated }));
-}
+// Lot 27c-4 : le calcul est dans feeAllocationMath.js (partagé avec l'aperçu de l'écran).
+export { allocateFeeReceiptCumulative } from "./feeAllocationMath.js";
 
 /** Lot 27a-bis : exportés pour la reprise automatique « à partir de ce qui est enregistré ». */
 export const feeAllocationPaymentRequestId = (schoolId, paymentId) => `payment_${hash([schoolId, paymentId])}`;
@@ -134,20 +116,30 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   let anchor = anchorSnap.data();
   if (!anchor) {
     if (totalSnap.exists || priorSource) fail("Ancre financière manquante.");
-    let versionId = null;
+    let versionId = null, socialPart = null;
     // A legacy debt without an original anchor MUST NOT inherit today's config.
     if (source.schoolYearId === collectionYear) {
       const config = (await transaction.get(db.doc(`feeAllocationConfigs/${feeAllocationConfigId(source.schoolId, source.schoolYearId, source.feeTypeId)}`))).data();
       if (config && (config.schoolId !== source.schoolId || config.schoolYearId !== source.schoolYearId || config.feeTypeId !== source.feeTypeId)) fail("Configuration étrangère.");
       versionId = config?.currentVersionId ?? null;
+      // Lot 27c-4 : premier paiement réparti d'un cas social après publication d'une partie 2 :
+      // l'ancre garde cette partie 2 et le net dû (tarif moins la réduction), pour toujours.
+      if (versionId && socialCaseNow && config?.socialVersionId) {
+        const social = (await transaction.get(db.doc(`feeAllocationSocialVersions/${config.socialVersionId}`))).data();
+        if (social?.status === "published" && social.partOneVersionId === versionId && Date.parse(social.effectiveFrom) <= Date.parse(source.createdAt)) {
+          assertSocialVersionBinding(social, { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId,
+            currency: source.currency, partOneVersionId: versionId, feeAmountMinor: toMoneyMinor(fee.amount) });
+          socialPart = { socialVersionId: social.id, socialNetMinor: toMoneyMinor(supportBalance(student, { ...fee, id: source.feeTypeId }).net) };
+        }
+      }
     }
     anchor = { id: anchorId, schoolId: source.schoolId, originSchoolYearId: source.schoolYearId, studentId: source.studentId,
       feeTypeId: source.feeTypeId, currency: source.currency, configVersionId: versionId, feeAmountMinor: toMoneyMinor(fee.amount),
-      className: fee.className ?? null, classOptionKey: fee.classOptionKey ?? null, anchoredAt: now };
+      className: fee.className ?? null, classOptionKey: fee.classOptionKey ?? null, anchoredAt: now, ...(socialPart ?? {}) };
   }
   assertBinding(anchor, source);
   let shares = [{ rubricId: UNALLOCATED_RUBRIC_ID, amountMinor: anchor.feeAmountMinor }];
-  let versionDigest = null;
+  let versionDigest = null, socialShares = null;
   if (anchor.configVersionId) {
     if (!identifier(anchor.configVersionId)) fail("Version historique invalide.");
     const version = (await transaction.get(db.doc(`feeAllocationVersions/${anchor.configVersionId}`))).data();
@@ -189,13 +181,25 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     shares = validated.shares;
     if (!sameShares(shares, version.shares)) fail("Poids historiques altérés.");
     versionDigest = hash([version.id, version.feeAmountMinor, validated.rubrics, shares, version.effectiveFrom]);
-  }
+    if (anchor.socialVersionId !== undefined) {
+      if (!identifier(anchor.socialVersionId) || !safe(anchor.socialNetMinor) || anchor.socialNetMinor > anchor.feeAmountMinor) fail("Partie 2 de l'ancre invalide.");
+      const social = assertSocialVersionBinding((await transaction.get(db.doc(`feeAllocationSocialVersions/${anchor.socialVersionId}`))).data(),
+        { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
+          partOneVersionId: version.id, feeAmountMinor: anchor.feeAmountMinor });
+      if (social.id !== anchor.socialVersionId || Date.parse(social.effectiveFrom) > Date.parse(anchor.anchoredAt)) fail("Partie 2 de l'ancre non vérifiée.");
+      socialShares = socialCaseShares(validated.rubrics, social.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor);
+      // L'empreinte change : une ancienne version du serveur refuserait ce cumul au lieu de le partager autrement.
+      versionDigest = hash([versionDigest, "social", social.id, anchor.socialNetMinor, socialShares]);
+    }
+  } else if (anchor.socialVersionId !== undefined) fail("Partie 2 sans version de partie 1.");
   // Lot 27c-3a : un arriéré (dette d'une année passée) va dans les lignes « … (arriéré AAAA-AAAA) », jamais dans les
   // rubriques ni dans le « Non affecté » de l'année d'encaissement. Les parts restent celles de l'année d'origine.
   const arrears = source.schoolYearId !== collectionYear;
   const arrearsNames = new Map();
   if (arrears) {
     const originNames = anchor.configVersionId ? new Map(((await transaction.get(db.doc(`feeAllocationVersions/${anchor.configVersionId}`))).data()?.rubrics ?? []).map(r => [r.id, r.name])) : new Map();
+    const rename = share => ({ ...share, rubricId: arrearsRubricKey(source.schoolYearId, share.rubricId) });
+    if (socialShares) socialShares = socialShares.map(rename);
     shares = shares.map(share => {
       const key = arrearsRubricKey(source.schoolYearId, share.rubricId);
       arrearsNames.set(key, { originSchoolYearId: source.schoolYearId, originYearName: String(year.name ?? source.schoolYearId), rubricId: share.rubricId,
@@ -210,7 +214,8 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   const delta = newMinor - oldMinor;
   const before = total?.amountMinor ?? 0, after = before + delta;
   if (!safe(after)) fail("Correction supérieure aux encaissements répartis.");
-  const priorLines = allocateFeeReceiptCumulative(shares, before), nextLines = allocateFeeReceiptCumulative(shares, after);
+  const linesAt = (total) => socialShares ? socialCumulativeLines(shares, socialShares, anchor.socialNetMinor, total) : allocateFeeReceiptCumulative(shares, total);
+  const priorLines = linesAt(before), nextLines = linesAt(after);
   const lines = nextLines.map((s, i) => ({ rubricId: s.rubricId, amountMinor: s.amountMinor - priorLines[i].amountMinor }));
   const balanceRows = await Promise.all(lines.map(async line => {
     const ref = db.doc(`feeAllocationBalances/${feeAllocationBalanceId(source.schoolId, collectionYear, source.currency, line.rubricId)}`);

@@ -93,3 +93,79 @@ export function assertFeeAllocationMovement(movement) {
 export function assertFeeAllocationActivationBlocked() {
   throw new FeeAllocationError(409, "phase-not-ready", "La répartition ne peut pas être activée avant l'intégration du circuit financier complet.");
 }
+
+const cumulFail = (message) => { throw new FeeAllocationError(409, "allocation-reconciliation-required", message); };
+const safeCount = (n) => Number.isSafeInteger(n) && n >= 0;
+/** Monotone highest-averages apportionment, using exact BigInt comparisons.
+ * Start at lower quotas, then assign at most k-1 units by w/(allocated+1).
+ * Unlike largest remainders on successive partial receipts, this cannot take
+ * a cent away from a rubric when the cumulative amount increases (Alabama
+ * paradox). At the complete tariff, every fixed/percentage share is exact.
+ */
+export function allocateFeeReceiptCumulative(shares, totalMinor) {
+  if (!Array.isArray(shares) || shares.length < 1 || shares.length > 41 || !safeCount(totalMinor)
+    || shares.some(s => !s || !safeCount(s.amountMinor)) || new Set(shares.map(s => s.rubricId)).size !== shares.length) cumulFail("Poids de répartition invalides.");
+  assertFeeAllocationMovement({ sourceType: "payment", sourceId: "validation", sourceRevision: "1", amountMinor: 0,
+    lines: shares.map(s => ({ rubricId: s.rubricId, amountMinor: 0 })) });
+  const denominator = shares.reduce((n, s) => n + BigInt(s.amountMinor), 0n);
+  if (denominator <= 0n || denominator > BigInt(Number.MAX_SAFE_INTEGER) || BigInt(totalMinor) > denominator) cumulFail("Cumul hors tarif ancré.");
+  const rows = [...shares].sort((a, b) => a.rubricId < b.rubricId ? -1 : 1).map(s => ({ ...s, allocated: Number(BigInt(totalMinor) * BigInt(s.amountMinor) / denominator) }));
+  let left = totalMinor - rows.reduce((n, s) => n + s.allocated, 0);
+  while (left-- > 0) {
+    let best = rows[0];
+    for (const row of rows) if (BigInt(row.amountMinor) * BigInt(best.allocated + 1) > BigInt(best.amountMinor) * BigInt(row.allocated + 1)) best = row;
+    best.allocated++;
+  }
+  return rows.map(s => ({ rubricId: s.rubricId, amountMinor: s.allocated }));
+}
+
+
+/** Lot 27c-4 : partie 2 « cas sociaux ». Vrai si la partie 2 reprend exactement la partie 1
+ * (mêmes rubriques, uniquement des pourcentages identiques) : on garde alors les poids de la partie 1,
+ * pour des montants identiques au centime près (recalculer sur le net créerait des écarts d'arrondi). */
+export function sameAllocationRubrics(part1, part2) {
+  if (!Array.isArray(part1) || !Array.isArray(part2) || part1.length !== part2.length) return false;
+  return part1.every((rubric) => {
+    const other = part2.find((item) => item?.id === rubric.id);
+    return rubric.mode === "percent" && other?.mode === "percent" && other.basisPoints === rubric.basisPoints;
+  });
+}
+
+/** Poids de la partie 2 pour un cas social qui doit netMinor (tarif moins sa réduction).
+ * Règles : pourcentages appliqués au net ; montants fixes gardés ; « Non affecté » = reste du net ;
+ * si l'ensemble dépasse le net, toutes les lignes sont réduites à proportion. */
+export function socialCaseShares(part1Rubrics, part2Rubrics, grossMinor, netMinor) {
+  const part1 = validateFeeAllocationRubrics(part1Rubrics, grossMinor);
+  if (!part2Rubrics || sameAllocationRubrics(part1.rubrics, part2Rubrics)) return part1.shares;
+  if (!safeMinor(netMinor) || netMinor > grossMinor) invalid("Montant net du cas social invalide.");
+  const ids = new Set(part1.rubrics.map((rubric) => rubric.id));
+  if (part2Rubrics.length !== ids.size || part2Rubrics.some((rubric) => !ids.has(rubric?.id))) invalid("La partie 2 doit reprendre les rubriques de la partie 1.");
+  const part2 = validateFeeAllocationRubrics(part2Rubrics, grossMinor).rubrics;
+  if (netMinor === 0) return part1.shares.map((share) => ({ rubricId: share.rubricId, amountMinor: 0 }));
+  const scale = 10000n;
+  const raw = part2.map((rubric) => ({ rubricId: rubric.id, weight: rubric.mode === "fixed" ? BigInt(rubric.fixedMinor) * scale : BigInt(netMinor) * BigInt(rubric.basisPoints) }));
+  const needed = raw.reduce((sum, item) => sum + item.weight, 0n);
+  if (needed <= BigInt(netMinor) * scale) {
+    const shares = validateFeeAllocationRubrics(part2, netMinor).shares;
+    return shares;
+  }
+  // Plus que le net : réduction à proportion de chaque ligne, « Non affecté » à zéro.
+  const divisor = raw.reduce((g, item) => { let a = g, b = item.weight; while (b) [a, b] = [b, a % b]; return a; }, 0n) || 1n;
+  const weights = raw.map((item) => ({ rubricId: item.rubricId, amountMinor: Number(item.weight / divisor) }));
+  if (weights.some((item) => !Number.isSafeInteger(item.amountMinor))) invalid("Partie 2 hors limites.");
+  const positive = weights.filter((item) => item.amountMinor > 0);
+  const reduced = allocateFeeReceiptCumulative(positive, netMinor);
+  return [...part1.shares.map((share) => ({ rubricId: share.rubricId, amountMinor: reduced.find((item) => item.rubricId === share.rubricId)?.amountMinor ?? 0 }))]
+    .sort((a, b) => a.rubricId.localeCompare(b.rubricId));
+}
+
+/** Répartition cumulée d'un cas social : jusqu'à son net, selon la partie 2 ; au-delà (sa réduction a
+ * été diminuée après le premier paiement), selon la partie 1. Toujours croissante, ligne par ligne. */
+export function socialCumulativeLines(part1Shares, socialShares, socialNetMinor, totalMinor) {
+  if (!safeCount(totalMinor) || !safeCount(socialNetMinor)) cumulFail("Cumul de cas social invalide.");
+  const low = Math.min(totalMinor, socialNetMinor), high = totalMinor - low;
+  const first = low > 0 ? allocateFeeReceiptCumulative(socialShares.filter((share) => share.amountMinor > 0), low) : [];
+  const second = high > 0 ? allocateFeeReceiptCumulative(part1Shares, high) : [];
+  const ids = [...new Set([...part1Shares, ...socialShares].map((share) => share.rubricId))].sort((a, b) => a < b ? -1 : 1);
+  return ids.map((rubricId) => ({ rubricId, amountMinor: (first.find((s) => s.rubricId === rubricId)?.amountMinor ?? 0) + (second.find((s) => s.rubricId === rubricId)?.amountMinor ?? 0) }));
+}
