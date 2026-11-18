@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.2] — 2026-11-18 — Correction
+- Dashboards : les vérifications (devises historiques, arriérés, actualisation) se font discrètement, sans bandeau temporaire ni saut de page ; des squelettes gris gardent la place des chiffres, jamais un chiffre provisoire.
+
 ## [1.11.1] — 2026-11-18 — Correction
 - Partie 2 corrigée : les paiements suivants des cas sociaux suivent la nouvelle partie 2 (lot 27c-4)
 
