@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.5] — 2026-11-18 — Correction
+- Outils de mesure du Super administrateur sur le staging : mesure par onglet, lectures Firestore minute par minute, création, effacement et vérification d'écoles fictives (lot SA-0). Aucun changement pour les utilisateurs.
+
 ## [1.11.4] — 2026-11-18 — Correction
 - Répartition des frais : créer deux rubriques à la suite ne referme plus le champ de la seconde ; test e2e fiabilisé
 
