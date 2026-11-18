@@ -82,7 +82,7 @@ async function inspectSchoolAdminViews() {
     await adminRole.waitFor({ state: "visible", timeout: 5_000 });
   }
   catch {
-    console.log(JSON.stringify({ event: "school-or-role-scope-unverified", expected: "C.S LUMBULA / school_admin" }));
+    console.log(JSON.stringify({ event: "school-or-role-scope-unverified", expected: "école pilote / school_admin" }));
     return;
   }
   if (!(await page.getByRole("navigation", { name: "Navigation principale" }).count())) {
