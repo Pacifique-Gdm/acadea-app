@@ -6,7 +6,6 @@ import { normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
 import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
-import { refreshPlatformSchoolCounts } from "./_lib/platformStats.js";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 const schoolLevels = new Map([
@@ -241,7 +240,6 @@ export default async function handler(req, res) {
     if (requestId) batch.create(db.doc(`provisioningReceipts/${requestId}`), provisioningReceipt(requestId, caller.uid, "school", receiptIdentity, schoolId, result));
     await batch.commit();
     creationCommitted = true;
-    await refreshPlatformSchoolCounts(db);
 
     sendJson(res, 200, result);
   } catch (error) {

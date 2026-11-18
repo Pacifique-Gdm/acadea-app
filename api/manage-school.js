@@ -7,7 +7,7 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { CashBalanceError, resolveRecordedCurrency } from "./_lib/cashBalance.js";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
-import { readPlatformStats, refreshPlatformSchoolCounts } from "./_lib/platformStats.js";
+import { readPlatformStats } from "./_lib/platformStats.js";
 
 export const maxDuration = 300;
 
@@ -360,7 +360,6 @@ export default async function handler(req, res) {
       });
       batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: action === "suspend" ? AUDIT_EVENT_TYPES.SCHOOL_SUSPENDED : AUDIT_EVENT_TYPES.SCHOOL_REACTIVATED, actor: caller, schoolId, resourceType: "school", resourceId: schoolId, metadata: { status } }));
       await batch.commit();
-      await refreshPlatformSchoolCounts(db);
       const updated = await schoolRef.get();
       sendJson(res, 200, { school: { id: updated.id, ...updated.data() } });
       return;
@@ -372,7 +371,6 @@ export default async function handler(req, res) {
         return;
       }
       const report = await deleteSchoolCompletely({ db, auth, bucket, schoolId, schoolData: schoolSnapshot.data(), actor: caller });
-      await refreshPlatformSchoolCounts(db);
       sendJson(res, 200, {
         schoolId,
         deletedCount: report.firestore.deleted,

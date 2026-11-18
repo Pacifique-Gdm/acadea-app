@@ -1256,7 +1256,7 @@ export function PlatformModule({
             <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <PlatformCard label="Écoles" value={totalSchools} icon={BookOpen} description={schoolCardDescription} tone="mint" />
               <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description={`Chiffre agrégé, sans détail individuel${statsTimeDescription}`} tone="sky" />
-              <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description="Comptes rattachés aux écoles" tone="violet" />
+              <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description={`Comptes rattachés aux écoles${statsTimeDescription}`} tone="violet" />
               <PlatformCard label="Administrateurs" value={totalAdmins} icon={ShieldCheck} description="Comptes administrateurs école" tone="amber" />
             </section>
           )}

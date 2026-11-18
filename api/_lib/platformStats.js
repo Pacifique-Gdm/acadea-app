@@ -31,17 +31,6 @@ export async function computeSchoolCounts(db) {
   };
 }
 
-export async function computePlatformStats(db, now = new Date()) {
-  const [schools, students, parents, admins] = await Promise.all([
-    computeSchoolCounts(db),
-    countOf(db.collection("students")),
-    countOf(db.collection("parents")),
-    countOf(db.collection("users").where("role", "==", "school_admin")),
-  ]);
-  const computedAt = now.toISOString();
-  return { schools, students, parents, admins, computedAt, schoolsComputedAt: computedAt };
-}
-
 function timeOf(value) {
   const time = typeof value === "string" ? Date.parse(value) : Number.NaN;
   return Number.isFinite(time) ? time : null;
@@ -70,32 +59,32 @@ function publicStats(stats) {
   return { schools, students, parents, admins, computedAt, schoolsComputedAt: schoolsComputedAt ?? computedAt };
 }
 
-/** Lit platform/stats ; recalcule si absent, périmé ou (avec force) demandé il y a plus de 30 s. */
+/**
+ * Lit les chiffres du Dashboard.
+ * - Écoles et administrateurs : recomptés à CHAQUE lecture (peu coûteux : 1 lecture par tranche
+ *   de 1 000), donc toujours conformes à la base, même après un script ou une modification directe.
+ * - Élèves et parents (coûteux à grande échelle) : gardés dans platform/stats et recalculés si
+ *   absents, périmés (10 min) ou demandés par « Actualiser » (au plus toutes les 30 s).
+ */
 export async function readPlatformStats(db, { force = false, now = new Date() } = {}) {
   const ref = db.doc(PLATFORM_STATS_PATH);
-  const snapshot = await ref.get();
-  const stored = snapshot.exists ? snapshot.data() : null;
   const nowMs = now.getTime();
+  const [snapshot, schools, admins] = await Promise.all([
+    ref.get(),
+    computeSchoolCounts(db),
+    countOf(db.collection("users").where("role", "==", "school_admin")),
+  ]);
+  const stored = snapshot.exists ? snapshot.data() : null;
   const recentEnough = stored && isPlatformStatsShape(stored) && stored.stale !== true
     && nowMs - (timeOf(stored.computedAt) ?? 0) < PLATFORM_STATS_MIN_FORCE_INTERVAL_MS;
-  if (isPlatformStatsFresh(stored, nowMs) && (!force || recentEnough)) return publicStats(stored);
-  const stats = await computePlatformStats(db, now);
+  const nowIso = now.toISOString();
+  if (isPlatformStatsFresh(stored, nowMs) && (!force || recentEnough)) {
+    const stats = { ...publicStats(stored), schools, admins, schoolsComputedAt: nowIso };
+    await ref.set({ schools, admins, schoolsComputedAt: nowIso }, { merge: true });
+    return stats;
+  }
+  const [students, parents] = await Promise.all([countOf(db.collection("students")), countOf(db.collection("parents"))]);
+  const stats = { schools, students, parents, admins, computedAt: nowIso, schoolsComputedAt: nowIso };
   await ref.set({ ...stats, stale: false });
   return stats;
-}
-
-/**
- * Après une création, une suspension, une réactivation ou une suppression d'école :
- * recompte les écoles tout de suite (quelques lectures). En cas d'échec, les chiffres
- * gardés sont marqués périmés pour être recalculés à la prochaine ouverture.
- */
-export async function refreshPlatformSchoolCounts(db, now = new Date()) {
-  try {
-    const schools = await computeSchoolCounts(db);
-    await db.doc(PLATFORM_STATS_PATH).set({ schools, schoolsComputedAt: now.toISOString() }, { merge: true });
-    return true;
-  } catch {
-    try { await db.doc(PLATFORM_STATS_PATH).set({ stale: true }, { merge: true }); } catch { /* l'action sur l'école reste valable */ }
-    return false;
-  }
 }

@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   batchDelete: vi.fn(),
   batchCommit: vi.fn(),
   readPlatformStats: vi.fn(),
-  refreshPlatformSchoolCounts: vi.fn(),
 }));
 
 vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
@@ -33,7 +32,7 @@ vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
   firebaseAdminPublicError: () => ({ code: "internal", message: "Service indisponible.", correlationId: "acadea-test" }),
 }));
 vi.mock("../../api/_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
-vi.mock("../../api/_lib/platformStats.js", () => ({ readPlatformStats: mocks.readPlatformStats, refreshPlatformSchoolCounts: mocks.refreshPlatformSchoolCounts }));
+vi.mock("../../api/_lib/platformStats.js", () => ({ readPlatformStats: mocks.readPlatformStats }));
 vi.mock("../../api/_lib/rateLimit.js", () => ({
   API_RATE_LIMITS: { SCHOOL_DELETE: {}, SCHOOL_ADMIN: {} },
   enforceApiRateLimit: vi.fn(),
@@ -367,12 +366,4 @@ describe("API SEC-004 manage-school", () => {
     expect(mocks.readPlatformStats).not.toHaveBeenCalled();
   });
 
-  it("lot SA-3 : recompte les écoles après une suspension et après une suppression", async () => {
-    let res = response(); await handler(request({ action: "suspend", schoolId: "school-a", confirmation: "SUSPENDRE CETTE ÉCOLE" }), res);
-    expect(res.statusCode).toBe(200);
-    expect(mocks.refreshPlatformSchoolCounts).toHaveBeenCalledTimes(1);
-    res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "SUPPRIMER ECOLE" }), res);
-    expect(res.statusCode).toBe(200);
-    expect(mocks.refreshPlatformSchoolCounts).toHaveBeenCalledTimes(2);
-  });
 });
