@@ -59,3 +59,31 @@ describe('prévu annuel net, sans écritures financières', () => {
     expect(() => calculateAllocationForecast(data)).toThrow('Tarif, classe ou version modifié');
   });
 });
+
+describe('lot 27c-4 : prévu du tableau 2 selon la partie 2', () => {
+  const published = () => {
+    const data = fixture(), rubrics = data.configs[0].draft.rubrics;
+    data.operational = true;
+    data.configs[0] = { ...data.configs[0], currentVersionId: 'v1', socialVersionId: 'sv1' };
+    data.versions = [{ id: 'v1', feeTypeId: 'fee', schoolId: 's', schoolYearId: 'y', currency: 'USD', className: '1ère', status: 'published', feeAmountMinor: 6000, rubrics }];
+    data.students[0].financialSupport = { d: { schoolYearId: 'y', lines: { fee: { reductionMinor: 2000 } } } };
+    return { data, rubrics };
+  };
+  const table = (rows, n) => Object.fromEntries(rows.filter(r => r.table === n).map(r => [r.rubricId, r.amountMinor]));
+  it('copie de la partie 1 : tableau 2 identique à aujourd\u2019hui', () => {
+    const { data, rubrics } = published();
+    const before = table(calculateAllocationForecast({ ...data, socialVersions: [] }).rows, 2);
+    data.socialVersions = [{ id: 'sv1', partOneVersionId: 'v1', status: 'published', rubrics: rubrics.map(r => ({ ...r })) }];
+    expect(table(calculateAllocationForecast(data).rows, 2)).toEqual(before);
+  });
+  it('partie 2 différente : tableau 2 sur le net (40 USD) avec un montant fixe, tableau 1 inchangé', () => {
+    const { data, rubrics } = published();
+    const one = table(calculateAllocationForecast(data).rows, 1);
+    data.socialVersions = [{ id: 'sv1', partOneVersionId: 'v1', status: 'published', rubrics: [{ ...rubrics[0] }, { ...rubrics[1] }, { id: rubrics[2].id, name: rubrics[2].name, mode: 'fixed', fixedMinor: 1000 }] }];
+    const rows = calculateAllocationForecast(data).rows;
+    expect(table(rows, 1)).toEqual(one);
+    // 40 % et 20 % de 40 USD = 16 et 8 ; 10 USD fixes ; reste 6 USD non affecté.
+    expect(table(rows, 2)).toEqual({ [rubric(1)]: 1600, [rubric(2)]: 800, [rubric(3)]: 1000, UNALLOCATED: 600 });
+    expect(rows.find(r => r.table === 2 && r.rubricId === rubric(3))).toMatchObject({ rubricMode: 'fixed', rubricShare: 1000 });
+  });
+});

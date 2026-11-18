@@ -91,7 +91,7 @@ function projectAnnual(workspace: AllocationWorkspace, filter: AllocationFilter)
         yearName: workspace.year.name, feeName: workspace.fees.find(f => f.id === item.feeTypeId)?.name ?? 'Libellé du frais indisponible',
         classLabel: allocationClassLabel(item.classOptionKey || item.className), currency: workspace.currency, rubricName: item.rubricName,
         rubric: config.draft?.rubrics.find(r => r.id === item.rubricId), amountMinor: item.amountMinor, percent: 0, config, stale: false,
-        table, rubricId: item.rubricId, ...percentLabels(workspace, forecast, item.rubricId), ...(item.arrearsYearName ? { arrearsYearName: item.arrearsYearName } : {}) });
+        table, rubricId: item.rubricId, ...percentLabels(workspace, forecast.filter((other) => tableOf(other) === table), item.rubricId), ...(item.arrearsYearName ? { arrearsYearName: item.arrearsYearName } : {}) });
     }
     if (!Number.isSafeInteger(rows.get(key)!.amountMinor)) throw new Error('Prévu annuel hors limites.');
   }

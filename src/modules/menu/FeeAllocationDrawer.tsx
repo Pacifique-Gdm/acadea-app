@@ -14,6 +14,7 @@ import { renderAcadPdfPreview } from "../../utils/pdf";
 import { feeAllocationPdfSections } from "../../utils/feeAllocationPdf";
 import { FeeAllocationActivation } from "./FeeAllocationActivation";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
+import { SocialPartEditor } from "./FeeAllocationSocialPart";
 
 const roles = new Set(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"]);
 const newId = () => crypto.randomUUID().replaceAll("-", "");
@@ -54,6 +55,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   const [pdfBusy, setPdfBusy] = useState(false);
   const pdfLock = useRef(false), detailLock = useRef(false);
   const [detailAction, setDetailAction] = useState("");
+  const [socialPart, setSocialPart] = useState<FeeAllocationConfig | null>(null);
   const versionRequests = useRef(new Map<string, string>());
   const generation = useRef(0), busy = useRef(false);
   const refresh = useCallback(async (mode: "verify" | "reload") => {
@@ -187,9 +189,12 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
       <dl className="grid gap-2 text-sm">{[["Établissement", detail.schoolName], ["Périmètre du prévu", filterLabel], ["Année", detail.yearName], ["Prévu total de l’année", formatCurrencyMoney(detail.amountMinor / 100, detail.currency)], ["Statut", detail.financial ? "Registre rapproché" : "Préparatoire — non actif"]].map(([label, value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
       <p className="my-3 text-sm">{detail.financial ? "Les montants proviennent du registre rapproché. Le disponible est commun à cette rubrique dans l'établissement ; aucune attribution artificielle à un frais ou à une classe." : "Aucun mouvement financier ni historique d'encaissement n'est créé par ce brouillon. Les références d'origine restent conservées pour les phases suivantes."}</p>
-      {detailConfigs.map(config => <section key={config.id} className="my-3 rounded border p-3"><h3 className="mb-2 text-sm font-semibold">{detailWorkspace?.fees.find(f => f.id === config.feeTypeId)?.name ?? 'Frais'} · {allocationClassLabel(config.classOptionKey || config.className)}</h3><div className="flex flex-wrap gap-2"><Action busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(config)}>Consulter les versions</Action>{configurable && !config.currentVersionId && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy} onClick={() => void showVersions(config, true)}>Préparer une version</Action></>}</div></section>)}
+      {detailConfigs.map(config => <section key={config.id} className="my-3 rounded border p-3"><h3 className="mb-2 text-sm font-semibold">{detailWorkspace?.fees.find(f => f.id === config.feeTypeId)?.name ?? 'Frais'} · {allocationClassLabel(config.classOptionKey || config.className)}</h3><div className="flex flex-wrap gap-2"><Action busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(config)}>Consulter les versions</Action>{config.currentVersionId && <button type="button" className="secondary-button" onClick={() => setSocialPart(config)}>Partie 2 — cas sociaux{config.socialVersionId ? " (publiée)" : ""}</button>}{configurable && !config.currentVersionId && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy} onClick={() => void showVersions(config, true)}>Préparer une version</Action></>}</div></section>)}
       {detailBusy && <p role="status">Vérification serveur…</p>}{versions && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded border p-2 text-sm">Version {version.version} · {version.status} · {version.createdAt.slice(0, 10)} · {version.currency}<ul>{version.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, version.currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></li>)}{!versions.length && <li>Aucune version préparée.</li>}</ul>}
     </AdminDrawer>}
+    {socialPart && <SocialPartEditor config={socialPart} feeName={detailWorkspace?.fees.find(f => f.id === socialPart.feeTypeId)?.name ?? 'Frais'}
+      classLabel={allocationClassLabel(socialPart.classOptionKey || socialPart.className)} currency={socialPart.currency}
+      canPublish={configurable && current} onClose={() => setSocialPart(null)} onPublished={() => void refresh("reload")} />}
     {editor && <AllocationEditor workspace={editor.workspace} config={editor.config} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setNotice("Brouillons enregistrés et confirmés par le serveur. Aucune activation financière."); void refresh("reload"); }} />}
   </div>;
 }

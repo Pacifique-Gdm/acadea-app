@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.0] — 2026-11-18 — Fonctionnalité
+- Partie 2 de la répartition, propre aux cas sociaux (lot 27c-4)
+
 ## [1.10.0] — 2026-11-18 — Fonctionnalité
 - Répartition des frais : prévu des lignes d'arriérés (ce que les élèves actifs devaient encore au début de l'année, par année passée)
 

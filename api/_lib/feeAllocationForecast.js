@@ -1,14 +1,14 @@
 import { supportBalance } from './socialSupportMath.js';
 import { feeAppliesToHistoricalStudent } from './financialTransactions.js';
 import { allocateFeeReceiptCumulative } from './feeAllocationReceipts.js';
-import { validateFeeAllocationRubrics } from './feeAllocationMath.js';
+import { socialCaseShares, validateFeeAllocationRubrics } from './feeAllocationMath.js';
 import { readAllocationPages } from './feeAllocationPagination.js';
 import { allocationHash, allocationStateId, allocationFail as fail } from './feeAllocationRuntime.js';
 import { toMoneyMinor } from './money.js';
 import { readArrearsForecast } from './feeAllocationArrearsForecast.js';
 
 export const forecastSignalId = (schoolId, yearId) => allocationHash([schoolId, yearId]);
-export function calculateAllocationForecast({ students, fees, configs, versions, schoolId, yearId, currency, operational }) {
+export function calculateAllocationForecast({ students, fees, configs, versions, socialVersions = [], schoolId, yearId, currency, operational }) {
   const rows = [], seen = new Set();
   const activeStudents = students.filter(s => s.schoolId === schoolId && s.schoolYearId === yearId && s.status === 'ACTIVE' && !s.deletedAt);
   for (const fee of fees) {
@@ -25,6 +25,9 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
       || ((model.classOptionKey ?? config.classOptionKey) ?? null) !== (fee.classOptionKey ?? null)
       || version === model && (version.status !== 'published' || version.feeTypeId !== fee.id || version.schoolId !== schoolId || version.schoolYearId !== yearId || version.currency !== currency))) fail('Tarif, classe ou version modifié : prévu à revérifier.');
     const checked = model ? validateFeeAllocationRubrics(model.rubrics, tariff) : { rubrics: [], shares: [{ rubricId: 'UNALLOCATED', amountMinor: tariff }] };
+    // Lot 27c-4 : partie 2 publiée (cas sociaux) — tableau 2 selon ses propres règles, sur le net de chaque élève.
+    const social = model && version === model && config?.socialVersionId ? socialVersions.find(v => v.id === config.socialVersionId && v.partOneVersionId === version.id && v.status === 'published') ?? null : null;
+    const socialRubrics = social ? validateFeeAllocationRubrics(social.rubrics, tariff).rubrics : null;
     // Lot 27c-1 : prévu séparé — tableau 1 (élèves normaux) et tableau 2 (réduction ou prise en charge sur ce frais).
     const totals = new Map([1, 2].flatMap(table => checked.shares.map(s => [`${table}|${s.rubricId}`, 0])));
     const counts = { 1: 0, 2: 0 };
@@ -37,7 +40,8 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
       const balance = supportBalance(student, fee);
       const net = toMoneyMinor(balance.net), table = balance.reduction > 0 ? 2 : 1;
       counts[table]++;
-      for (const share of allocateFeeReceiptCumulative(checked.shares, net)) {
+      const shares = table === 2 && social ? socialCaseShares(checked.rubrics, social.rubrics, tariff, net) : checked.shares;
+      for (const share of net > 0 ? allocateFeeReceiptCumulative(shares, net) : []) {
         const total = totals.get(`${table}|${share.rubricId}`) + share.amountMinor;
         if (!Number.isSafeInteger(total)) fail('Prévu annuel hors limites.');
         totals.set(`${table}|${share.rubricId}`, total);
@@ -49,8 +53,10 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
       if (table === 2 && !counts[2]) continue;
       rows.push({ feeTypeId: fee.id, className: fee.className ?? '', classOptionKey: fee.classOptionKey ?? null, table,
         rubricId, rubricName: checked.rubrics.find(r => r.id === rubricId)?.name ?? 'Non affecté', amountMinor, studentsCount: counts[table],
-        ...(model ? { rubricShare: checked.shares.find(s => s.rubricId === rubricId)?.amountMinor ?? 0, tariffMinor: tariff,
-          rubricMode: checked.rubrics.find(r => r.id === rubricId)?.mode ?? null, basisPoints: checked.rubrics.find(r => r.id === rubricId)?.basisPoints ?? null } : { rubricShare: tariff, tariffMinor: tariff, rubricMode: null, basisPoints: null }) });
+        ...(model ? (() => { const rubrics = table === 2 && socialRubrics ? socialRubrics : checked.rubrics, rubric = rubrics.find(r => r.id === rubricId);
+          return { rubricShare: rubric?.mode === 'fixed' ? rubric.fixedMinor : checked.shares.find(s => s.rubricId === rubricId)?.amountMinor ?? 0, tariffMinor: tariff,
+            rubricMode: rubric?.mode ?? null, basisPoints: rubric?.basisPoints ?? null, ...(table === 2 && social ? { socialVersionId: social.id } : {}) }; })()
+          : { rubricShare: tariff, tariffMinor: tariff, rubricMode: null, basisPoints: null }) });
     }
   }
   return { status: 'complete', rows, studentCount: activeStudents.length };
@@ -61,12 +67,13 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
  * signal des élèves et des frais (fonctions), frais, configurations, statut de la répartition,
  * version du calcul. Garde-fou : une heure au plus, même sans signal. */
 // 2 : lot 27c-3b, le prévu gardé contient aussi les lignes d'arriérés.
-export const FORECAST_CACHE_SCHEMA = 2;
+// 3 : lot 27c-4, le tableau 2 suit la partie 2 publiée (cas sociaux).
+export const FORECAST_CACHE_SCHEMA = 3;
 export const FORECAST_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 export const forecastCacheId = (schoolId, yearId, currency) => allocationHash(['forecast-cache', schoolId, yearId, currency]);
 const forecastCacheKey = ({ signal, fees, configs, state }) => allocationHash([FORECAST_CACHE_SCHEMA, signal,
   fees.map(f => [f.id, f.schoolId, f.schoolYearId, f.className ?? null, f.classOptionKey ?? null, f.amount ?? null, f.currency ?? null, f.name ?? null]).sort((a, b) => a[0].localeCompare(b[0])),
-  configs.map(c => [c.id, c.currentVersionId ?? null, c.draftRevision ?? null, c.currency ?? null, c.draft?.updatedAt ?? null]).sort((a, b) => a[0].localeCompare(b[0])),
+  configs.map(c => [c.id, c.currentVersionId ?? null, c.socialVersionId ?? null, c.draftRevision ?? null, c.currency ?? null, c.draft?.updatedAt ?? null]).sort((a, b) => a[0].localeCompare(b[0])),
   state ?? null]);
 
 /** Only aggregates leave the API. Every page belongs to the same Firestore
@@ -96,8 +103,10 @@ export async function readAllocationForecast({ db, schoolId, yearId, currency, f
       'matricule', 'importedFromStudentId', 'nom', 'postnom', 'prenom', 'birthDate'), tx);
     const versions = [];
     for (const config of configRows) if (config.currentVersionId) versions.push({ ...(await tx.get(db.doc(`feeAllocationVersions/${config.currentVersionId}`))).data(), id: config.currentVersionId });
+    const socialVersions = [];
+    for (const config of configRows) if (config.socialVersionId) socialVersions.push({ ...(await tx.get(db.doc(`feeAllocationSocialVersions/${config.socialVersionId}`))).data(), id: config.socialVersionId });
     const calculatedAt = new Date(now).toISOString();
-    const forecast = calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions,
+    const forecast = calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions, socialVersions,
       schoolId, yearId, currency, operational: ['ACTIVE', 'PAUSED'].includes(status) });
     const activeStudents = data(students).filter(st => st.schoolId === schoolId && st.schoolYearId === yearId && st.status === 'ACTIVE' && !st.deletedAt);
     return { fees, configs, forecast: { ...forecast, revision, calculatedAt }, activeStudents, activeYear: year.data(),
