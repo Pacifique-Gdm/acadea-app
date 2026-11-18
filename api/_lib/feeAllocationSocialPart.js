@@ -3,8 +3,9 @@
  * - Elle est publiée à part, pour un frais dont la partie 1 est publiée ; la partie 1, ses versions,
  *   les ancres et les mouvements déjà écrits ne sont jamais modifiés.
  * - Elle reprend exactement les rubriques de la partie 1 (seules les valeurs changent).
- * - Elle ne s'applique qu'aux cas sociaux dont le PREMIER paiement réparti de ce frais arrive après sa
- *   publication : leur ancre garde alors la partie 2 et le net dû, pour toutes leurs corrections.
+ * - Elle s'applique aux cas sociaux dont le PREMIER paiement réparti de ce frais arrive après sa publication :
+ *   leur ancre garde la partie 2 et le net dû. Si une nouvelle partie 2 est publiée ensuite, leurs paiements
+ *   SUIVANTS suivent la nouvelle pour le reste du net ; les mouvements déjà écrits ne changent jamais.
  * - Aucune autre écriture : ni registre, ni solde, ni paiement.
  */
 import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
@@ -52,7 +53,10 @@ export async function manageSocialPart({ db, caller, body, now = new Date().toIS
     const partOne = config?.currentVersionId ? (await db.doc(`feeAllocationVersions/${config.currentVersionId}`).get()).data() : null;
     const history = config ? (await db.collection("feeAllocationSocialVersions").where("configId", "==", config.id).get()).docs.map((d) => d.data()) : [];
     const current = history.find((item) => item.id === config?.socialVersionId) ?? null;
-    return { partOne: partOne && partOne.status === "published" ? partOne : null, social: current,
+    // Correction 27c-4 : nombre de cas sociaux qui ont déjà payé ce frais avec la partie 2 en service (aucune identité).
+    const paidWithCurrent = current ? (await db.collection("feeAllocationAnchors").where("schoolId", "==", schoolId)
+      .where("feeTypeId", "==", body.feeTypeId).where("socialCurrentVersionId", "==", current.id).get()).docs.length : 0;
+    return { partOne: partOne && partOne.status === "published" ? partOne : null, social: current, paidWithCurrent,
       history: history.sort((a, b) => b.version - a.version), operational: false };
   }
   if (!isAdmin(caller.role)) fail("Action réservée à l'Administrateur.", "permission-denied", 403);

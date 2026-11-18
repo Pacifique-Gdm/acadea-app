@@ -12,3 +12,4 @@ export function allocateFeeReceiptCumulative(shares: FeeAllocationShare[], total
 export function sameAllocationRubrics(part1: FeeAllocationRubric[], part2: FeeAllocationRubric[]): boolean;
 export function socialCaseShares(part1Rubrics: FeeAllocationRubric[], part2Rubrics: FeeAllocationRubric[] | null | undefined, grossMinor: number, netMinor: number): FeeAllocationShare[];
 export function socialCumulativeLines(part1Shares: FeeAllocationShare[], socialShares: FeeAllocationShare[], socialNetMinor: number, totalMinor: number): FeeAllocationShare[];
+export function socialSegmentLines(part1Shares: FeeAllocationShare[], segments: Array<{ shares: FeeAllocationShare[]; fromMinor: number }>, netMinor: number, totalMinor: number): FeeAllocationShare[];
