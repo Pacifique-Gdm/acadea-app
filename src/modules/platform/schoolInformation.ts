@@ -11,6 +11,8 @@ export type SchoolInformationDraft = {
   email: string;
   motto: string;
   logoUrl: string;
+  /** Vrai seulement si le logo a été changé : sinon il n'est pas renvoyé. */
+  logoChanged?: boolean;
   timeZone: string;
   level: SchoolLevelChoice;
 };
@@ -23,6 +25,7 @@ export function schoolInformationDraft(school: School): SchoolInformationDraft {
     email: school.email ?? "",
     motto: school.motto ?? "",
     logoUrl: school.logoUrl ?? "",
+    logoChanged: false,
     timeZone: school.timeZone ?? "",
     level: schoolLevelFromConfig(school),
   };
@@ -35,8 +38,8 @@ export function schoolInformationPatch(draft: SchoolInformationDraft, school?: S
     phone: draft.phone.trim(),
     email: draft.email.trim(),
     motto: draft.motto.trim(),
-    logoUrl: draft.logoUrl,
   };
+  if (draft.logoChanged) patch.logoUrl = draft.logoUrl;
   if (!school || draft.level !== schoolLevelFromConfig(school)) {
     patch.schoolType = draft.level;
     patch.educationLevels = educationLevelsForSchoolLevel(draft.level);

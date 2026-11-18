@@ -418,7 +418,7 @@ export function SocialSupportDrawer({
         ? "Historique des prises en charge"
         : "Liste des bénéficiaires";
     const pdfSchool = scopedSchools.length > 1
-      ? { ...school, name: "Établissements de la coordination", address: "", phone: "", email: "", logoUrl: undefined }
+      ? { ...school, name: "Établissements de la coordination", address: "", phone: "", email: "", logoUrl: undefined, logoVersion: undefined }
       : school;
     try {
       await renderAcadPdfPreview({

@@ -30,6 +30,7 @@ import type { SchoolLevelChoice } from "../../utils/schoolConfig";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { orderSchoolYears } from "../../utils/schoolYears";
 import { SchoolInformationEditDrawer } from "./SchoolInformationEditDrawer";
+import { primeSchoolLogo } from "../../services/schoolLogo";
 import { SchoolAcronymEditDrawer } from "./SchoolAcronymEditDrawer";
 import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
@@ -480,13 +481,16 @@ export function PlatformModule({
     setSchoolEditError("");
     setSchoolEditSaving(true);
     try {
+      const patch = schoolInformationPatch(draft, schoolEditTarget);
       const payload = await manageSchool({
         action: "update",
         schoolId: schoolEditTarget.id,
         confirmation,
-        patch: schoolInformationPatch(draft, schoolEditTarget),
+        patch,
       });
       if (!payload.school) throw new Error("Réponse école incomplète.");
+      const savedLogoVersion = (payload.school as School).logoVersion;
+      if (patch.logoUrl !== undefined && savedLogoVersion) primeSchoolLogo(schoolEditTarget.id, savedLogoVersion, patch.logoUrl);
       updateData({ schools: data.schools.map((item) => item.id === schoolEditTarget.id ? payload.school as School : item) }, { persist: false });
       setSchoolEditTargetId("");
       setSchoolActionSuccess("Informations de l'école enregistrées avec succès.");

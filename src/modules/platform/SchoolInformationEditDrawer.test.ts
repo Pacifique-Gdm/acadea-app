@@ -40,8 +40,11 @@ describe("SchoolInformationEditDrawer", () => {
     expect(patch).toMatchObject({
       name: "Nouveau nom",
       motto: "Nouvelle devise",
-      logoUrl: school.logoUrl,
     });
+    // Logo inchangé : il n'est pas renvoyé (il est rangé à part).
+    expect(patch).not.toHaveProperty("logoUrl");
+    expect(schoolInformationPatch({ ...draft, logoUrl: "data:image/png;base64,QUFB", logoChanged: true }, school)).toMatchObject({ logoUrl: "data:image/png;base64,QUFB" });
+    expect(schoolInformationPatch({ ...draft, logoUrl: "", logoChanged: true }, school)).toMatchObject({ logoUrl: "" });
     expect(patch).not.toHaveProperty("schoolType");
     expect(patch).not.toHaveProperty("educationLevels");
     expect(patch).not.toHaveProperty("currency");

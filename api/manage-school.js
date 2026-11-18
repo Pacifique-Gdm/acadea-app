@@ -6,6 +6,7 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { CashBalanceError, resolveRecordedCurrency } from "./_lib/cashBalance.js";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "./_lib/schoolOptions.js";
+import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
 
 export const maxDuration = 300;
 
@@ -237,7 +238,11 @@ export default async function handler(req, res) {
       }
       const auditRef = db.collection("auditLogs").doc(`school-update-${randomUUID()}`);
       const batch = db.batch();
-      batch.update(schoolRef, { ...patch, updatedAt: new Date().toISOString(), updatedBy: caller.uid });
+      const updatedAt = new Date().toISOString();
+      const { logoUrl, ...schoolPatch } = patch;
+      // Le logo est rangé à part : l'école ne garde que son repère logoVersion.
+      const logoFields = logoUrl === undefined ? {} : stageSchoolLogoWrite(db, batch, { schoolId, logoUrl, updatedAt, updatedBy: caller.uid });
+      batch.update(schoolRef, { ...schoolPatch, ...logoFields, updatedAt, updatedBy: caller.uid });
       batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.SCHOOL_UPDATED, actor: caller, schoolId, resourceType: "school", resourceId: schoolId, metadata: { fieldsChanged: Object.keys(patch).join(",") } }));
       await batch.commit();
       const updated = await schoolRef.get();

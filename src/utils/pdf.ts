@@ -3,6 +3,7 @@ import type { Expense, Payment, School, SchoolYear, Student } from "../types";
 import { formatRecordedOperation } from "./operationCurrency";
 import { expenseCategoryLabel } from "./expenseCategory";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
+import { loadSchoolLogo } from "../services/schoolLogo";
 
 type PdfDoc = InstanceType<typeof jsPDF>;
 
@@ -159,7 +160,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation, compress: true });
   const engineReadyAt = performance.now();
   const viewer = openPdfViewerShell({ filename, title });
-  const logoDataUrl = await loadLogoDataUrl(school.logoUrl);
+  const logoDataUrl = await loadLogoDataUrl(await loadSchoolLogo(school));
   const resourcesReadyAt = performance.now();
   const element = document.createElement("div");
   element.className = "acadea-pdf";

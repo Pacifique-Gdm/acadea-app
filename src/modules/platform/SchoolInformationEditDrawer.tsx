@@ -5,6 +5,7 @@ import { AdminDrawer, Field, ImageUploadField } from "../../components/ui";
 import { SCHOOL_INFORMATION_CONFIRMATION, canSaveSchoolInformation, schoolInformationDraft } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
 import { SchoolTimeZonePicker } from "./SchoolTimeZonePicker";
+import { useSchoolLogo } from "../../hooks/useSchoolLogo";
 
 export function SchoolInformationEditDrawer({
   school,
@@ -25,6 +26,7 @@ export function SchoolInformationEditDrawer({
   const [confirmation, setConfirmation] = useState("");
   const [logoProcessing, setLogoProcessing] = useState(false);
   const [logoValid, setLogoValid] = useState(true);
+  const currentLogo = useSchoolLogo(school);
   const canSave = canSaveSchoolInformation({ draft, confirmation, saving, logoProcessing, logoValid });
 
   return (
@@ -46,8 +48,8 @@ export function SchoolInformationEditDrawer({
       <div className="grid min-w-0 gap-4">
         <ImageUploadField
           label="Logo de l'école"
-          value={draft.logoUrl}
-          onChange={(logoUrl) => setDraft((current) => ({ ...current, logoUrl }))}
+          value={draft.logoChanged ? draft.logoUrl : currentLogo}
+          onChange={(logoUrl) => setDraft((current) => ({ ...current, logoUrl, logoChanged: true }))}
           onProcessingChange={setLogoProcessing}
           onValidityChange={setLogoValid}
           maxWidth={600}
