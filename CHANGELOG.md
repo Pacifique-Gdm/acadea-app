@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.1] — 2026-11-18 — Correction
+- Logo de l'école rangé à part : les écrans lisent des données d'école beaucoup plus légères, le logo est lu seulement quand il s'affiche
+
 ## [1.11.0] — 2026-11-18 — Fonctionnalité
 - Partie 2 de la répartition, propre aux cas sociaux (lot 27c-4)
 
