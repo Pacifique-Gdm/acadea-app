@@ -14,6 +14,11 @@ on:
 permissions:
   contents: read
 
+# Une exécution devenue inutile (nouvel envoi sur la même PR) est annulée ; seule la dernière compte.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   offline-emulator-e2e:
     name: offline-emulator-e2e
@@ -39,6 +44,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Outils de test gardés (émulateurs Firebase et navigateur)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/firebase/emulators
+            ~/.cache/ms-playwright
+          key: outils-e2e-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-firebase-15.25.0
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - name: Bundle réservé aux émulateurs (pas un build Staging)
@@ -76,6 +88,13 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Outils de test gardés (émulateurs Firebase et navigateur)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/firebase/emulators
+            ~/.cache/ms-playwright
+          key: outils-e2e-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-firebase-15.25.0
       - run: npm ci
       - run: npm ci --prefix functions
       - run: npm audit --omit=dev --audit-level=high
@@ -113,6 +132,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Outils de test gardés (émulateurs Firebase et navigateur)
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/firebase/emulators
+            ~/.cache/ms-playwright
+          key: outils-e2e-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-firebase-15.25.0
       - run: npm ci
       - name: Firestore et Storage — émulateurs locaux uniquement
         run: >-

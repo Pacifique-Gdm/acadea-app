@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.7] — 2026-11-18 — Correction
+- Vérifications GitHub moins coûteuses : exécutions dépassées annulées, outils de test gardés
+
 ## [1.11.6] — 2026-11-18 — Correction
 - Prévu du tableau 2 : chaque cas social suit la partie qu'il utilise vraiment
   - Déjà réparti selon la partie 1 : partie 1 ; selon une partie 2 : celle-ci puis les suivantes ; sans paiement réparti : la partie 2 publiée
