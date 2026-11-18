@@ -1,14 +1,14 @@
 import { supportBalance } from './socialSupportMath.js';
 import { feeAppliesToHistoricalStudent } from './financialTransactions.js';
 import { allocateFeeReceiptCumulative } from './feeAllocationReceipts.js';
-import { socialCaseShares, validateFeeAllocationRubrics } from './feeAllocationMath.js';
+import { socialCaseShares, socialSegmentLines, validateFeeAllocationRubrics } from './feeAllocationMath.js';
 import { readAllocationPages } from './feeAllocationPagination.js';
 import { allocationHash, allocationStateId, allocationFail as fail } from './feeAllocationRuntime.js';
 import { toMoneyMinor } from './money.js';
 import { readArrearsForecast } from './feeAllocationArrearsForecast.js';
 
 export const forecastSignalId = (schoolId, yearId) => allocationHash([schoolId, yearId]);
-export function calculateAllocationForecast({ students, fees, configs, versions, socialVersions = [], schoolId, yearId, currency, operational }) {
+export function calculateAllocationForecast({ students, fees, configs, versions, socialVersions = [], anchors = [], schoolId, yearId, currency, operational }) {
   const rows = [], seen = new Set();
   const activeStudents = students.filter(s => s.schoolId === schoolId && s.schoolYearId === yearId && s.status === 'ACTIVE' && !s.deletedAt);
   for (const fee of fees) {
@@ -40,8 +40,9 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
       const balance = supportBalance(student, fee);
       const net = toMoneyMinor(balance.net), table = balance.reduction > 0 ? 2 : 1;
       counts[table]++;
-      const shares = table === 2 && social ? socialCaseShares(checked.rubrics, social.rubrics, tariff, net) : checked.shares;
-      for (const share of net > 0 ? allocateFeeReceiptCumulative(shares, net) : []) {
+      const lines = table === 2 && model ? socialForecastLines({ student, fee, net, tariff, checked, version, social, anchors, socialVersions })
+        : net > 0 ? allocateFeeReceiptCumulative(checked.shares, net) : [];
+      for (const share of lines) {
         const total = totals.get(`${table}|${share.rubricId}`) + share.amountMinor;
         if (!Number.isSafeInteger(total)) fail('Prévu annuel hors limites.');
         totals.set(`${table}|${share.rubricId}`, total);
@@ -62,13 +63,37 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
   return { status: 'complete', rows, studentCount: activeStudents.length };
 }
 
+/** Correction du prévu (après 27c-4) : le prévu d'un cas social suit la partie qu'il utilise VRAIMENT.
+ * - Déjà réparti selon la partie 1 (ancre sans partie 2) : partie 1.
+ * - Déjà réparti selon une partie 2 : cette partie 2, puis les suivantes à partir du cumul où elles ont pris le relais.
+ * - Pas encore de paiement réparti : la partie 2 publiée, sinon la partie 1.
+ * Si une donnée manque, on revient à la règle « pas encore de paiement » (jamais d'erreur d'affichage). */
+export function socialForecastLines({ student, fee, net, tariff, checked, version, social, anchors, socialVersions }) {
+  if (!(net > 0)) return [];
+  const anchor = version ? anchors.find((a) => a.studentId === student.id && a.feeTypeId === fee.id && a.configVersionId === version.id) : null;
+  if (anchor && anchor.socialVersionId === undefined) return allocateFeeReceiptCumulative(checked.shares, net);
+  if (anchor) {
+    const ids = [anchor.socialVersionId, ...(anchor.socialSegments ?? []).map((item) => item.socialVersionId)];
+    const found = ids.map((id) => socialVersions.find((v) => v.id === id && v.partOneVersionId === version.id));
+    if (found.every(Boolean) && Number.isSafeInteger(anchor.socialNetMinor)) {
+      try {
+        const segments = found.map((v, index) => ({ shares: socialCaseShares(checked.rubrics, v.rubrics, tariff, anchor.socialNetMinor),
+          fromMinor: index === 0 ? 0 : anchor.socialSegments[index - 1].fromMinor }));
+        return socialSegmentLines(checked.shares, segments, anchor.socialNetMinor, net);
+      } catch { /* même règle qu'un élève sans paiement réparti */ }
+    }
+  }
+  return allocateFeeReceiptCumulative(social ? socialCaseShares(checked.rubrics, social.rubrics, tariff, net) : checked.shares, net);
+}
+
 /** Lot « répartition rapide » : le prévu calculé est gardé côté serveur (agrégats seulement,
  * jamais d'identité d'élève). Il n'est recalculé — lecture de tous les élèves — que si sa clé change :
  * signal des élèves et des frais (fonctions), frais, configurations, statut de la répartition,
  * version du calcul. Garde-fou : une heure au plus, même sans signal. */
 // 2 : lot 27c-3b, le prévu gardé contient aussi les lignes d'arriérés.
 // 3 : lot 27c-4, le tableau 2 suit la partie 2 publiée (cas sociaux).
-export const FORECAST_CACHE_SCHEMA = 3;
+// 4 : correction du prévu, chaque cas social suit la partie qu'il utilise vraiment.
+export const FORECAST_CACHE_SCHEMA = 4;
 export const FORECAST_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 export const forecastCacheId = (schoolId, yearId, currency) => allocationHash(['forecast-cache', schoolId, yearId, currency]);
 const forecastCacheKey = ({ signal, fees, configs, state }) => allocationHash([FORECAST_CACHE_SCHEMA, signal,
@@ -105,8 +130,20 @@ export async function readAllocationForecast({ db, schoolId, yearId, currency, f
     for (const config of configRows) if (config.currentVersionId) versions.push({ ...(await tx.get(db.doc(`feeAllocationVersions/${config.currentVersionId}`))).data(), id: config.currentVersionId });
     const socialVersions = [];
     for (const config of configRows) if (config.socialVersionId) socialVersions.push({ ...(await tx.get(db.doc(`feeAllocationSocialVersions/${config.socialVersionId}`))).data(), id: config.socialVersionId });
+    // Correction du prévu : ancres des cas sociaux de l'année (quelques élèves), et toutes les parties 2 qu'elles citent.
+    const anchors = [];
+    if (configRows.some((c) => c.currentVersionId)) {
+      const socialIds = data(students).filter((st) => Object.values(st.financialSupport ?? {}).some((d) => d?.schoolYearId === yearId
+        && Object.values(d.lines ?? {}).some((l) => (l?.reductionMinor ?? 0) > 0))).map((st) => st.id);
+      for (let i = 0; i < socialIds.length; i += 30) {
+        const page = await tx.get(db.collection('feeAllocationAnchors').where('schoolId', '==', schoolId).where('studentId', 'in', socialIds.slice(i, i + 30)));
+        anchors.push(...page.docs.map((d) => d.data()).filter((a) => a.originSchoolYearId === yearId));
+      }
+      const missing = [...new Set(anchors.flatMap((a) => [a.socialVersionId, ...(a.socialSegments ?? []).map((x) => x.socialVersionId)]).filter((id) => id && !socialVersions.some((v) => v.id === id)))];
+      for (const id of missing) socialVersions.push({ ...(await tx.get(db.doc(`feeAllocationSocialVersions/${id}`))).data(), id });
+    }
     const calculatedAt = new Date(now).toISOString();
-    const forecast = calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions, socialVersions,
+    const forecast = calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions, socialVersions, anchors,
       schoolId, yearId, currency, operational: ['ACTIVE', 'PAUSED'].includes(status) });
     const activeStudents = data(students).filter(st => st.schoolId === schoolId && st.schoolYearId === yearId && st.status === 'ACTIVE' && !st.deletedAt);
     return { fees, configs, forecast: { ...forecast, revision, calculatedAt }, activeStudents, activeYear: year.data(),

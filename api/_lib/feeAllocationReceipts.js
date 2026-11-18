@@ -277,6 +277,11 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   return () => {
     if (!anchorSnap.exists) transaction.create(anchorRef, anchor);
     if (rebase) transaction.update(anchorRef, rebase);
+    // Correction du prévu : un cas social qui commence (ou change de partie 2) modifie son prévu ; le prévu gardé est recalculé.
+    if (socialCaseNow && (!anchorSnap.exists || rebase) && source.schoolYearId === collectionYear) {
+      transaction.set(db.doc(`feeAllocationForecastSignals/${hash([source.schoolId, collectionYear])}`),
+        { schoolId: source.schoolId, schoolYearId: collectionYear, revision: `social-${movementId}`, changedAt: now });
+    }
     transaction.create(movementRef, movement);
     transaction.set(totalRef, { schoolId: source.schoolId, anchorId, versionDigest: nextDigest, amountMinor: after, updatedAt: now });
     transaction.set(sourceRef, { schoolId: source.schoolId, anchorId, sourceId: source.id, sourceDigest: payment ? sourceDigest(payment) : null,

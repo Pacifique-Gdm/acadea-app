@@ -87,3 +87,48 @@ describe('lot 27c-4 : prévu du tableau 2 selon la partie 2', () => {
     expect(rows.find(r => r.table === 2 && r.rubricId === rubric(3))).toMatchObject({ rubricMode: 'fixed', rubricShare: 1000 });
   });
 });
+
+describe('correction du prévu : chaque cas social suit la partie qu\u2019il utilise vraiment', () => {
+  const setup = () => {
+    const data = fixture(), rubrics = data.configs[0].draft.rubrics;
+    data.operational = true;
+    data.configs[0] = { ...data.configs[0], currentVersionId: 'v1', socialVersionId: 'sv2' };
+    data.versions = [{ id: 'v1', feeTypeId: 'fee', schoolId: 's', schoolYearId: 'y', currency: 'USD', className: '1ère', status: 'published', feeAmountMinor: 6000, rubrics }];
+    data.students[0].financialSupport = { d: { schoolYearId: 'y', lines: { fee: { reductionMinor: 2000 } } } };
+    const fixed = [{ ...rubrics[0] }, { ...rubrics[1] }, { id: rubrics[2].id, name: rubrics[2].name, mode: 'fixed', fixedMinor: 1000 }];
+    const half = [{ ...rubrics[0], basisPoints: 2000 }, { ...rubrics[1], basisPoints: 2000 }, { ...rubrics[2], basisPoints: 6000 }];
+    data.socialVersions = [{ id: 'sv1', partOneVersionId: 'v1', status: 'superseded', rubrics: fixed }, { id: 'sv2', partOneVersionId: 'v1', status: 'published', rubrics: half }];
+    return { data, rubrics };
+  };
+  const table2 = (data) => Object.fromEntries(calculateAllocationForecast(data).rows.filter(r => r.table === 2).map(r => [r.rubricId, r.amountMinor]));
+  it('sans paiement réparti : la partie 2 publiée (20 / 20 / 60 % de 40 USD)', () => {
+    const { data } = setup();
+    expect(table2(data)).toEqual({ [rubric(1)]: 800, [rubric(2)]: 800, [rubric(3)]: 2400, UNALLOCATED: 0 });
+  });
+  it('déjà réparti selon la partie 1 : il garde la partie 1 (40 / 20 / 40 %)', () => {
+    const { data } = setup();
+    data.anchors = [{ studentId: 'student-0', feeTypeId: 'fee', configVersionId: 'v1' }];
+    expect(table2(data)).toEqual({ [rubric(1)]: 1600, [rubric(2)]: 800, [rubric(3)]: 1600, UNALLOCATED: 0 });
+  });
+  it('déjà réparti selon une ancienne partie 2 : celle-ci, puis la nouvelle à partir du changement', () => {
+    const { data } = setup();
+    data.anchors = [{ studentId: 'student-0', feeTypeId: 'fee', configVersionId: 'v1', socialVersionId: 'sv1', socialNetMinor: 4000 }];
+    // Ancienne partie 2 seule : 16 + 8 + 10 = 34, reste 6 en « Non affecté ».
+    expect(table2(data)).toEqual({ [rubric(1)]: 1600, [rubric(2)]: 800, [rubric(3)]: 1000, UNALLOCATED: 600 });
+    data.anchors[0].socialSegments = [{ socialVersionId: 'sv2', fromMinor: 1000, at: '2026-11-18T10:00:00.000Z' }];
+    const rows = table2(data);
+    expect(Object.values(rows).reduce((n, v) => n + v, 0)).toBe(4000);
+    expect(rows[rubric(3)]).toBeGreaterThan(1000);
+  });
+  it('donnée manquante : retour à la règle « sans paiement réparti », sans erreur', () => {
+    const { data } = setup();
+    data.anchors = [{ studentId: 'student-0', feeTypeId: 'fee', configVersionId: 'v1', socialVersionId: 'inconnue', socialNetMinor: 4000 }];
+    expect(table2(data)).toEqual({ [rubric(1)]: 800, [rubric(2)]: 800, [rubric(3)]: 2400, UNALLOCATED: 0 });
+  });
+  it('les élèves normaux (tableau 1) ne changent pas', () => {
+    const { data } = setup();
+    const before = calculateAllocationForecast(data).rows.filter(r => r.table === 1);
+    data.anchors = [{ studentId: 'student-0', feeTypeId: 'fee', configVersionId: 'v1' }];
+    expect(calculateAllocationForecast(data).rows.filter(r => r.table === 1)).toEqual(before);
+  });
+});

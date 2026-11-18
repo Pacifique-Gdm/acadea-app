@@ -3,6 +3,12 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.6] — 2026-11-18 — Correction
+- Prévu du tableau 2 : chaque cas social suit la partie qu'il utilise vraiment
+  - Déjà réparti selon la partie 1 : partie 1 ; selon une partie 2 : celle-ci puis les suivantes ; sans paiement réparti : la partie 2 publiée
+  - Le prévu gardé est recalculé au premier paiement réparti d'un cas social (ou à un changement de partie 2)
+- Note (décision du 18/11) : un arriéré d'une année passée qui n'avait pas de répartition publiée reste encaissé en « Non affecté (arriéré AAAA-AAAA) », même si le prévu suivrait la répartition de cette année si elle existait. Aucun écart aujourd'hui ; choix volontaire, pas de correction prévue.
+
 ## [1.11.5] — 2026-11-18 — Correction
 - Outils de mesure du Super administrateur sur le staging : mesure par onglet, lectures Firestore minute par minute, création, effacement et vérification d'écoles fictives (lot SA-0). Aucun changement pour les utilisateurs.
 
