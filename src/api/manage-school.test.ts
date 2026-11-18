@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   batchSet: vi.fn(),
   batchDelete: vi.fn(),
   batchCommit: vi.fn(),
+  readPlatformStats: vi.fn(),
 }));
 
 vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
@@ -31,6 +32,7 @@ vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
   firebaseAdminPublicError: () => ({ code: "internal", message: "Service indisponible.", correlationId: "acadea-test" }),
 }));
 vi.mock("../../api/_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
+vi.mock("../../api/_lib/platformStats.js", () => ({ readPlatformStats: mocks.readPlatformStats }));
 vi.mock("../../api/_lib/rateLimit.js", () => ({
   API_RATE_LIMITS: { SCHOOL_DELETE: {}, SCHOOL_ADMIN: {} },
   enforceApiRateLimit: vi.fn(),
@@ -346,4 +348,22 @@ describe("API SEC-004 manage-school", () => {
     const res = response(); await handler(request({ action: "delete", schoolId: "school-a", confirmation: "SUPPRIMER ECOLE" }), res);
     expect(res.statusCode).toBe(200); expect(res.body).toMatchObject({ schoolId: "school-a", status: "complete", alreadyDeleted: true });
   });
+
+  it("lot SA-3 : donne les chiffres du Dashboard calculés par le serveur, sans école ciblée", async () => {
+    const stats = { schools: { total: 3, active: 2, suspended: 1, pending: 0, inactive: 0 }, students: 10, parents: 4, admins: 3, computedAt: "2026-11-19T10:00:00.000Z" };
+    mocks.readPlatformStats.mockResolvedValue(stats);
+    const res = response(); await handler(request({ action: "platform-stats", force: true }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toEqual({ stats });
+    expect(mocks.readPlatformStats).toHaveBeenCalledWith(expect.anything(), { force: true });
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
+  it("lot SA-3 : réserve les chiffres du Dashboard au Super Administrateur", async () => {
+    mocks.verifyIdToken.mockResolvedValue({ uid: "admin", role: "school_admin", schoolId: "school-a" });
+    const res = response(); await handler(request({ action: "platform-stats" }), res);
+    expect(res.statusCode).toBe(403);
+    expect(mocks.readPlatformStats).not.toHaveBeenCalled();
+  });
+
 });

@@ -48,8 +48,8 @@ import { useRealtimeSchoolUsers } from "./hooks/useRealtimeSchoolUsers";
 import { markNotificationsReadTargeted } from "./services/notificationsPagination";
 import { restorePaymentPushNotifications, stopPaymentPushForegroundListener } from "./services/pushNotifications";
 import { canUseFirestoreData, loadDisciplineYearData, loadFirestoreBootstrapData, loadFirestoreData, loadFirestoreYearData, loadParentPortalData, loadPlatformSettings, persistFirestorePatch, realtimeManagedCollections, SchoolSuspendedError, startSchoolRefresh, type SecondarySchoolSection } from "./services/firestoreData";
-import { loadSuperAdminGlobalCounts, loadSuperAdminInitialData } from "./services/superAdminData";
-import type { SuperAdminGlobalCounts } from "./services/superAdminData";
+import { loadSuperAdminInitialData } from "./services/superAdminData";
+import { loadPlatformStats, type PlatformStats } from "./services/platformStats";
 import { isSessionAuditAction } from "./utils/audit";
 import { mergeMessagesById, mergeNotificationsById } from "./utils/realtimeMerges";
 import { orderSchoolYears, resolveDefaultSchoolYear } from "./utils/schoolYears";
@@ -215,7 +215,23 @@ export default function App() {
   const [schoolSuspended, setSchoolSuspended] = useState(false);
   const suspendedSchoolRef = useRef(false);
   const [bootstrapRetry, setBootstrapRetry] = useState(0);
-  const [platformCounts, setPlatformCounts] = useState<SuperAdminGlobalCounts | null>(null);
+  // Lot SA-3 : chiffres du Dashboard calculés par le serveur ; « — » tant qu'ils ne sont pas arrivés.
+  const [platformStats, setPlatformStats] = useState<PlatformStats | null>(null);
+  const platformStatsForceRef = useRef(false);
+  const platformStatsRequestRef = useRef(0);
+  const reloadPlatformStats = useCallback((force = false) => {
+    const requestId = ++platformStatsRequestRef.current;
+    return loadPlatformStats({ force }).then((stats) => {
+      if (platformStatsRequestRef.current !== requestId) return;
+      setPlatformStats(stats);
+      setPlatformLoadError("");
+    }).catch((error) => {
+      if (platformStatsRequestRef.current !== requestId || logoutInProgressRef.current) return;
+      console.warn("Chargement des compteurs globaux indisponible.", error);
+      setPlatformStats(null);
+      setPlatformLoadError("Statistiques globales indisponibles. Réessayez après actualisation.");
+    });
+  }, []);
   const [platformLoadError, setPlatformLoadError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState("");
@@ -530,7 +546,7 @@ export default function App() {
       setSelectedYearId("");
       setActiveTab("dashboard");
       setDataLoading(false);
-      setPlatformCounts(null);
+      setPlatformStats(null);
       setPlatformLoadError("");
       setData(loadInitialData());
       navigate("/login");
@@ -611,7 +627,7 @@ export default function App() {
         setUser(null);
         setSelectedYearId("");
         setActiveTab("dashboard");
-        setPlatformCounts(null);
+        setPlatformStats(null);
         setData(loadInitialData());
         setAuthReady(true);
         navigate("/login");
@@ -651,16 +667,11 @@ export default function App() {
 
     void (async () => {
       if (bootstrapUser.role === "super_admin") {
-        setPlatformCounts(null);
+        setPlatformStats(null);
         setPlatformLoadError("");
-        void loadSuperAdminGlobalCounts().then((counts) => {
-          if (cancelled) return;
-          setPlatformCounts(counts);
-        }).catch((error) => {
-          if (cancelled || logoutInProgressRef.current) return;
-          console.warn("Chargement des compteurs globaux indisponible.", error);
-          setPlatformLoadError("Statistiques globales indisponibles. Réessayez après actualisation.");
-        });
+        const forcePlatformStats = platformStatsForceRef.current;
+        platformStatsForceRef.current = false;
+        void reloadPlatformStats(forcePlatformStats);
         try {
           const { data: firestoreData } = await loadSuperAdminInitialData(bootstrapUser.id, bootstrapUser);
           if (cancelled) return;
@@ -668,7 +679,6 @@ export default function App() {
         } catch (error) {
           if (cancelled || logoutInProgressRef.current) return;
           console.warn("Chargement Firestore indisponible.", error);
-          setPlatformCounts(null);
           setData({ ...loadInitialData(), users: [bootstrapUser] });
           setPlatformLoadError("Impossible de charger les écoles. Réessayez après actualisation.");
           setAuthError(userFacingError(error, "Chargement des données impossible après connexion."));
@@ -781,7 +791,7 @@ export default function App() {
       cancelled = true;
       setDataLoading(false);
     };
-  }, [bootstrapRetry, firestoreBootstrapIdentity, applySecondaryRefreshResult, startScopedSchoolRefresh]);
+  }, [bootstrapRetry, firestoreBootstrapIdentity, applySecondaryRefreshResult, startScopedSchoolRefresh, reloadPlatformStats]);
 
   useEffect(() => {
     if (!user) {
@@ -863,7 +873,7 @@ export default function App() {
     setUser(null);
     setSelectedYearId("");
     setActiveTab("dashboard");
-    setPlatformCounts(null);
+    setPlatformStats(null);
     setData(loadInitialData());
     setDataLoading(false);
     setAuthError("");
@@ -1072,12 +1082,13 @@ export default function App() {
         user={user}
         data={data}
         updateData={updateData}
-        platformCounts={platformCounts}
+        platformStats={platformStats}
+        onSchoolsChanged={() => void reloadPlatformStats()}
         platformLoadError={platformLoadError}
         platformLogoUrl={platformLogoUrl}
         onPlatformLogoSaved={setPlatformLogoUrl}
         onLogout={logout}
-        onRefresh={() => setBootstrapRetry((value) => value + 1)}
+        onRefresh={() => { platformStatsForceRef.current = true; setBootstrapRetry((value) => value + 1); }}
         showInstallButton={showInstallPwaButton}
         onInstallPwa={installPwa}
         billingControls={billingControls}

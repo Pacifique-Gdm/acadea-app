@@ -7,6 +7,7 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { CashBalanceError, resolveRecordedCurrency } from "./_lib/cashBalance.js";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
+import { readPlatformStats } from "./_lib/platformStats.js";
 
 export const maxDuration = 300;
 
@@ -145,6 +146,12 @@ export default async function handler(req, res) {
 
     const body = await readBody(req);
     const requestedAction = normalizeText(body.action);
+    if (requestedAction === "platform-stats") {
+      // Lot SA-3 : chiffres du Dashboard calculés par le serveur (comptages gardés 10 minutes).
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "platform.stats", ...API_RATE_LIMITS.SCHOOL_ADMIN });
+      sendJson(res, 200, { stats: await readPlatformStats(db, { force: body.force === true }) });
+      return;
+    }
     const action = ["update", "change-acronym", "change-currency", "rename-option", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
     const schoolId = normalizeText(body.schoolId);
 

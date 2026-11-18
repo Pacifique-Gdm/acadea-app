@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.12.0] — 2026-11-18 — Fonctionnalité
+- Dashboard Super administrateur : chiffres calculés par le serveur (écoles et administrateurs recomptés à chaque ouverture, élèves et parents gardés 10 minutes avec l'heure du calcul), « — » pendant le chargement au lieu de 0, écoles supprimées exclues de la carte « Écoles » (lot SA-3).
+
 ## [1.11.7] — 2026-11-18 — Correction
 - Vérifications GitHub moins coûteuses : exécutions dépassées annulées, outils de test gardés
 

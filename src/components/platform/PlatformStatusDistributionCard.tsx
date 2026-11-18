@@ -3,10 +3,18 @@ import type { PlatformStatusChartItem } from "../../utils/platformStatusDistribu
 export function PlatformStatusDistributionCard({ title, description, total, totalLabel, items }: {
   title: string;
   description: string;
-  total: number;
+  total: number | string;
   totalLabel: string;
-  items: PlatformStatusChartItem[];
+  /** null : chiffres pas encore arrivés (lot SA-3 : jamais de 0 provisoire). */
+  items: PlatformStatusChartItem[] | null;
 }) {
+  if (!items) {
+    return <div className="min-w-0 max-w-full rounded border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="break-words font-bold text-ink">{title}</h2>
+      <p className="break-words text-sm text-slate-500">{description}</p>
+      <p role="status" className="mt-5 text-sm font-semibold text-slate-500">Chiffres en cours de chargement…</p>
+    </div>;
+  }
   const maximum = Math.max(1, ...items.map((item) => item.value));
   return <div className="min-w-0 max-w-full rounded border border-slate-200 bg-white p-4 shadow-sm">
     <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">

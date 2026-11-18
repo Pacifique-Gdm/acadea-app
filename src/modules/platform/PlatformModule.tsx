@@ -18,7 +18,7 @@ import { useRealtimeCoordinations } from "../../hooks/useRealtimeCoordinations";
 import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hooks/useRealtimeSchoolUsers";
 import { savePlatformSettings } from "../../services/firestoreData";
 import { loadSuperAdminSchoolData } from "../../services/superAdminData";
-import type { SuperAdminGlobalCounts } from "../../services/superAdminData";
+import { platformStatsTimeLabel, type PlatformStats } from "../../services/platformStats";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin, setSchoolAdminStatus } from "../../services/provisioning";
 import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, resetSchoolAiMonthlyUsage, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
 import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } from "../../utils/adminRemoval";
@@ -38,7 +38,7 @@ import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions, schoolOptionDisplayName, SCHOOL_OPTION_RENAME_CONFIRMATION } from "../../utils/schoolOptions";
 import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
 import { addSchoolOptionToCatalog, loadSchoolOptionCatalog } from "../../services/schoolOptionCatalog";
-import { coordinationStatusDistribution } from "../../utils/platformStatusDistribution";
+import { coordinationStatusDistribution, schoolStatusDistribution } from "../../utils/platformStatusDistribution";
 import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
 import { CoordinationCreateDrawer } from "./CoordinationCreateDrawer";
@@ -49,7 +49,8 @@ export function PlatformModule({
   user,
   data,
   updateData,
-  platformCounts,
+  platformStats,
+  onSchoolsChanged,
   platformLoadError,
   platformLogoUrl,
   onPlatformLogoSaved,
@@ -72,7 +73,10 @@ export function PlatformModule({
   user: AppUser;
   data: AppData;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
-  platformCounts: SuperAdminGlobalCounts | null;
+  /** Lot SA-3 : chiffres calculés par le serveur ; null = pas encore arrivés (affichés « — »). */
+  platformStats: PlatformStats | null;
+  /** Relit les chiffres après une création, suspension, réactivation ou suppression d'école. */
+  onSchoolsChanged?: () => void;
   platformLoadError: string;
   platformLogoUrl: string;
   onPlatformLogoSaved: (logoUrl: string) => void;
@@ -217,20 +221,20 @@ export function PlatformModule({
     current.updateData({ users: reconcileRealtimeSchoolUsers(current.users, users, current.schoolId) }, { persist: false });
   }, []);
   useRealtimeSchoolUsers({ user, schoolId: schoolDrawerId, onUsers: applyRealtimeSchoolUsers });
-  const { coordinations, error: coordinationLoadError } = useRealtimeCoordinations();
+  const { coordinations, loaded: coordinationsLoaded, error: coordinationLoadError } = useRealtimeCoordinations();
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
-  const totalStudents = platformCounts?.students ?? "—";
-  const totalParents = platformCounts?.parents ?? "—";
-  const totalAdmins = platformCounts?.admins ?? "—";
-  const activeSchools = visibleSchools.filter((school) => school.status === "active").length;
-  const suspendedSchools = visibleSchools.filter((school) => school.status === "suspended").length;
-  const schoolStatusChart = [
-    { label: "Actives", value: activeSchools, className: "bg-mint", textClassName: "text-mint" },
-    { label: "Suspendues", value: suspendedSchools, className: "bg-red-600", textClassName: "text-red-600" },
-    { label: "En attente", value: visibleSchools.filter((school) => String(school.status) === "pending").length, className: "bg-amber-500", textClassName: "text-amber-700" },
-    { label: "Désactivées", value: visibleSchools.filter((school) => String(school.status) === "inactive").length, className: "bg-slate-500", textClassName: "text-slate-600" },
-  ];
+  // Lot SA-3 : chiffres du Dashboard venant du serveur, écoles supprimées exclues.
+  // Tant qu'ils ne sont pas arrivés : « — », jamais un chiffre faux calculé sur une liste incomplète.
+  const totalSchools = platformStats?.schools.total ?? "—";
+  const totalStudents = platformStats?.students ?? "—";
+  const totalParents = platformStats?.parents ?? "—";
+  const totalAdmins = platformStats?.admins ?? "—";
+  const schoolCardDescription = platformStats
+    ? `${platformStats.schools.active} actives, ${platformStats.schools.suspended} suspendues`
+    : "Chiffres en cours de chargement";
+  const statsTimeDescription = platformStats ? ` · chiffres de ${platformStatsTimeLabel(platformStats)}` : "";
+  const schoolStatusChart = platformStats ? schoolStatusDistribution(platformStats.schools) : null;
   const coordinationStatusChart = coordinationStatusDistribution(coordinations);
   const schoolSections = educationLevelsForSchoolLevel(schoolLevel);
   const hasSecondarySection = schoolSections.includes("Secondaire");
@@ -352,6 +356,7 @@ export function PlatformModule({
         },
         { persist: false },
       );
+      onSchoolsChanged?.();
       setSchoolActionSuccess(`École « ${provisioned.school.name} » et administrateur principal créés et confirmés par le serveur.`);
       setSchoolName("");
       setMainAdminName("");
@@ -452,6 +457,7 @@ export function PlatformModule({
         },
         { persist: false },
       );
+      onSchoolsChanged?.();
       setSchoolStatusTarget(null);
       setSchoolStatusConfirmation("");
       setSchoolActionSuccess(`École « ${school.name} » ${action === "suspend" ? "suspendue" : "réactivée"}.`);
@@ -709,6 +715,7 @@ export function PlatformModule({
         },
         { persist: false },
       );
+      onSchoolsChanged?.();
       setSelectedSchoolId(remainingSchools[0]?.id ?? "");
       setPlatformView("students");
       setSchoolDrawerId("");
@@ -1247,9 +1254,9 @@ export function PlatformModule({
 
           {platformView === "dashboard" && (
             <section className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <PlatformCard label="Écoles" value={data.schools.length} icon={BookOpen} description={`${activeSchools} actives, ${suspendedSchools} suspendues`} tone="mint" />
-              <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description="Chiffre agrégé, sans détail individuel" tone="sky" />
-              <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description="Comptes rattachés aux écoles" tone="violet" />
+              <PlatformCard label="Écoles" value={totalSchools} icon={BookOpen} description={schoolCardDescription} tone="mint" />
+              <PlatformCard label="Élèves totalisés" value={totalStudents} icon={GraduationCap} description={`Chiffre agrégé, sans détail individuel${statsTimeDescription}`} tone="sky" />
+              <PlatformCard label="Parents" value={totalParents} icon={UsersRound} description={`Comptes rattachés aux écoles${statsTimeDescription}`} tone="violet" />
               <PlatformCard label="Administrateurs" value={totalAdmins} icon={ShieldCheck} description="Comptes administrateurs école" tone="amber" />
             </section>
           )}
@@ -1258,8 +1265,8 @@ export function PlatformModule({
             <section className="grid min-w-0 gap-4">
               {coordinationLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{coordinationLoadError}</p>}
               <div className="grid min-w-0 gap-4 lg:grid-cols-2">
-                <PlatformStatusDistributionCard title="Répartition des écoles par statut" description="État global des établissements de la plateforme." total={visibleSchools.length} totalLabel="école(s)" items={schoolStatusChart} />
-                <PlatformStatusDistributionCard title="Répartition des Coordinations par statut" description="État global des Coordinations de la plateforme." total={coordinations.length} totalLabel="Coordination(s)" items={coordinationStatusChart} />
+                <PlatformStatusDistributionCard title="Répartition des écoles par statut" description="État global des établissements de la plateforme." total={platformStats?.schools.total ?? "—"} totalLabel="école(s)" items={schoolStatusChart} />
+                <PlatformStatusDistributionCard title="Répartition des Coordinations par statut" description="État global des Coordinations de la plateforme." total={coordinationsLoaded ? coordinations.length : "—"} totalLabel="Coordination(s)" items={coordinationsLoaded ? coordinationStatusChart : null} />
               </div>
             </section>
           )}

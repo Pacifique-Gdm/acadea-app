@@ -1,14 +1,8 @@
-import { collection, doc, getCountFromServer, getDoc, getDocs, query, where } from "@firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, Expense, FeeType, Message, ParentProfile, Payment, School, SchoolYear, Student, ValvePublication } from "../types";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../utils/schoolOptions";
-
-export type SuperAdminGlobalCounts = {
-  students: number;
-  parents: number;
-  admins: number;
-};
 
 export type SuperAdminSchoolData = {
   students: Student[];
@@ -95,13 +89,6 @@ async function loadOptionalSchoolCollection<T>(collectionName: string, schoolId:
   }
 }
 
-async function loadGlobalCount(collectionName: string, filters: [string, unknown][] = []) {
-  const database = ensureFirestore();
-  const constraints = filters.map(([field, value]) => where(field, "==", value));
-  const snapshot = await getCountFromServer(query(collection(database, collectionName), ...constraints));
-  return snapshot.data().count;
-}
-
 export async function loadSuperAdminInitialData(userId: string, authenticatedUser?: AppUser) {
   const database = ensureFirestore();
   let userProfile = authenticatedUser;
@@ -130,15 +117,6 @@ export async function loadSuperAdminInitialData(userId: string, authenticatedUse
   data.biometricTerminals = biometricTerminals;
 
   return { data };
-}
-
-export async function loadSuperAdminGlobalCounts(): Promise<SuperAdminGlobalCounts> {
-  const [students, parents, admins] = await Promise.all([
-    loadGlobalCount("students"),
-    loadGlobalCount("parents"),
-    loadGlobalCount("users", [["role", "school_admin"]]),
-  ]);
-  return { students, parents, admins };
 }
 
 export async function loadSuperAdminSchoolData(schoolId: string, schoolYearId: string): Promise<SuperAdminSchoolData> {
