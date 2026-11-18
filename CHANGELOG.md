@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.9.4] — 2026-11-18 — Correction
+- Contrôle (Coordination) : « Toutes les années » retiré (écran financier) ; Cas sociaux : l'année active est choisie par défaut
+
 ## [1.9.3] — 2026-11-18 — Correction
 - Reçus : jamais deux fois le même numéro dans une école (compteur par école et par préfixe) ; comptes : jamais deux comptes de connexion pour la même adresse e-mail
 

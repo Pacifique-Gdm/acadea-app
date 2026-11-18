@@ -30,6 +30,8 @@ import {
   resolveSchoolYearCurrency,
 } from "../../utils/currency";
 import { pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
+import { coordinationActiveYearLabel } from "../../services/coordinationStudentPagination";
+import { SUPPORT_ACTIVE_YEAR, supportActiveYearOf, supportDecisionMatchesYear } from "./socialSupportYearFilter";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -78,6 +80,7 @@ export function SocialSupportDrawer({
   const scopedSchools = scopeSchools?.length ? scopeSchools : [school];
   const scopeIds = scopedSchools.map((item) => item.id);
   const scopeKey = scopeIds.join("|");
+  const activeYearOf = (schoolId: string) => supportActiveYearOf(scopedSchools, schoolId);
   const [data, setData] = useState(initialData);
   const [contextReady, setContextReady] = useState(false);
   const [tab, setTab] = useState("Bénéficiaires"),
@@ -104,7 +107,8 @@ export function SocialSupportDrawer({
   }, [busy, nature, reason, personnelId, observation, values, onDirtyChange]);
   const [search, setSearch] = useState(""),
     [filterSchool, setFilterSchool] = useState(""),
-    [filterYear, setFilterYear] = useState(""),
+    // Année active choisie par défaut ; « Toutes les années » reste possible pour l'historique.
+    [filterYear, setFilterYear] = useState(SUPPORT_ACTIVE_YEAR),
     [filterClass, setFilterClass] = useState(""),
     [filterFee, setFilterFee] = useState(""),
     [filterReason, setFilterReason] = useState(""),
@@ -287,7 +291,7 @@ export function SocialSupportDrawer({
     return (
       scopeIds.includes(d.schoolId) &&
       (!filterSchool || d.schoolId === filterSchool) &&
-      (!filterYear || d.schoolYearId === filterYear) &&
+      supportDecisionMatchesYear(d, filterYear, scopedSchools) &&
       (!filterClass || d.className === filterClass) &&
       (!filterFee || d.lines[filterFee]) &&
       (!filterReason || d.reason === filterReason) &&
@@ -421,7 +425,7 @@ export function SocialSupportDrawer({
         filename: `prises-en-charge-${tab}.pdf`,
         title,
         school: pdfSchool,
-        year: years.find((y) => y.id === filterYear),
+        year: years.find((y) => y.id === (filterYear === SUPPORT_ACTIVE_YEAR ? activeYearOf(filterSchool || school.id) : filterYear)),
         subtitle: `Recherche : ${search || "Toutes"} · Classe : ${filterClass || "Toutes"} · Frais : ${filterFee || "Tous"} · Motif : ${supportReasons[filterReason] || "Tous"} · Statut : ${filterStatus || "Tous"} · Opération : ${filterAction || "Toutes"}`,
         throwOnError: true,
         orientation: "landscape",
@@ -798,9 +802,10 @@ export function SocialSupportDrawer({
               value={filterYear}
               onChange={(e) => setFilterYear(e.target.value)}
             >
+              <option value={SUPPORT_ACTIVE_YEAR}>{coordinationActiveYearLabel(years, scopedSchools.filter((item) => !filterSchool || item.id === filterSchool))}</option>
               <option value="">Toutes les années</option>
               {years
-                .filter((y) => scopeIds.includes(y.schoolId) && (!filterSchool || y.schoolId === filterSchool))
+                .filter((y) => scopeIds.includes(y.schoolId) && (!filterSchool || y.schoolId === filterSchool) && y.id !== activeYearOf(y.schoolId))
                 .map((y) => (
                   <option key={y.id} value={y.id}>
                     {y.name}
@@ -886,7 +891,7 @@ export function SocialSupportDrawer({
           <div className="flex flex-wrap gap-2 text-xs" aria-label="Filtres actifs">
             {[
               { value: filterSchool, label: scopedSchools.find((item) => item.id === filterSchool)?.name, clear: () => setFilterSchool("") },
-              { value: filterYear, label: years.find((item) => item.id === filterYear)?.name, clear: () => setFilterYear("") },
+              { value: filterYear, label: filterYear === SUPPORT_ACTIVE_YEAR ? coordinationActiveYearLabel(years, scopedSchools.filter((item) => !filterSchool || item.id === filterSchool)) : years.find((item) => item.id === filterYear)?.name, clear: () => setFilterYear("") },
               { value: filterClass, label: filterClass, clear: () => setFilterClass("") },
               { value: filterFee, label: data.feeTypes.find((item) => item.id === filterFee)?.name, clear: () => setFilterFee("") },
               { value: filterReason, label: supportReasons[filterReason], clear: () => setFilterReason("") },

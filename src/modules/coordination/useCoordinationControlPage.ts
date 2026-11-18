@@ -77,6 +77,8 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [metadataKey, contextKey, classFilterReady, pageIndex, cursors, currentPageKey, filters, fees, amountFilter, arrearsFilter]);
+  // Contrôle est un écran financier : jamais « Toutes les années » (montants de plusieurs années mélangés).
+  useEffect(() => { if (!selectedYearId) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [selectedYearId]);
   useEffect(() => { if (metadataKey === contextKey && selectedYearId && selectedYearId !== COORDINATION_ACTIVE_YEAR && !coordinationYearChoices(years, schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId)).some((year) => year.value === selectedYearId)) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [contextKey, metadataKey, schools, selectedSchoolId, selectedYearId, years]);
   useEffect(() => { if (classChoicesReady && option && !options.includes(option)) setOption(""); }, [classChoicesReady, option, options]);
   const pagePending = pageKey !== currentPageKey && errorKey !== currentPageKey;
