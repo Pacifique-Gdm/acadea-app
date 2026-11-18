@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { FieldValue } from "firebase-admin/firestore";
 
 const mocks = vi.hoisted(() => ({
   verifyIdToken: vi.fn(),
@@ -9,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   deleteSchoolCompletely: vi.fn(),
   batchUpdate: vi.fn(),
   batchSet: vi.fn(),
+  batchDelete: vi.fn(),
   batchCommit: vi.fn(),
 }));
 
@@ -22,7 +24,7 @@ vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
         : name === "payments" ? { where: () => ({ get: mocks.paymentsGet }) }
         : name === "expenses" ? { where: () => ({ get: mocks.expensesGet }) }
         : { doc: () => ({ id: "audit-school-update" }) },
-      batch: () => ({ update: mocks.batchUpdate, set: mocks.batchSet, commit: mocks.batchCommit }),
+      batch: () => ({ update: mocks.batchUpdate, set: mocks.batchSet, delete: mocks.batchDelete, commit: mocks.batchCommit }),
     },
     bucket: {},
   }),
@@ -37,6 +39,8 @@ vi.mock("../../api/_lib/rateLimit.js", () => ({
 
 // @ts-expect-error API JavaScript handler has no declaration file.
 import handler from "../../api/manage-school.js";
+// @ts-expect-error Module JavaScript sans déclaration de types.
+import { schoolLogoVersion } from "../../api/_lib/schoolLogo.js";
 
 function response() {
   return { statusCode: 0, body: {} as Record<string, unknown>, setHeader: vi.fn(), end(value: string) { this.body = JSON.parse(value); } };
@@ -168,15 +172,39 @@ describe("API SEC-004 manage-school", () => {
         phone: "+243000000000",
         email: "contact@example.test",
         motto: "Unis pour réussir",
-        logoUrl: "data:image/png;base64,AAAA",
+        logoVersion: schoolLogoVersion("data:image/png;base64,AAAA"),
         schoolType: "Secondaire uniquement",
         educationLevels: ["Secondaire"],
         updatedBy: "super-1",
       }),
     );
     expect(mocks.batchUpdate.mock.calls[0]?.[1]).not.toHaveProperty("currency");
-    expect(mocks.batchSet).toHaveBeenCalledTimes(1);
+    // Le logo est rangé à part : l'école ne reçoit plus l'image, l'ancien champ est retiré.
+    expect(mocks.batchUpdate.mock.calls[0]?.[1].logoUrl).not.toBe("data:image/png;base64,AAAA");
+    expect(FieldValue.delete().isEqual(mocks.batchUpdate.mock.calls[0]?.[1].logoUrl)).toBe(true);
+    expect(mocks.batchSet).toHaveBeenCalledWith(
+      expect.objectContaining({ path: "schoolLogos/school-a" }),
+      expect.objectContaining({ schoolId: "school-a", logoUrl: "data:image/png;base64,AAAA", logoVersion: schoolLogoVersion("data:image/png;base64,AAAA"), updatedBy: "super-1" }),
+    );
+    expect(mocks.batchSet).toHaveBeenCalledTimes(2);
     expect(mocks.batchCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it("supprime le logo rangé à part quand le logo est retiré", async () => {
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch: { name: "École A", logoUrl: "" } }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchDelete).toHaveBeenCalledWith(expect.objectContaining({ path: "schoolLogos/school-a" }));
+    expect(mocks.batchUpdate.mock.calls[0]?.[1]).toMatchObject({ logoVersion: "" });
+    expect(mocks.batchSet).toHaveBeenCalledTimes(1);
+  });
+
+  it("ne touche pas au logo quand il n'est pas modifié", async () => {
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch: { name: "École A" } }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchUpdate.mock.calls[0]?.[1]).not.toHaveProperty("logoUrl");
+    expect(mocks.batchUpdate.mock.calls[0]?.[1]).not.toHaveProperty("logoVersion");
+    expect(mocks.batchDelete).not.toHaveBeenCalled();
+    expect(mocks.batchSet).toHaveBeenCalledTimes(1);
   });
 
   it("refuse une combinaison niveau / educationLevels incohérente", async () => {

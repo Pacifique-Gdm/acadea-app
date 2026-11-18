@@ -6,7 +6,7 @@ export const SCHOOL_OWNED_COLLECTIONS = Object.freeze([
   "attendanceSettings", "biometricTerminals", "bulletins", "documents", "announcements", "messages",
   "notifications", "auditLogs", "valves", "conversations", "parentDailyMessageLimits",
   "disciplineSanctions", "correspondences", "secretaryReports", "secretaryCounters",
-  "studentMedicalRecords", "aiUsageLogs",
+  "studentMedicalRecords", "aiUsageLogs", "schoolLogos",
 ]);
 
 export const SCHOOL_OWNED_SUBCOLLECTIONS = Object.freeze([

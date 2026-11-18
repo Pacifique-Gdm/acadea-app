@@ -9,6 +9,7 @@ import { useRealtimeMessageFeed } from "../../hooks/useRealtimeMessageFeed";
 import type { AppData, AppNotification, AppUser, Message, School, SchoolYear } from "../../types";
 import { OfflineQueuePanel } from "../offline/OfflineQueuePanel";
 import { offlineAccessEligible } from "../../services/offlineAccess";
+import { useSchoolLogo } from "../../hooks/useSchoolLogo";
 
 type HeaderYearData = Pick<AppData, "auditLogs" | "messages" | "notifications" | "parents" | "students" | "users">;
 
@@ -57,7 +58,7 @@ export function Header({
 }: HeaderProps) {
   const [manualRefreshToken, setManualRefreshToken] = useState(0);
   const [manualRefreshing, setManualRefreshing] = useState(false);
-  const schoolLogoUrl = school.logoUrl?.trim();
+  const schoolLogoUrl = useSchoolLogo(school).trim();
   const userDisplayName = user.name.trim();
   const schoolMotto = school.motto?.trim();
   // L'icône qui tourne suffit pendant l'actualisation : aucun texte temporaire qui
