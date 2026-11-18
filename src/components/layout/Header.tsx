@@ -60,7 +60,9 @@ export function Header({
   const schoolLogoUrl = school.logoUrl?.trim();
   const userDisplayName = user.name.trim();
   const schoolMotto = school.motto?.trim();
-  const refreshStatus = isRefreshing ? "Actualisation..." : refreshError;
+  // L'icône qui tourne suffit pendant l'actualisation : aucun texte temporaire qui
+  // élargit l'en-tête. Seule une vraie erreur est écrite.
+  const refreshStatus = refreshError;
   const notificationHistory = usePaginatedNotifications({
     user,
     schoolId: school.id,
@@ -178,6 +180,7 @@ export function Header({
               aria-label="Actualiser"
             >
               <RefreshCw className={`h-4 w-4 ${isRefreshing || manualRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing && <span className="sr-only">Actualisation en cours</span>}
             </button>
             {refreshStatus && (
               <span className={`text-xs font-semibold ${refreshError ? "text-red-600" : "text-slate-500"}`}>

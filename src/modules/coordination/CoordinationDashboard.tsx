@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDashboardArrears } from "../../hooks/useDashboardArrears";
 import { DashboardArrearsValue } from "../../components/financial/DashboardArrearsValue";
 import { resolveApplicableArrearsCurrencies } from "../../utils/arrearsCurrencies";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound } from "lucide-react";
-import { FormPanel, Metric } from "../../components/ui";
+import { BlockSkeleton, FinancialKpiSkeleton, FormPanel, Metric, ValueSkeleton } from "../../components/ui";
 import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
 import type { CoordinationDashboardReadModel } from "../../services/coordinationReadModel";
 import type { AppUser, Coordination, School, SchoolSection } from "../../types";
 import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
 import { buildDashboardCollectedArrears } from "../../utils/dashboardCollectedArrears";
+import { collectedArrearsBandHeight } from "../../utils/collectedArrearsBand";
 import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../utils/coordinationDashboardStats";
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
@@ -70,6 +71,14 @@ export function CoordinationDashboard({
   const expenseResolution = useExpenseCurrencyResolution(model.expenses);
   const resolvedExpenses = expenseResolution.rows;
   const financialVerificationReady = !loading && !loadError && expenseResolution.status === "ready";
+  // Premier chargement : rien n'est encore connu, des squelettes gardent la place.
+  // Actualisations suivantes : les derniers chiffres vérifiés restent affichés sans
+  // bandeau temporaire ; l'export PDF reste bloqué jusqu'à la confirmation.
+  const loadedOnce = useRef(false);
+  if (!loading && !loadError) loadedOnce.current = true;
+  const firstLoad = !loadedOnce.current && !loadError;
+  const currencyPending = !loadError && (firstLoad || expenseResolution.status === "loading");
+  const displayVerified = !loadError && !firstLoad && expenseResolution.status === "ready";
   const financialModel = useMemo(() => ({ ...model, expenses: resolvedExpenses }), [model, resolvedExpenses]);
   const scopedSchools = useMemo(() => selectedSchoolId ? schools.filter((school) => school.id === selectedSchoolId) : schools, [schools, selectedSchoolId]);
 
@@ -103,6 +112,7 @@ export function CoordinationDashboard({
       && schoolById.get(payment.schoolId)?.activeSchoolYearId === payment.collectionSchoolYearId
       && payment.currency !== "CDF" && payment.currency !== "USD");
   const financialExportBlocked = !financialVerificationReady || hasUnknownFinancialCurrency;
+  const financialDisplayBlocked = !displayVerified || hasUnknownFinancialCurrency;
   const pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const hasCrossCurrencyHistory = [...stats.payments, ...stats.expenses, ...stats.cashInflows].some((operation) => operation.currency
     && operation.currency !== resolveSchoolCurrency(schoolById.get(operation.schoolId) ?? {}));
@@ -159,7 +169,8 @@ export function CoordinationDashboard({
   const formerNote = (group: { formerPaid?: number; currency: "USD" | "CDF" }, field: string) => (field === "expected" || field === "paid") && (group.formerPaid ?? 0) > 0
     ? ` (dont anciens élèves : ${formatCurrency(group.formerPaid ?? 0, group.currency)})` : "";
   const financialValue = (field: "official" | "reduction" | "expected" | "paid" | "remaining") => {
-    if (financialExportBlocked && (field === "paid" || field === "remaining")) return "Indéterminé — devise historique non vérifiée";
+    if (currencyPending && (field === "paid" || field === "remaining")) return <ValueSkeleton />;
+    if (financialDisplayBlocked && (field === "paid" || field === "remaining")) return "Indéterminé — devise historique non vérifiée";
     if (!stats.financialGroups.length) return formatCurrency(0, "USD");
     if (stats.financialGroups.length === 1) {
       const group = stats.financialGroups[0];
@@ -231,20 +242,19 @@ export function CoordinationDashboard({
       </div>
     </div>
     {loadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
-    {financialVerificationReady && hasUnknownFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et export indisponibles : des opérations historiques sans devise exigent une réconciliation.</p>}
-    {!loading && !loadError && expenseResolution.status === "loading" && <p role="status" className="rounded border bg-white p-3 text-sm text-slate-500">Vérification des devises historiques en cours…</p>}
+    {displayVerified && hasUnknownFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et export indisponibles : des opérations historiques sans devise exigent une réconciliation.</p>}
     {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible : {expenseResolution.message}</p>}
     {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés ({dashboardArrears.error})</p>}
     {hasCrossCurrencyHistory && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Les graphiques par école sont masqués car des opérations portent une autre devise que la devise actuelle de leur école.</p>}
-    {loading && <p className="rounded border bg-white p-4 text-sm text-slate-500">Chargement du Dashboard…</p>}
-    {!loading && !loadError && stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{formatCount(stats.excludedSchoolIds.length)} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}
+    {!firstLoad && !loadError && stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{formatCount(stats.excludedSchoolIds.length)} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}
 
-    <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">{cards.map((card) => { const Icon = card.icon; return <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}><Icon className="h-5 w-5" /></div><p className="text-sm text-slate-500">{card.label}</p><p className="mt-1 break-words text-2xl font-bold text-ink">{typeof card.value === "number" ? formatCount(card.value) : card.value}</p></article>; })}</div>
-    {loading ? <p role="status" className="rounded border border-amber-200 bg-amber-50 p-4 text-sm">Actualisation des arriérés encaissés…</p>
+    <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">{cards.map((card) => { const Icon = card.icon; return <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}><Icon className="h-5 w-5" /></div><p className="text-sm text-slate-500">{card.label}</p><p className="mt-1 break-words text-2xl font-bold text-ink">{firstLoad ? <ValueSkeleton /> : typeof card.value === "number" ? formatCount(card.value) : card.value}</p></article>; })}</div>
+    {loading ? arrearsCollections.length > 0 && <BlockSkeleton label="Arriérés encaissés" height={collectedArrearsBandHeight(arrearsCollections.length, 16)} />
       : loadError ? <p role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-700">Arriérés encaissés non confirmés : {loadError}</p>
       : arrearsCollections.length > 0 && <div data-testid="collected-arrears-band" className="rounded border border-amber-200 bg-amber-50 p-4 text-sm"><p className="font-bold">Arriérés encaissés, hors recouvrement de l'année courante</p>{arrearsCollections.map((group) => <p key={group.currency}>{formatCurrency(group.amount, group.currency)}</p>)}</div>}
 
-    {financialVerificationReady && !hasUnknownFinancialCurrency && stats.financialGroups.map((financial) => {
+    {currencyPending && <FinancialKpiSkeleton />}
+    {displayVerified && !hasUnknownFinancialCurrency && stats.financialGroups.map((financial) => {
       const recoveryTone = financial.recoveryRate >= 80 ? "text-mint bg-mint/10" : financial.recoveryRate >= 50 ? "text-amber-700 bg-amber-100" : "text-red-700 bg-red-50";
       const amount = (value: number) => formatCurrency(value, financial.currency);
       return <div key={financial.currency} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
@@ -256,9 +266,9 @@ export function CoordinationDashboard({
         <FinancialFeeShareChart rows={financial.feeShares} formatAmount={amount} totalAriaLabel={`Répartition des montants attendus en ${financial.currency}`} />
       </div>;
     })}
-    {financialVerificationReady && !stats.financialGroups.length && <div className="rounded border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-bold text-ink">KPI financier</h2><p className="mt-3 text-sm text-slate-500">Aucune donnée financière pour le périmètre sélectionné.</p></div>}
+    {displayVerified && !stats.financialGroups.length && <div className="rounded border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-bold text-ink">KPI financier</h2><p className="mt-3 text-sm text-slate-500">Aucune donnée financière pour le périmètre sélectionné.</p></div>}
 
-    <FormPanel title="Transactions du jour"><div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">{transactions.map((transaction) => <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3 text-sm"><div className="min-w-0"><p className="font-semibold text-ink">{transaction.type}</p><p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p></div><span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>{transaction.currency ? `${transaction.amount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(transaction.amount), transaction.currency)}` : "Devise historique inconnue"}</span></div>)}{!loading && transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune transaction pour cette période.</p>}</div>{!financialExportBlocked && !hasCrossCurrencyHistory && <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4">{chartGroups.map((group) => <div key={group.currency} className="grid gap-2">{chartGroups.length > 1 && <p className="text-sm font-bold text-slate-600">Devise : {group.currency}</p>}<TransactionComboChart rows={group.rows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} currency={group.currency} formatAmount={(value) => formatCurrency(value, group.currency)} /></div>)}</div>}</FormPanel>
+    <FormPanel title="Transactions du jour"><div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">{transactions.map((transaction) => <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3 text-sm"><div className="min-w-0"><p className="font-semibold text-ink">{transaction.type}</p><p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p></div><span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>{transaction.currency ? `${transaction.amount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(transaction.amount), transaction.currency)}` : currencyPending ? <span data-testid="value-skeleton" aria-hidden="true" className="inline-block h-5 w-20 animate-pulse rounded bg-slate-200 align-middle" /> : "Devise historique inconnue"}</span></div>)}{firstLoad && <BlockSkeleton className="h-12" label="Transactions" />}{!firstLoad && transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune transaction pour cette période.</p>}</div>{currencyPending ? <div className="mt-4 border-t border-slate-100 pt-4"><BlockSkeleton className="h-64" label="Mouvement des transactions par jour" /></div> : !financialDisplayBlocked && !hasCrossCurrencyHistory && <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4">{chartGroups.map((group) => <div key={group.currency} className="grid gap-2">{chartGroups.length > 1 && <p className="text-sm font-bold text-slate-600">Devise : {group.currency}</p>}<TransactionComboChart rows={group.rows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} currency={group.currency} formatAmount={(value) => formatCurrency(value, group.currency)} /></div>)}</div>}</FormPanel>
 
     <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-bold text-ink">Élèves par classe</h2><div className="mt-3 overflow-x-auto"><table className={`w-full ${scopedSchools.length > 1 ? "min-w-[680px]" : "min-w-[520px]"} text-left text-sm`}><thead className="text-xs uppercase text-slate-500"><tr>{scopedSchools.length > 1 && <th className="py-2">École</th>}<th className="py-2">Classe</th><th className="py-2">Filles</th><th className="py-2">Garçons</th><th className="py-2">Total</th></tr></thead><tbody>{stats.classRows.map((row) => <tr key={`${row.schoolId}:${row.className}`} className="border-t border-slate-100">{scopedSchools.length > 1 && <td className="py-2 pr-3">{row.schoolName}</td>}<td className="py-2 font-semibold text-ink">{row.className}</td><td className="py-2">{formatCount(row.girls)}</td><td className="py-2">{formatCount(row.boys)}</td><td className="py-2">{formatCount(row.total)}</td></tr>)}<tr className="border-t border-slate-200 bg-slate-50 font-bold text-ink">{scopedSchools.length > 1 && <td className="py-2" />}<td className="py-2">Totaux</td><td className="py-2">{formatCount(stats.totalGirls)}</td><td className="py-2">{formatCount(stats.totalBoys)}</td><td className="py-2">{formatCount(stats.totalStudents)}</td></tr></tbody></table></div></div>
   </section>;
