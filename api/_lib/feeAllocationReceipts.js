@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, allocateFeeReceiptCumulative, arrearsRubricKey, assertFeeAllocationMovement, socialCaseShares, socialCumulativeLines, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { FeeAllocationError, UNALLOCATED_RUBRIC_ID, allocateFeeReceiptCumulative, arrearsRubricKey, assertFeeAllocationMovement, socialCaseShares, socialSegmentLines, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { allocationSupportedProject, readOperationalAllocation } from "./feeAllocationRuntime.js";
@@ -129,7 +129,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
         if (social?.status === "published" && social.partOneVersionId === versionId && Date.parse(social.effectiveFrom) <= Date.parse(source.createdAt)) {
           assertSocialVersionBinding(social, { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId,
             currency: source.currency, partOneVersionId: versionId, feeAmountMinor: toMoneyMinor(fee.amount) });
-          socialPart = { socialVersionId: social.id, socialNetMinor: toMoneyMinor(supportBalance(student, { ...fee, id: source.feeTypeId }).net) };
+          socialPart = { socialVersionId: social.id, socialCurrentVersionId: social.id, socialNetMinor: toMoneyMinor(supportBalance(student, { ...fee, id: source.feeTypeId }).net) };
         }
       }
     }
@@ -139,7 +139,9 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   }
   assertBinding(anchor, source);
   let shares = [{ rubricId: UNALLOCATED_RUBRIC_ID, amountMinor: anchor.feeAmountMinor }];
-  let versionDigest = null, socialShares = null;
+  let versionDigest = null, socialSegments = null, socialBaseDigest = null, partOneRubrics = null;
+  const segmentsDigest = (stored, segments) => stored.length
+    ? hash([socialBaseDigest, "segments", stored.map(item => [item.socialVersionId, item.fromMinor, item.at]), segments.map(segment => segment.shares)]) : socialBaseDigest;
   if (anchor.configVersionId) {
     if (!identifier(anchor.configVersionId)) fail("Version historique invalide.");
     const version = (await transaction.get(db.doc(`feeAllocationVersions/${anchor.configVersionId}`))).data();
@@ -187,9 +189,23 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
         { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
           partOneVersionId: version.id, feeAmountMinor: anchor.feeAmountMinor });
       if (social.id !== anchor.socialVersionId || Date.parse(social.effectiveFrom) > Date.parse(anchor.anchoredAt)) fail("Partie 2 de l'ancre non vérifiée.");
-      socialShares = socialCaseShares(validated.rubrics, social.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor);
+      const socialShares = socialCaseShares(validated.rubrics, social.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor);
+      partOneRubrics = validated.rubrics;
       // L'empreinte change : une ancienne version du serveur refuserait ce cumul au lieu de le partager autrement.
-      versionDigest = hash([versionDigest, "social", social.id, anchor.socialNetMinor, socialShares]);
+      socialBaseDigest = hash([versionDigest, "social", social.id, anchor.socialNetMinor, socialShares]);
+      // Correction 27c-4 : nouvelles parties 2 publiées depuis, chacune à partir du cumul payé à ce moment-là.
+      const stored = anchor.socialSegments ?? [];
+      if (!Array.isArray(stored) || stored.length > 20) fail("Changements de partie 2 invalides.");
+      socialSegments = [{ shares: socialShares, fromMinor: 0 }];
+      for (const item of stored) {
+        if (!item || !identifier(item.socialVersionId) || !safe(item.fromMinor) || !Number.isFinite(Date.parse(item.at))) fail("Changement de partie 2 invalide.");
+        const next = assertSocialVersionBinding((await transaction.get(db.doc(`feeAllocationSocialVersions/${item.socialVersionId}`))).data(),
+          { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
+            partOneVersionId: version.id, feeAmountMinor: anchor.feeAmountMinor });
+        if (next.id !== item.socialVersionId || Date.parse(next.effectiveFrom) > Date.parse(item.at)) fail("Changement de partie 2 non vérifié.");
+        socialSegments.push({ shares: socialCaseShares(validated.rubrics, next.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor), fromMinor: item.fromMinor });
+      }
+      versionDigest = segmentsDigest(stored, socialSegments);
     }
   } else if (anchor.socialVersionId !== undefined) fail("Partie 2 sans version de partie 1.");
   // Lot 27c-3a : un arriéré (dette d'une année passée) va dans les lignes « … (arriéré AAAA-AAAA) », jamais dans les
@@ -199,7 +215,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   if (arrears) {
     const originNames = anchor.configVersionId ? new Map(((await transaction.get(db.doc(`feeAllocationVersions/${anchor.configVersionId}`))).data()?.rubrics ?? []).map(r => [r.id, r.name])) : new Map();
     const rename = share => ({ ...share, rubricId: arrearsRubricKey(source.schoolYearId, share.rubricId) });
-    if (socialShares) socialShares = socialShares.map(rename);
+    if (socialSegments) socialSegments = socialSegments.map(segment => ({ ...segment, shares: segment.shares.map(rename) }));
     shares = shares.map(share => {
       const key = arrearsRubricKey(source.schoolYearId, share.rubricId);
       arrearsNames.set(key, { originSchoolYearId: source.schoolYearId, originYearName: String(year.name ?? source.schoolYearId), rubricId: share.rubricId,
@@ -214,7 +230,26 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   const delta = newMinor - oldMinor;
   const before = total?.amountMinor ?? 0, after = before + delta;
   if (!safe(after)) fail("Correction supérieure aux encaissements répartis.");
-  const linesAt = (total) => socialShares ? socialCumulativeLines(shares, socialShares, anchor.socialNetMinor, total) : allocateFeeReceiptCumulative(shares, total);
+  // Correction 27c-4 : un nouveau paiement d'un cas social déjà rattaché à une partie 2, alors qu'une NOUVELLE partie 2
+  // a été publiée depuis : la suite de son net suit la nouvelle. Les mouvements déjà écrits ne changent pas.
+  let rebase = null, nextDigest = versionDigest;
+  if (socialSegments && payment && !previous && anchorSnap.exists && !arrears && before < anchor.socialNetMinor) {
+    const current = (await transaction.get(db.doc(`feeAllocationConfigs/${feeAllocationConfigId(source.schoolId, collectionYear, source.feeTypeId)}`))).data();
+    const stored = anchor.socialSegments ?? [];
+    const last = stored.at(-1)?.socialVersionId ?? anchor.socialVersionId;
+    if (current?.socialVersionId && current.socialVersionId !== last && current.schoolId === source.schoolId && current.feeTypeId === source.feeTypeId) {
+      const next = (await transaction.get(db.doc(`feeAllocationSocialVersions/${current.socialVersionId}`))).data();
+      if (next?.status === "published" && next.partOneVersionId === anchor.configVersionId && Date.parse(next.effectiveFrom) <= Date.parse(source.createdAt)) {
+        assertSocialVersionBinding(next, { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
+          partOneVersionId: anchor.configVersionId, feeAmountMinor: anchor.feeAmountMinor });
+        const all = [...stored, { socialVersionId: next.id, fromMinor: before, at: source.createdAt }];
+        socialSegments = [...socialSegments, { shares: socialCaseShares(partOneRubrics, next.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor), fromMinor: before }];
+        nextDigest = segmentsDigest(all, socialSegments);
+        rebase = { socialSegments: all, socialCurrentVersionId: next.id };
+      }
+    }
+  }
+  const linesAt = (total) => socialSegments ? socialSegmentLines(shares, socialSegments, anchor.socialNetMinor, total) : allocateFeeReceiptCumulative(shares, total);
   const priorLines = linesAt(before), nextLines = linesAt(after);
   const lines = nextLines.map((s, i) => ({ rubricId: s.rubricId, amountMinor: s.amountMinor - priorLines[i].amountMinor }));
   const balanceRows = await Promise.all(lines.map(async line => {
@@ -241,8 +276,9 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     sourceSnapshot: { ...source }, testOnly: operational ? operational.testOnly : true });
   return () => {
     if (!anchorSnap.exists) transaction.create(anchorRef, anchor);
+    if (rebase) transaction.update(anchorRef, rebase);
     transaction.create(movementRef, movement);
-    transaction.set(totalRef, { schoolId: source.schoolId, anchorId, versionDigest, amountMinor: after, updatedAt: now });
+    transaction.set(totalRef, { schoolId: source.schoolId, anchorId, versionDigest: nextDigest, amountMinor: after, updatedAt: now });
     transaction.set(sourceRef, { schoolId: source.schoolId, anchorId, sourceId: source.id, sourceDigest: payment ? sourceDigest(payment) : null,
       amountMinor: newMinor, lastMovementId: movementId, deleted: !payment, updatedAt: now,
       socialCase: typeof priorSource?.socialCase === "boolean" ? priorSource.socialCase : socialCaseNow });

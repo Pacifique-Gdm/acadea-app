@@ -171,3 +171,36 @@ export function socialCumulativeLines(part1Shares, socialShares, socialNetMinor,
   const ids = [...new Set([...part1Shares, ...socialShares].map((share) => share.rubricId))].sort((a, b) => a < b ? -1 : 1);
   return ids.map((rubricId) => ({ rubricId, amountMinor: (first.find((s) => s.rubricId === rubricId)?.amountMinor ?? 0) + (second.find((s) => s.rubricId === rubricId)?.amountMinor ?? 0) }));
 }
+
+/** Lot 27c-4 (correction) : une nouvelle partie 2 publiée s'applique aux paiements SUIVANTS d'un cas social
+ * déjà rattaché à une partie 2 précédente, sans rien réécrire. segments : [{ shares, fromMinor }], le premier à 0 ;
+ * chaque segment commence au cumul déjà payé au moment du changement. Pour la suite du net, chaque rubrique
+ * reçoit à proportion de ce qui lui manque encore pour atteindre la nouvelle partie 2 ; au-delà du net, la partie 1. */
+export function socialSegmentLines(part1Shares, segments, netMinor, totalMinor) {
+  if (!Array.isArray(segments) || !segments.length || segments[0].fromMinor !== 0
+    || segments.some((segment, index) => !Array.isArray(segment?.shares) || !safeCount(segment.fromMinor) || (index > 0 && segment.fromMinor < segments[index - 1].fromMinor))) cumulFail("Changements de partie 2 invalides.");
+  if (!safeCount(totalMinor) || !safeCount(netMinor)) cumulFail("Cumul de cas social invalide.");
+  const ids = [...new Set([...part1Shares, ...segments.flatMap((segment) => segment.shares)].map((share) => share.rubricId))].sort((a, b) => a < b ? -1 : 1);
+  const toMap = (lines) => new Map(lines.map((line) => [line.rubricId, line.amountMinor]));
+  const above = (x) => x > netMinor ? toMap(allocateFeeReceiptCumulative(part1Shares, x - netMinor)) : new Map();
+  const at = (k, x) => {
+    if (k === 0) return toMap(socialCumulativeLines(part1Shares, segments[0].shares, netMinor, x));
+    const start = segments[k].fromMinor;
+    const base = at(k - 1, start), result = new Map(ids.map((id) => [id, base.get(id) ?? 0]));
+    const target = toMap(socialCumulativeLines(part1Shares, segments[k].shares, netMinor, netMinor));
+    const inNet = Math.max(0, Math.min(x, netMinor) - Math.min(start, netMinor));
+    if (inNet > 0) {
+      const missing = ids.map((id) => ({ rubricId: id, amountMinor: Math.max(0, (target.get(id) ?? 0) - (base.get(id) ?? 0)) })).filter((item) => item.amountMinor > 0);
+      for (const line of allocateFeeReceiptCumulative(missing, inNet)) result.set(line.rubricId, result.get(line.rubricId) + line.amountMinor);
+    }
+    if (x > netMinor) {
+      const now = above(x), before = above(Math.max(start, netMinor));
+      for (const id of ids) result.set(id, result.get(id) + (now.get(id) ?? 0) - (before.get(id) ?? 0));
+    }
+    return result;
+  };
+  let k = 0;
+  for (let index = segments.length - 1; index >= 0; index -= 1) if (segments[index].fromMinor <= totalMinor) { k = index; break; }
+  const lines = at(k, totalMinor);
+  return ids.map((id) => ({ rubricId: id, amountMinor: lines.get(id) ?? 0 }));
+}

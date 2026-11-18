@@ -18,3 +18,4 @@ En résumé, pour la version et la mise en production :
   ```
   Elle exige des contrôles verts et fait 9 vérifications avant et 9 après la mise en ligne. Le retour arrière est donné ; arrêt au moindre doute.
 - **Langue :** toujours écrire en français simple (messages, PR, commits, journaux).
+- **Toujours répondre en français, sans exception :** chaque message à l'utilisateur est en français, même les messages courts pendant le travail (« je lance les tests… »), les questions, les boutons, les résumés de fin de tour et les comptes rendus des autres sessions. Jamais une phrase en anglais. Seuls les commandes, les noms de fichiers et le code restent tels quels.

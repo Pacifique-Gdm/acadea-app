@@ -21,6 +21,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
   const [partOne, setPartOne] = useState<FeeAllocationVersion | null>(null);
   const [social, setSocial] = useState<FeeAllocationSocialVersion | null>(null);
   const [history, setHistory] = useState<FeeAllocationSocialVersion[]>([]);
+  const [paidWithCurrent, setPaidWithCurrent] = useState(0);
   const [lines, setLines] = useState<Line[]>([]);
   const [net, setNet] = useState("");
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false);
@@ -30,7 +31,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
     let alive = true;
     void loadSocialPart(config.schoolId, config.feeTypeId).then((result) => {
       if (!alive) return;
-      setPartOne(result.partOne); setSocial(result.social); setHistory(result.history);
+      setPartOne(result.partOne); setSocial(result.social); setHistory(result.history); setPaidWithCurrent(result.paidWithCurrent ?? 0);
       if (result.partOne) {
         setLines(toLines(result.social?.rubrics ?? result.partOne.rubrics));
         setNet(String(result.partOne.feeAmountMinor / 200));
@@ -56,7 +57,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
     try {
       const published = await publishSocialPart(request.current);
       request.current = null; setUncertain(false); setConfirming(false);
-      setSocial(published); setHistory((items) => [published, ...items.filter((item) => item.id !== published.id).map((item) => item.status === "published" ? { ...item, status: "superseded" as const } : item)]);
+      setSocial(published); setPaidWithCurrent(0); setHistory((items) => [published, ...items.filter((item) => item.id !== published.id).map((item) => item.status === "published" ? { ...item, status: "superseded" as const } : item)]);
       setNotice(`Partie 2 publiée (version ${published.version}). Elle s'appliquera aux cas sociaux dont le premier paiement de ce frais arrivera à partir de maintenant.`);
       onPublished();
     } catch (cause) {
@@ -73,6 +74,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
       <section className="mb-3 rounded border p-3 text-sm"><h3 className="mb-1 font-semibold">Partie 1 — élèves normalement inscrits (publiée)</h3>
         <ul>{partOne.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></section>
       <p className="mb-2 text-sm" role="status">{social ? `Partie 2 en service : version ${social.version}, publiée le ${social.effectiveFrom.slice(0, 10)}${social.copyOfPartOne ? " (identique à la partie 1)" : ""}.` : "Aucune partie 2 publiée : les cas sociaux suivent la partie 1."}</p>
+      {social && paidWithCurrent > 0 && <p role="note" className="mb-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Attention : {paidWithCurrent} cas social{paidWithCurrent > 1 ? "aux ont" : " a"} déjà payé ce frais avec la partie 2 en service. Si vous publiez une nouvelle partie 2, leurs paiements déjà répartis ne changent pas ; leurs prochains paiements suivront la nouvelle partie 2 pour le reste de ce qu'ils doivent.</p>}
       <fieldset disabled={!canPublish || busy || uncertain} className="grid gap-2">
         <legend className="mb-1 text-sm font-semibold">Partie 2 — cas sociaux</legend>
         {lines.map((line, index) => <div key={line.id} className="grid gap-2 rounded border p-2 sm:grid-cols-3">
@@ -92,7 +94,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
       {notice && <p role="status" className="my-3 text-sm text-emerald-700">{notice}</p>}
       {uncertain && <p className="my-2 text-sm">La publication a peut-être abouti. La vérification renvoie exactement la même demande.</p>}
       {canPublish && (confirming || uncertain ? <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
-          <p>La partie 2 s'appliquera aux cas sociaux dont le <b>premier paiement</b> de ce frais arrivera après la publication. Un cas social dont un paiement de ce frais a déjà été réparti garde la partie 1 pour tout ce frais. Aucun paiement déjà réparti ne change.</p>
+          <p>La partie 2 s'appliquera aux cas sociaux dont le <b>premier paiement</b> de ce frais arrivera après la publication. Un cas social déjà réparti selon une partie 2 précédente suivra celle-ci pour ses prochains paiements. Un cas social déjà réparti selon la partie 1 la garde pour ce frais. Aucun paiement déjà réparti ne change.</p>
           <div className="mt-2 flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={busy || uncertain} onClick={() => setConfirming(false)}>Revenir</button><Action className="primary-button" busy={busy} onClick={() => void publish()}>{uncertain ? "Vérifier la même demande" : "Confirmer la publication"}</Action></div></div>
         : <div className="mt-4"><button type="button" className="primary-button" disabled={!!entered.error || !!preview.error} onClick={() => setConfirming(true)}>Publier la partie 2</button></div>)}
       {history.length > 0 && <details className="mt-4 text-sm"><summary className="cursor-pointer">Versions de la partie 2</summary><ul className="mt-2 grid gap-1">{history.map((item) => <li key={item.id}>Version {item.version} · {item.status === "published" ? "en service" : "remplacée"} · {item.effectiveFrom.slice(0, 10)}{item.copyOfPartOne ? " · identique à la partie 1" : ""}</li>)}</ul></details>}

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { allocateFeeReceiptCumulative, feeAllocationAnchorId, feeAllocationBalanceId, feeAllocationStateId, isFeeAllocationReceiptSandbox, prepareFeeAllocationReceipt } from "./feeAllocationReceipts.js";
-import { sameAllocationRubrics, socialCaseShares, socialCumulativeLines, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { sameAllocationRubrics, socialCaseShares, socialCumulativeLines, socialSegmentLines, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { manageSocialPart } from "./feeAllocationSocialPart.js";
 import { feeAllocationConfigId } from "./feeAllocationPhase1.js";
 import { executeFinancialOperation } from "./financialTransactions.js";
@@ -367,5 +367,63 @@ describe("lot 27c-4 : encaissements des cas sociaux", () => {
     const db = fixture(); await publish(db); reduce(db, 5000); await create(db, 50);
     reduce(db, 4000); await create(db, 10, "payment-request-002");
     expect(movements(db)[1].lines).toEqual(delta(socialCumulativeLines(shares, social(), 5000, 6000), socialCumulativeLines(shares, social(), 5000, 5000)));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Correction 27c-4 : une nouvelle partie 2 s'applique aux paiements SUIVANTS des cas sociaux déjà rattachés.
+describe("correction 27c-4 : changement de partie 2", () => {
+  const corrected = rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, mode, ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) }));
+  const sum = (db) => { const total = {}; for (const m of movements(db)) for (const l of m.lines) total[l.rubricId] = (total[l.rubricId] ?? 0) + l.amountMinor; return total; };
+  it("calcul : un seul segment = calcul d'origine ; plusieurs segments croissants et exacts", () => {
+    const p1 = validateFeeAllocationRubrics(rubrics, 10000).shares, wrong = socialCaseShares(rubrics, part2, 10000, 5000), right = socialCaseShares(rubrics, corrected, 10000, 5000);
+    for (let paid = 0; paid <= 10000; paid += 37) expect(socialSegmentLines(p1, [{ shares: wrong, fromMinor: 0 }], 5000, paid)).toEqual(socialCumulativeLines(p1, wrong, 5000, paid));
+    const segments = [{ shares: wrong, fromMinor: 0 }, { shares: right, fromMinor: 2000 }];
+    let previous = socialSegmentLines(p1, segments, 5000, 0);
+    for (let paid = 1; paid <= 10000; paid += 11) {
+      const next = socialSegmentLines(p1, segments, 5000, paid);
+      expect(next.reduce((n, l) => n + l.amountMinor, 0)).toBe(paid);
+      next.forEach((line, i) => expect(line.amountMinor).toBeGreaterThanOrEqual(previous[i].amountMinor));
+      previous = next;
+    }
+    // Avant le changement : rien ne bouge.
+    expect(socialSegmentLines(p1, segments, 5000, 2000)).toEqual(socialCumulativeLines(p1, wrong, 5000, 2000));
+  });
+  it("après une partie 2 corrigée, le paiement suivant suit la nouvelle ; le premier mouvement ne change pas", async () => {
+    const db = fixture(); const first = (await publish(db)).social; reduce(db, 5000);
+    await create(db, 20); const original = structuredClone(movements(db)[0]);
+    const second = (await publish(db, corrected, { expectedSocialVersionId: first.id }, "2026-11-13T09:30:00.000Z")).social;
+    await create(db, 30, "payment-request-002");
+    expect(movements(db)[0]).toEqual(original);
+    const anchor = anchors(db)[0];
+    expect(anchor.socialCurrentVersionId).toBe(second.id);
+    expect(anchor.socialSegments).toEqual([{ socialVersionId: second.id, fromMinor: 2000, at: now }]);
+    // Ce qui manquait encore à chaque rubrique pour atteindre la nouvelle partie 2 a été complété, total exact.
+    const total = sum(db), target = lineMap(socialCaseShares(rubrics, corrected, 10000, 5000));
+    expect(Object.values(total).reduce((n, v) => n + v, 0)).toBe(5000);
+    const p1 = validateFeeAllocationRubrics(rubrics, 10000).shares;
+    expect(lineMap(Object.entries(total).map(([rubricId, amountMinor]) => ({ rubricId, amountMinor }))))
+      .toEqual(lineMap(socialSegmentLines(p1, [{ shares: socialCaseShares(rubrics, part2, 10000, 5000), fromMinor: 0 }, { shares: socialCaseShares(rubrics, corrected, 10000, 5000), fromMinor: 2000 }], 5000, 5000)));
+    expect(Object.keys(lineMap(Object.entries(total).map(([rubricId, amountMinor]) => ({ rubricId, amountMinor }))))).toEqual(expect.arrayContaining(Object.keys(target).filter((id) => id !== "UNALLOCATED")));
+  });
+  it("correction d'un ancien paiement après le changement : écriture inverse cohérente, sans erreur", async () => {
+    const db = fixture(); const first = (await publish(db)).social; reduce(db, 5000);
+    const { payment } = await create(db, 20);
+    await publish(db, corrected, { expectedSocialVersionId: first.id }, "2026-11-13T09:30:00.000Z");
+    await create(db, 10, "payment-request-002");
+    await correct(db, payment, 15);
+    expect(movements(db)).toHaveLength(3);
+    expect(Object.values(sum(db)).reduce((n, v) => n + v, 0)).toBe(2500);
+  });
+  it("nouvelle partie 2 publiée après la date du paiement : le paiement garde l'ancienne", async () => {
+    const db = fixture(); const first = (await publish(db)).social; reduce(db, 5000); await create(db, 20);
+    await publish(db, corrected, { expectedSocialVersionId: first.id }, "2026-11-13T12:00:00.000Z");
+    await create(db, 10, "payment-request-002");
+    expect(anchors(db)[0].socialSegments).toBeUndefined();
+  });
+  it("l'écran compte les cas sociaux déjà payés avec la partie 2 en service (sans identité)", async () => {
+    const db = fixture(); await publish(db); reduce(db, 5000); await create(db, 20);
+    const read = await manageSocialPart({ db, caller: admin, body: { action: "get-social-part", feeTypeId: "fee" } });
+    expect(read.paidWithCurrent).toBe(1); expect(JSON.stringify(read)).not.toContain("student");
   });
 });

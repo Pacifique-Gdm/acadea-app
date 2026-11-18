@@ -130,7 +130,7 @@ export const deleteRubric = (schoolId: string, rubricId: string) => allocationRe
 
 /** Lot 27c-4 : partie 2 (cas sociaux) d'un frais dont la partie 1 est publiée. */
 export async function loadSocialPart(schoolId: string, feeTypeId: string) {
-  const result = await allocationRequest<{ partOne: FeeAllocationVersion | null; social: FeeAllocationSocialVersion | null; history: FeeAllocationSocialVersion[] }>("get-social-part", { schoolId, feeTypeId });
+  const result = await allocationRequest<{ partOne: FeeAllocationVersion | null; social: FeeAllocationSocialVersion | null; history: FeeAllocationSocialVersion[]; paidWithCurrent?: number }>("get-social-part", { schoolId, feeTypeId });
   if (!("partOne" in result) || !Array.isArray(result.history)) throw new AllocationApiError("Partie 2 non confirmée.");
   return result;
 }

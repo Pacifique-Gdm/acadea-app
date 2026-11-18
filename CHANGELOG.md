@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.11.1] — 2026-11-18 — Correction
+- Partie 2 corrigée : les paiements suivants des cas sociaux suivent la nouvelle partie 2 (lot 27c-4)
+
 ## [1.11.0] — 2026-11-18 — Fonctionnalité
 - Partie 2 de la répartition, propre aux cas sociaux (lot 27c-4)
 
