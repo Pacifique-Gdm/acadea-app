@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.10.0] — 2026-11-18 — Fonctionnalité
+- Répartition des frais : prévu des lignes d'arriérés (ce que les élèves actifs devaient encore au début de l'année, par année passée)
+
 ## [1.9.5] — 2026-11-18 — Correction
 - Dettes des années antérieures : affichage plus rapide (lectures groupées, lecture seule), gardées en mémoire par élève et recalculées seulement si un paiement d'arriéré ou la fiche change ; indicateur de chargement sur cette section seulement
 
