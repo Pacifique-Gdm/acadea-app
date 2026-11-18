@@ -4,13 +4,14 @@ import { usePersistentMemo } from "../../hooks/usePersistentMemo";
 import { DashboardArrearsValue } from "../../components/financial/DashboardArrearsValue";
 import type { CSSProperties } from "react";
 import { Banknote, BarChart3, BookOpen, Download, GraduationCap, ShieldCheck, UserRound, UsersRound, X } from "lucide-react";
-import { FormPanel, Metric } from "../../components/ui";
+import { BlockSkeleton, FinancialKpiSkeleton, FormPanel, Metric, ValueSkeleton } from "../../components/ui";
 import { buildDashboardFeeShares, buildDashboardFinancialAggregates, buildDashboardTransactionDayRows, formerStudentPaymentsOfYear } from "../../utils/dashboardStats";
 import type { DashboardFeeShare } from "../../utils/dashboardStats";
 import { buildSchoolYearDataIndexes } from "../../utils/dataIndexes";
 import { buildDashboardClassRows } from "../../utils/dashboardClassStats";
 import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
 import { buildDashboardCollectedArrears } from "../../utils/dashboardCollectedArrears";
+import { collectedArrearsBandHeight } from "../../utils/collectedArrearsBand";
 import { exportDashboardReportPdf } from "../../utils/dashboardPdf";
 import { money } from "../../utils/pdf";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
@@ -412,6 +413,9 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
   const currentCurrency = resolveSchoolYearCurrency(year, school);
   const hasUnreliableFinancialCurrency = hasCurrencyOutside([...data.payments, ...resolvedExpenses], currentCurrency);
   const financialVerificationReady = expenseResolution.status === "ready";
+  // Vérification discrète : tant que les devises historiques sont vérifiées, des
+  // squelettes gardent la place des chiffres concernés (aucun bandeau temporaire).
+  const currencyPending = expenseResolution.status === "loading";
   const financialExportBlocked = !financialVerificationReady || hasUnreliableFinancialCurrency;
   const pdfExportBlocked = financialExportBlocked || refreshing || Boolean(refreshError) || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const transactionStartDate = dateFilterActive ? startDate : today;
@@ -542,8 +546,8 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
     { label: "Montant officiel", value: formatCurrencyMoney(dashboardFinancialStats.official, currentCurrency), icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
     { label: "Réductions et exonérations", value: formatCurrencyMoney(dashboardFinancialStats.reduction, currentCurrency), icon: BarChart3, tone: "bg-violet-100 text-violet-700" },
     { label: "Montant net exigible", value: <>{formatCurrencyMoney(dashboardFinancialStats.expected, currentCurrency)}{formerMention}</>, icon: BarChart3, tone: "bg-sky-100 text-sky-700" },
-    { label: "Frais de l'année encaissés", value: financialExportBlocked ? "Non calculable" : <>{formatCurrencyMoney(totalPayments, currentCurrency)}{formerMention}</>, icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
-    { label: "Montant restant \u00e0 payer", value: financialExportBlocked ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
+    { label: "Frais de l'année encaissés", value: currencyPending ? <ValueSkeleton /> : financialExportBlocked ? "Non calculable" : <>{formatCurrencyMoney(totalPayments, currentCurrency)}{formerMention}</>, icon: Banknote, tone: "bg-emerald-100 text-emerald-700" },
+    { label: "Montant restant \u00e0 payer", value: currencyPending ? <ValueSkeleton /> : financialExportBlocked ? "Non calculable" : formatCurrencyMoney(remaining, currentCurrency), icon: BarChart3, tone: "bg-amber-100 text-amber-700" },
     { label: "Arriérés", value: <DashboardArrearsValue {...dashboardArrears} currency={currentCurrency} />, icon: Banknote, tone: "bg-amber-100 text-amber-700" },
   ];
 
@@ -661,7 +665,6 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
           {pdfExportError && <p role="alert" className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{pdfExportError}</p>}
         </div>
       </div>
-      {expenseResolution.status === "loading" && <p role="status" className="rounded border border-slate-200 bg-white p-3 text-sm">Vérification des devises historiques en cours…</p>}
       {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible : {expenseResolution.message}</p>}
       {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés ({dashboardArrears.error})</p>}
       {financialVerificationReady && hasUnreliableFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et PDF indisponibles : des opérations historiques ont une devise inconnue ou différente de la devise actuelle. Vérification ou réconciliation nécessaire.</p>}
@@ -681,7 +684,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
         })}
       </div>
 
-      {!financialExportBlocked && <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
+      {currencyPending ? <FinancialKpiSkeleton /> : !financialExportBlocked && <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="font-bold text-ink">KPI financier</h2>
@@ -726,7 +729,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
         </div>
         <FinancialFeeShareChart rows={feeShares} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
       </div>}
-      {refreshing ? <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">Actualisation des arriérés encaissés…</p>
+      {refreshing ? arrearsCollections.length > 0 && <BlockSkeleton label="Arriérés encaissés" height={collectedArrearsBandHeight(arrearsCollections.length)} />
         : refreshError ? <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Arriérés encaissés non confirmés : {refreshError}</p>
         : arrearsCollections.length > 0 && <div data-testid="collected-arrears-band" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm">
         <p className="font-semibold">Arriérés encaissés pendant la période, hors recouvrement des frais de l'année</p>
@@ -744,13 +747,13 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
               <span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>
                 {transaction.currency === "CDF" || transaction.currency === "USD"
                   ? (transaction.amount >= 0 ? "+" : "-") + formatCurrencyMoney(Math.abs(transaction.amount), transaction.currency)
-                  : "Devise historique inconnue"}
+                  : currencyPending ? <span data-testid="value-skeleton" aria-hidden="true" className="inline-block h-5 w-20 animate-pulse rounded bg-slate-200 align-middle" /> : "Devise historique inconnue"}
               </span>
             </div>
           ))}
           {transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{"Aucune transaction pour cette p\u00e9riode."}</p>}
         </div>
-        {!financialExportBlocked && <div className="mt-4 border-t border-slate-100 pt-4">
+        {currencyPending ? <div className="mt-4 border-t border-slate-100 pt-4"><BlockSkeleton className="h-64" label="Mouvement des transactions par jour" /></div> : !financialExportBlocked && <div className="mt-4 border-t border-slate-100 pt-4">
           <TransactionComboChart rows={transactionChartRows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} currency={currentCurrency} formatAmount={(value) => formatCurrencyMoney(value, currentCurrency)} />
         </div>}
       </FormPanel>

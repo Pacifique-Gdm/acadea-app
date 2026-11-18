@@ -59,7 +59,9 @@ describe("Dashboard — encaissements historiques à l'ouverture", () => {
       : createElement(Dashboard, { school, year, data: { ...model, parents: [], users: [] }, refreshing: loading, refreshError: error }));
     const pending = render(true, "");
     expect(pending).not.toContain('data-testid="collected-arrears-band"');
-    expect(pending).toContain("Actualisation des arriérés encaissés");
+    // Actualisation discrète : la place de la bande est gardée par un squelette, sans message.
+    expect(pending).not.toContain("Actualisation des arriérés encaissés");
+    expect(pending).toContain('data-testid="block-skeleton"');
     const failed = render(false, "Erreur réseau");
     expect(failed).not.toContain('data-testid="collected-arrears-band"');
     expect(failed).toContain("Arriérés encaissés non confirmés");

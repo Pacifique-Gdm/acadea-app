@@ -3,7 +3,7 @@ import { AppVersion } from "../../components/ui/AppVersion";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import type { FormEvent, ReactNode } from "react";
 import { ArrowLeft, BookOpen, CalendarRange, Clock3, Download, GraduationCap, HeartPulse, LogOut, MessageSquare, UserRound } from "lucide-react";
-import { AdminDrawer, FormPanel, Metric } from "../../components/ui";
+import { AdminDrawer, BlockSkeleton, FormPanel, Metric } from "../../components/ui";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { db } from "../../firebase";
 import { markConversationUnreadCountRead } from "../../services/conversations";
@@ -446,7 +446,7 @@ export function ParentPortal({
                     </div>
                     <div className="mb-4 min-w-0 rounded border border-amber-200 bg-amber-50 p-3">
                       <h3 className="font-semibold text-ink">Arriérés des années antérieures</h3>
-                      {childArrearsLoading && <p role="status" className="mt-2 text-sm">Chargement des arriérés…</p>}
+                      {childArrearsLoading && <BlockSkeleton className="mt-2 h-12 bg-white" label="Arriérés des années antérieures" />}
                       {childArrearsError && <p role="alert" className="mt-2 text-sm text-red-700">{childArrearsError}</p>}
                       {!childArrearsLoading && !childArrearsError && year.status === "active" && childArrears.length === 0 && <p className="mt-2 text-sm">Aucun arriéré.</p>}
                       {year.status !== "active" && <p className="mt-2 text-sm">Consultation disponible depuis l'année scolaire active.</p>}

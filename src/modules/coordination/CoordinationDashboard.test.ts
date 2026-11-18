@@ -83,8 +83,8 @@ describe("alignement du Dashboard Coordination", () => {
 
   it("ne confond pas chargement, erreur et exclusion d'une école réellement non alignée", () => {
     expect(portal).toContain("loadedSupervisionScope !== supervisionScope");
-    expect(dashboard).toContain("!loading && !loadError && stats.excludedSchoolIds.length > 0");
-    expect(dashboard).toContain("financialVerificationReady && hasUnknownFinancialCurrency");
+    expect(dashboard).toContain("!firstLoad && !loadError && stats.excludedSchoolIds.length > 0");
+    expect(dashboard).toContain("displayVerified && hasUnknownFinancialCurrency");
     expect(dashboard).toContain("disabled={!scopedSchools.length || pdfExportBlocked}");
     expect(dashboard).toContain('pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error)');
     expect(adminDashboard).toContain("expenseResolution.status === \"loading\"");
