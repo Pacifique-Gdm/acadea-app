@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.13.1] — 2026-11-19 — Correction
+- Super administrateur : l'onglet Messages ne montre plus que « Nouveau message » ; « Messages et réponses » n'est plus que dans la cloche (lot SA-6a).
+
 ## [1.13.0] — 2026-11-18 — Fonctionnalité
 - Répartition des frais : deux onglets et partage des rubriques avec le personnel
   - Onglets « Répartition annuelle » et « Partage répartition » (Administrateur seulement)
