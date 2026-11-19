@@ -94,7 +94,7 @@ test("dépense du Caissier : rubrique obligatoire, disponible de la rubrique, d�
     await expect(page.getByText("Dépense enregistrée avec succès.")).toBeVisible();
 
     // Disponible relu depuis le serveur : 80 − 50 = 30.
-    const workspace = await allocation("get-workspace", { schoolId: f.school });
+    const workspace = await good({ action: "fee-allocation.get-workspace", schoolId: f.school });
     const ledger = workspace.ledger as { balances: { rubricId: string; availableMinor: number; spentMinor: number }[] };
     expect(ledger.balances.find(b => b.rubricId === rubric)).toMatchObject({ spentMinor: 5000, availableMinor: 3000 });
   } finally { await context?.close(); await f.cleanup(); }
