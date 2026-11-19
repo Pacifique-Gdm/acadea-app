@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.13.3] — 2026-11-19 — Correction
+- Recettes automatiques du staging : elles effacent désormais complètement leurs écoles d'essai à la fin (écoles, documents, sous-documents, signaux, fichiers, comptes) au lieu de les désactiver ; commande de nettoyage des écoles d'essai déjà retirées (essai à blanc, effacement, vérification). Staging uniquement.
+
 ## [1.13.2] — 2026-11-19 — Correction
 - Messages : le destinataire Coordinateur apparaît tout de suite et l'écran ne s'actualise plus en boucle
 

@@ -6,6 +6,7 @@ import { chromium, expect as baseExpect } from '@playwright/test';
 import { createCanvas } from '@napi-rs/canvas';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { services } from './socialFinanceStagingFixture.mjs';
+import { fixtureLeftovers, purgeStagingFixture } from './stagingFixturePurge.mjs';
 import { redactRecipeError } from './hostedRecipeSafety.mjs';
 
 // Hosted browser, real Firebase sign-in and real server responses. Faults only
@@ -178,23 +179,17 @@ try {
   try {
     let account;
     try { account = await s.auth.getUser(uid); } catch (e) { if (e.code !== 'auth/user-not-found') throw e; }
-    if (account) {
-      assert.equal(account.email, email);
-      await s.auth.updateUser(uid, { disabled: true }); await s.auth.setCustomUserClaims(uid, {}); await s.auth.revokeRefreshTokens(uid);
-      const check = await s.auth.getUser(uid); assert.equal(check.disabled, true); assert.deepEqual(check.customClaims, {});
-    }
+    if (account) assert.equal(account.email, email);
     for (const path of [`schools/${school}`, `users/${uid}`]) {
-      const ref = s.db.doc(path), snap = await ref.get(); if (!snap.exists) continue;
+      const snap = await s.db.doc(path).get(); if (!snap.exists) continue;
       assert.equal(snap.data().fixtureId, tag);
-      await ref.update({ active: false, status: 'inactive', fixtureLifecycle: 'retired' }, { lastUpdateTime: snap.updateTime });
-      assert.equal((await ref.get()).data().active, false);
     }
-    manifest.retained = {};
-    for (const collection of ['students', 'payments', 'auditLogs', 'offlineOperations', 'financialIdempotency']) {
-      manifest.retained[collection] = (await s.db.collection(collection).where('schoolId', '==', school).get()).docs.map(doc => doc.id);
-    }
+    // Clôture : effacement complet de l'école d'essai, de ses documents et du compte fictif.
+    await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId: 'acadea-staging', tag, extraUids: [uid] });
+    assert.deepEqual(await fixtureLeftovers(s.db, tag, [school]), []);
+    manifest.retained = {}; manifest.deleted = true;
     manifest.retired = true; manifest.closedAt = new Date().toISOString(); save();
-    pass('Clôture vérifiée : compte désactivé, sessions révoquées, école neutralisée et documents fictifs inventoriés');
+    pass('Clôture vérifiée : école d\'essai, documents et compte fictif effacés, aucun reste');
   } catch { results.push({ name: 'Clôture', result: 'FAIL' }); process.exitCode = 1; }
   writeFileSync(`${output}/results.json`, JSON.stringify({ sha, results, errors }, null, 2));
   await s.close();
