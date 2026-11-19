@@ -474,7 +474,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
     () =>
       [
         ...transactionPayments.map((payment) => ({ id: payment.id, type: "Paiement", label: payment.cashierName, amount: payment.amount, currency: payment.currency, date: payment.paidAt, occurredAt: payment.createdAt ?? payment.paidAt })),
-        ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expenseCategoryLabel(expense.category), amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
+        ...transactionExpenses.map((expense) => ({ id: expense.id, type: "D\u00e9pense", label: expenseCategoryLabel(expense.category, expense.categoryDetail), amount: -expense.amount, currency: expense.currency, date: expense.spentAt, occurredAt: expense.createdAt ?? expense.spentAt })),
       ].sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)),
     [transactionExpenses, transactionPayments],
   "dashboard.transactions");
@@ -521,7 +521,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
             id: expense.id,
             kind: "expense",
             type: "Dépense",
-            label: expense.description || expenseCategoryLabel(expense.category),
+            label: expense.description || expenseCategoryLabel(expense.category, expense.categoryDetail),
             amount: expense.amount,
             date: expense.spentAt,
             occurredAt: expense.createdAt ?? expense.spentAt,
