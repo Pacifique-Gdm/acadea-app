@@ -415,6 +415,8 @@ export interface Expense {
   amount: number;
     currency?: "USD" | "CDF";
   category: string;
+  /** Précision obligatoire pour la nature « Autre ». */
+  categoryDetail?: string;
   description: string;
   beneficiary?: string;
   paymentMethod?: string;

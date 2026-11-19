@@ -78,7 +78,7 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       await page.getByRole("button", { name: "Menu", exact: true }).last().click();
       await page.getByRole("button", { name: "Répartition des frais", exact: true }).click();
       const drawer = page.getByRole("dialog", { name: "Répartition des frais", exact: true });
-      await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeEnabled();
+      await expect(drawer.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
       await expect(drawer.getByRole("button", { name: "+ Ajouter", exact: true })).toHaveCount(role === "school_admin" ? 1 : 0);
       await expect(drawer.getByLabel("Filtre", { exact: true }).locator("option")).toHaveText(["Frais", "Classe", "Période"]);
       // Lot 27c-1 : trois tableaux ; une ligne par rubrique dans le tableau 1 (élèves normaux) et dans le tableau 3 (ensemble).
@@ -97,7 +97,7 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       await page.getByRole("button", { name: "Répartition des frais", exact: true }).click();
       await expect(tableOne.locator("tbody tr")).toHaveCount(4);
       const displayMs = Date.now() - reopenedAt;
-      await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeEnabled();
+      await expect(drawer.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
       page.off("request", track);
       console.info(`[mesure] ${role} : réouverture affichée en ${displayMs} ms ; appels : ${actions.join(", ") || "aucun"}`);
       expect(actions.filter((action) => action === "get-workspace")).toHaveLength(0);
@@ -108,10 +108,10 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       await drawer.getByLabel("Valeur correspondante", { exact: true }).selectOption("today");
       await expect(tableOne.locator("tbody tr")).toHaveCount(4);
       await page.setViewportSize({ width: 390, height: 844 });
-      await expect(drawer.getByRole("button", { name: "Exporter PDF", exact: true })).toBeVisible();
+      await expect(drawer.getByRole("button", { name: "PDF", exact: true })).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
       await page.screenshot({ path: test.info().outputPath(`${role}-mobile.png`), fullPage: true });
-      await drawer.getByRole("button", { name: "Exporter PDF", exact: true }).click();
+      await drawer.getByRole("button", { name: "PDF", exact: true }).click();
       await expect(page.locator("[data-pdf-download]")).toHaveAttribute("href", /^blob:/, { timeout: 45_000 });
       const bytes = new Uint8Array(await page.evaluate(async () => Array.from(new Uint8Array(await (await fetch(document.querySelector<HTMLAnchorElement>("[data-pdf-download]")!.href)).arrayBuffer()))));
       await writeFile(test.info().outputPath(`${role}-allocation.pdf`), bytes);
