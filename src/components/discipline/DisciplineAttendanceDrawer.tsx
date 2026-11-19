@@ -79,6 +79,19 @@ function startOfWeek(date: Date) {
 
 /** Lot « Présence rapide » : comparateurs créés une seule fois (localeCompare avec une langue recrée un comparateur à chaque appel). */
 export const nameCollator = new Intl.Collator("fr");
+/** Nombre d'élèves dessinés au premier affichage, puis à chaque morceau suivant. */
+export const FIRST_STUDENTS = 40, NEXT_STUDENTS = 60;
+/** Une classe hors de l'écran n'est mise en page qu'au moment où l'on fait défiler jusqu'à elle. */
+export const OFFSCREEN_CLASS_STYLE = { contentVisibility: "auto", containIntrinsicSize: "auto 520px" } as const;
+/** Nombre de classes à dessiner pour atteindre au moins `target` élèves (toujours au moins une classe). */
+export function groupsForStudents(groups: { students: unknown[] }[], target: number) {
+  let total = 0, count = 0;
+  while (count < groups.length && (count === 0 || total < target)) { total += groups[count].students.length; count += 1; }
+  return count;
+}
+export function studentsIn(groups: { students: unknown[] }[], count: number) {
+  return groups.slice(0, count).reduce((sum, group) => sum + group.students.length, 0);
+}
 const classCollator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
 const sortKeys = new WeakMap<Student, string>();
 function compareStudentNames(first: Student, second: Student) {
@@ -276,6 +289,15 @@ function DisciplineAttendanceView({ students, attendance, classRecords = noClass
     // Preserve historical pupils whose class reference cannot yet be resolved.
     return [...groups, ...groupStudents(filteredStudents.filter((pupil) => !assigned.has(pupil.id)))];
   }, [allowedSections, classRecords, filteredStudents, school.id, year.id, students, search, selectedClass, selectedOption, selectedSection]);
+  // Lot « Présence rapide » : les premières classes (≈ 40 élèves) s'affichent tout de suite, les suivantes juste après,
+  // par petits morceaux, sans bloquer l'écran ; rien ne change dans ce que l'on voit une fois tout dessiné.
+  const [shownGroups, setShownGroups] = useState(() => groupsForStudents(groupedStudents, FIRST_STUDENTS));
+  useEffect(() => { setShownGroups(groupsForStudents(groupedStudents, FIRST_STUDENTS)); }, [groupedStudents]);
+  useEffect(() => {
+    if (shownGroups >= groupedStudents.length) return undefined;
+    const timer = window.setTimeout(() => setShownGroups((count) => Math.max(count + 1, groupsForStudents(groupedStudents, studentsIn(groupedStudents, count) + NEXT_STUDENTS))), 0);
+    return () => window.clearTimeout(timer);
+  }, [shownGroups, groupedStudents]);
   const hasManualStudentSearch = normalizeSearch(manualStudentSearch).length > 0;
   const manualStudentResults = useMemo(() => {
     const normalizedSearch = normalizeSearch(manualStudentSearch);
@@ -560,8 +582,8 @@ function DisciplineAttendanceView({ students, attendance, classRecords = noClass
         {groupedStudents.length === 0 && (
           <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucun élève ne correspond à cette sélection.</p>
         )}
-        {groupedStudents.map((group) => (
-          <article key={group.key} className="min-w-0 overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
+        {groupedStudents.slice(0, shownGroups).map((group) => (
+          <article key={group.key} className="min-w-0 overflow-hidden rounded border border-slate-200 bg-white shadow-sm" style={OFFSCREEN_CLASS_STYLE} data-attendance-class>
             <div className="border-b border-slate-200 p-4">
               <h2 className="break-words font-bold text-ink">{group.className}{group.option !== "—" ? ` - ${group.option}` : ""}</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">{group.students.length} élève(s)</p>
