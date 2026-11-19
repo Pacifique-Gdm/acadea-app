@@ -82,9 +82,16 @@ describe("pagination serveur Coordination / Sous-coordination", () => {
     expect(mocks.where).toHaveBeenCalledWith("section", "==", "Primaire");
     expect(mocks.where).toHaveBeenCalledWith("searchArchived", "==", false);
     expect(mocks.where).toHaveBeenCalledWith("searchPrefixes", "array-contains", "eli");
-    coordinationStudentConstraints({ ...filters, className: "4ème A", option: "Scientifique", status: "archived" }, { schoolId: "school-a", schoolYearId: "year-a" });
+    // Sans recherche, l'option reste dans la requête.
+    coordinationStudentConstraints({ ...filters, search: "", className: "4ème A", option: "Scientifique", status: "archived" }, { schoolId: "school-a", schoolYearId: "year-a" });
     expect(mocks.where).toHaveBeenCalledWith("className", "==", "4ème A");
     expect(mocks.where).toHaveBeenCalledWith("option", "==", "Sciences");
+    expect(mocks.where).toHaveBeenCalledWith("searchArchived", "==", true);
+    // Avec une recherche (lot « allègement des index »), l'option est vérifiée après la lecture.
+    mocks.where.mockClear();
+    coordinationStudentConstraints({ ...filters, className: "4ème A", option: "Scientifique", status: "archived" }, { schoolId: "school-a", schoolYearId: "year-a" });
+    expect(mocks.where).not.toHaveBeenCalledWith("option", "==", "Sciences");
+    expect(mocks.where).toHaveBeenCalledWith("className", "==", "4ème A");
     expect(mocks.where).toHaveBeenCalledWith("searchArchived", "==", true);
   });
 

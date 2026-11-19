@@ -31,8 +31,15 @@ describe("pagination source des élèves", () => {
     });
   });
 
-  it("déclare les index demandés pour chaque combinaison de filtres paginés", () => {
+  // Lot « allègement des index » : avec une recherche, l'option est filtrée après ; ces 8 combinaisons n'ont plus d'index.
+  it("déclare les index demandés pour chaque combinaison de filtres paginés (sans recherche + option)", () => {
     for (let mask = 0; mask < 32; mask += 1) {
+      if ((mask & 8) && (mask & 1)) {
+        const searchWithOption = indexes.indexes.filter((index: { collectionGroup: string; fields: Array<{ fieldPath: string }> }) => index.collectionGroup === "students"
+          && index.fields.some((field) => field.fieldPath === "searchPrefixes") && index.fields.some((field) => field.fieldPath === "option"));
+        expect(searchWithOption).toEqual([]);
+        continue;
+      }
       const fields: Array<{ fieldPath: string; order?: string; arrayConfig?: string }> = [];
       if (mask & 8) fields.push({ fieldPath: "searchPrefixes", arrayConfig: "CONTAINS" });
       if (mask & 2) fields.push({ fieldPath: "className", order: "ASCENDING" });
@@ -87,24 +94,28 @@ describe("pagination source des élèves", () => {
       status: "ACTIVE",
     })) as never[];
 
-    subscribeStudentPage({ ...filters, className: "", search: "394" }, undefined, vi.fn(), vi.fn());
-    expect(mocks.where).toHaveBeenCalledWith("searchPrefixes", "array-contains", "394");
+    subscribeStudentPage({ ...filters, className: "", search: "942" }, undefined, vi.fn(), vi.fn());
+    expect(mocks.where).toHaveBeenCalledWith("searchPrefixes", "array-contains", "942");
     expect(mocks.limit).toHaveBeenCalledWith(50);
-    expect(filterStudentFallback(students, { ...filters, className: "", search: "58" }).map((item) => item.id)).toEqual([
+    // Fin du matricule (« …58NNN ») : retrouvée ; le début « acd-2027 » aussi.
+    expect(filterStudentFallback(students, { ...filters, className: "", search: "acd-2027" }).map((item) => item.id)).toEqual([
       `s-${String(count - 2).padStart(4, "0")}`,
       `s-${String(count - 1).padStart(4, "0")}`,
     ]);
   });
 
-  it("retourne tous les élèves partageant un fragment interne sans casser nom ou prénom", () => {
+  it("retrouve par la fin du matricule (pas par le milieu), sans casser nom ou prénom", () => {
     const students = [
       { id: "s-1", schoolId: "school-a", schoolYearId: "year-a", matricule: "ACD-2027-583942", nom: "Kabuya", prenom: "Alice", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
       { id: "s-2", schoolId: "school-a", schoolYearId: "year-a", matricule: "ACD-2027-005812", nom: "Ilunga", prenom: "Benoît", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
       { id: "s-3", schoolId: "school-a", schoolYearId: "year-a", matricule: "ACD-2027-004200", nom: "Élise", prenom: "Chantal", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
     ] as never[];
     const base = { ...filters, className: "" };
-    expect(filterStudentFallback(students, { ...base, search: "58" }).map((item) => item.id)).toEqual(["s-2", "s-1"]);
-    expect(filterStudentFallback(students, { ...base, search: "394" }).map((item) => item.id)).toEqual(["s-1"]);
+    expect(filterStudentFallback(students, { ...base, search: "942" }).map((item) => item.id)).toEqual(["s-1"]);
+    expect(filterStudentFallback(students, { ...base, search: "200" }).map((item) => item.id)).toEqual(["s-3"]);
+    expect(filterStudentFallback(students, { ...base, search: "acd-2027" }).map((item) => item.id)).toEqual(["s-3", "s-2", "s-1"]);
+    // Morceau du milieu : plus trouvé (décision du 19/11).
+    expect(filterStudentFallback(students, { ...base, search: "394" }).map((item) => item.id)).toEqual([]);
     expect(filterStudentFallback(students, { ...base, search: "eli" }).map((item) => item.id)).toEqual(["s-3"]);
   });
 
@@ -115,5 +126,21 @@ describe("pagination source des élèves", () => {
       { id: "s-1", schoolId: "school-a", schoolYearId: "year-a", matricule: "1", nom: "Alpha", postnom: "A", prenom: "B", className: "1ère Primaire", section: "Primaire", status: "ACTIVE" },
     ] as never[];
     expect(filterStudentFallback(students, { ...filters, search: "", archive: "all" }).map((student) => student.id)).toEqual(["s-1", "s-2", "s-3"]);
+  });
+});
+
+describe("allègement des index : l'option est filtrée après une recherche", () => {
+  it("avec une recherche, l'option n'est pas envoyée à Firestore mais vérifiée sur chaque fiche ; sans recherche, rien ne change", async () => {
+    const { studentOptionAfterSearch } = await import("./studentPagination");
+    mocks.where.mockClear();
+    studentFilterConstraints({ ...filters, option: "Sciences", search: "kab" });
+    expect(mocks.where).not.toHaveBeenCalledWith("option", "==", "Sciences");
+    const keep = studentOptionAfterSearch({ option: "Sciences", search: "kab" })!;
+    expect(keep({ option: "Sciences" } as never)).toBe(true);
+    expect(keep({ option: "Commerciale" } as never)).toBe(false);
+    expect(studentOptionAfterSearch({ option: "Sciences", search: "" })).toBeNull();
+    mocks.where.mockClear();
+    studentFilterConstraints({ ...filters, option: "Sciences", search: "" });
+    expect(mocks.where).toHaveBeenCalledWith("option", "==", "Sciences");
   });
 });

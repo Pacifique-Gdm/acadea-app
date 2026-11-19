@@ -64,7 +64,9 @@ export function studentFilterConstraints(filters: StudentQueryFilters): QueryCon
     constraints.push(where("section", "in", allowedSections.slice(0, 10)));
   }
   if (filters.className) constraints.push(where("className", "==", filters.className));
-  if (filters.option) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
+  // Lot « allègement des index » : avec une recherche, l'option est filtrée après (toujours plus étroite qu'une classe) ;
+  // cela évite 12 index qui répétaient tous les préfixes de chaque élève.
+  if (filters.option && !normalizeStudentSearch(filters.search)) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
   if (filters.archive !== "all") constraints.push(where("searchArchived", "==", filters.archive === "archived"));
   const sex = studentSexOfFilter(filters.archive);
   if (sex) constraints.push(where("sexe", "==", sex));
@@ -88,6 +90,13 @@ function studentFromSnapshot(snapshot: QueryDocumentSnapshot<DocumentData>): Stu
   return { id: snapshot.id, ...snapshot.data() } as Student;
 }
 
+/** Avec une recherche, l'option n'est plus dans la requête : elle est vérifiée ici, fiche par fiche. */
+export function studentOptionAfterSearch(filters: Pick<StudentQueryFilters, "option" | "search">) {
+  const option = canonicalSchoolOption(filters.option ?? "");
+  if (!option || !normalizeStudentSearch(filters.search)) return null;
+  return (student: Pick<Student, "option">) => canonicalSchoolOption(student.option ?? "") === option;
+}
+
 export function subscribeStudentPage(
   filters: StudentQueryFilters,
   cursor: StudentPageCursor | undefined,
@@ -97,13 +106,18 @@ export function subscribeStudentPage(
   const database = studentFirestore();
   if (!database) return () => undefined;
   return onSnapshot(pageQuery(database, filters, cursor), (snapshot) => {
-    onData(snapshot.docs.map(studentFromSnapshot), snapshot.docs.at(-1));
+    const keep = studentOptionAfterSearch(filters);
+    const students = snapshot.docs.map(studentFromSnapshot);
+    onData(keep ? students.filter(keep) : students, snapshot.docs.at(-1));
   }, onError);
 }
 
 export async function countStudentResults(filters: StudentQueryFilters) {
   const database = studentFirestore();
   if (!database) return 0;
+  const keep = studentOptionAfterSearch(filters);
+  // Recherche + option : on compte les fiches trouvées (peu nombreuses), sans index supplémentaire.
+  if (keep) return (await getDocs(query(collection(database, "students"), ...studentFilterConstraints(filters)))).docs.map(studentFromSnapshot).filter(keep).length;
   const result = await getCountFromServer(query(collection(database, "students"), ...studentFilterConstraints(filters)));
   return result.data().count;
 }
@@ -112,7 +126,9 @@ export async function loadAllStudentResults(filters: StudentQueryFilters, fallba
   const database = studentFirestore();
   if (!database) return filterStudentFallback(fallbackStudents, filters);
   const snapshot = await getDocs(query(collection(database, "students"), ...studentFilterConstraints(filters), orderBy("sortName"), orderBy(documentId())));
-  return snapshot.docs.map(studentFromSnapshot);
+  const keep = studentOptionAfterSearch(filters);
+  const students = snapshot.docs.map(studentFromSnapshot);
+  return keep ? students.filter(keep) : students;
 }
 
 export async function nextStudentMatricule(yearName: string, schoolId: string, schoolYearId: string) {

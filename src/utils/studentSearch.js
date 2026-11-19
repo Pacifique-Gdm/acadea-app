@@ -30,15 +30,14 @@ function prefixes(value) {
   return [...values];
 }
 
+/** Lot « allègement des index des élèves » (décision du 19/11) : seulement les FINS du matricule (2 caractères ou plus),
+ * en plus de ses débuts (ajoutés par `prefixes`). « ACD-26-0042 » se trouve avec « ACD », « ACD-26 », « 0042 » ou « 42 »,
+ * plus avec un morceau du milieu comme « 6-00 ». Les morceaux du milieu faisaient 56 des 72 préfixes d'un élève. */
 function matriculeFragments(value) {
   const normalized = normalizeStudentSearch(value);
   if (normalized.length < 2) return [];
   const values = new Set();
-  for (let start = 0; start < normalized.length - 1; start += 1) {
-    for (let end = start + 2; end <= normalized.length; end += 1) {
-      values.add(normalized.slice(start, end));
-    }
-  }
+  for (let start = 0; start < normalized.length - 1; start += 1) values.add(normalized.slice(start));
   return [...values];
 }
 

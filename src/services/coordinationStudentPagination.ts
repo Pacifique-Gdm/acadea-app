@@ -106,14 +106,22 @@ export function coordinationStudentConstraints(filters: CoordinationStudentFilte
   // « Filles » et « Garçons » : élèves actifs seulement.
   if (filters.status === "girls" || filters.status === "boys") constraints.push(where("sexe", "==", filters.status === "girls" ? "F" : "M"));
   if (source.className || filters.className) constraints.push(where("className", "==", source.className || filters.className));
-  if (filters.option && !source.skipOptionConstraint) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
   const search = normalizeStudentSearch(filters.search);
+  // Lot « allègement des index » : avec une recherche, l'option est filtrée après la lecture (voir optionAfterSearch).
+  if (filters.option && !source.skipOptionConstraint && !search) constraints.push(where("option", "==", canonicalSchoolOption(filters.option)));
   if (search) constraints.push(where("searchPrefixes", "array-contains", search));
   return constraints;
 }
 
 function studentFromSnapshot(snapshot: QueryDocumentSnapshot<DocumentData>): Student {
   return { id: snapshot.id, ...snapshot.data() } as Student;
+}
+
+/** Avec une recherche, l'option n'est plus dans la requête : elle est vérifiée ici, fiche par fiche. */
+export function optionAfterSearch(filters: Pick<CoordinationStudentFilters, "option" | "search">, source: Pick<CoordinationStudentSource, "skipOptionConstraint">) {
+  const option = canonicalSchoolOption(filters.option ?? "");
+  if (!option || source.skipOptionConstraint || !normalizeStudentSearch(filters.search)) return () => true;
+  return (data: DocumentData) => canonicalSchoolOption(String(data.option ?? "")) === option;
 }
 
 export async function loadCoordinationStudentYears(schoolIds: readonly string[], isDelegate: boolean): Promise<SchoolYear[]> {
@@ -157,7 +165,8 @@ export async function loadCoordinationStudentPage(filters: CoordinationStudentFi
       ...(state.last ? [startAfter(state.last)] : cursor ? [startAfter(cursor.sortName, cursor.id)] : []),
       limit(sourceFetchSize),
     ));
-    state.pending = snapshot.docs;
+    const keep = optionAfterSearch(filters, state.source);
+    state.pending = snapshot.docs.filter((item) => keep(item.data()));
     state.last = snapshot.docs.at(-1) ?? state.last;
     state.exhausted = snapshot.size < sourceFetchSize;
     fetchedDocuments += snapshot.size;
@@ -196,8 +205,15 @@ export async function countCoordinationStudentStatuses(filters: CoordinationStud
   if (!db) return studentStatusCountsFrom(0, 0, 0, 0);
   const database = db as unknown as Firestore;
   const sources = coordinationStudentSources(filters);
-  const count = async (status: CoordinationStudentStatus) => (await Promise.all(sources.map(async (source) =>
-    (await getCountFromServer(query(collection(database, "students"), ...coordinationStudentConstraints({ ...filters, status }, source)))).data().count))).reduce((n, value) => n + value, 0);
+  const count = async (status: CoordinationStudentStatus) => (await Promise.all(sources.map(async (source) => {
+    const keep = optionAfterSearch(filters, source);
+    const constraints = coordinationStudentConstraints({ ...filters, status }, source);
+    // Recherche + option : on compte les fiches trouvées (peu nombreuses), sans index supplémentaire.
+    if (canonicalSchoolOption(filters.option ?? "") && normalizeStudentSearch(filters.search) && !source.skipOptionConstraint) {
+      return (await getDocs(query(collection(database, "students"), ...constraints))).docs.filter((item) => keep(item.data())).length;
+    }
+    return (await getCountFromServer(query(collection(database, "students"), ...constraints))).data().count;
+  }))).reduce((n, value) => n + value, 0);
   const [all, archived, girls, boys] = await Promise.all((["all", "archived", "girls", "boys"] as const).map(count));
   return studentStatusCountsFrom(all, archived, girls, boys);
 }
