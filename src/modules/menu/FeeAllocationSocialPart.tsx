@@ -65,7 +65,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
       setUncertain(pending); if (!pending) request.current = null; setError(message(cause));
     } finally { setBusy(false); }
   }
-  return <AdminDrawer title="Partie 2 — cas sociaux" closeLabel="Fermer la partie 2" width="wide" onClose={() => { if (!busy) onClose(); }}>
+  return <AdminDrawer title="Partie 2 — cas sociaux" closeLabel="Fermer la partie 2" width="wide" onClose={() => { if (!busy) onClose(); }}><div className="text-justify" data-justified>
     <p className="mb-2 text-sm font-semibold">{feeName} · {classLabel}</p>
     <p className="mb-3 text-sm text-slate-700">Répartition propre aux élèves qui ont une réduction ou une prise en charge sur ce frais. Les pourcentages s'appliquent à ce que l'élève doit vraiment payer (tarif moins sa réduction). Sans partie 2, la partie 1 s'applique.</p>
     {loading && <div aria-hidden className="h-40 animate-pulse rounded bg-slate-100" />}
@@ -99,5 +99,5 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
         : <div className="mt-4"><button type="button" className="primary-button" disabled={!!entered.error || !!preview.error} onClick={() => setConfirming(true)}>Publier la partie 2</button></div>)}
       {history.length > 0 && <details className="mt-4 text-sm"><summary className="cursor-pointer">Versions de la partie 2</summary><ul className="mt-2 grid gap-1">{history.map((item) => <li key={item.id}>Version {item.version} · {item.status === "published" ? "en service" : "remplacée"} · {item.effectiveFrom.slice(0, 10)}{item.copyOfPartOne ? " · identique à la partie 1" : ""}</li>)}</ul></details>}
     </>}
-  </AdminDrawer>;
+  </div></AdminDrawer>;
 }

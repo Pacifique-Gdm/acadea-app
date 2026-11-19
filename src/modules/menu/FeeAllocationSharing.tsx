@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { AdminDrawer } from "../../components/ui";
 import { AllocationApiError, revokeShare, setRubricShare, staffRoleLabel, type AllocationShares } from "../../services/feeAllocation";
 import { allocationViewers, type Viewer } from "./feeAllocationSharingState";
 
@@ -7,6 +8,22 @@ const message = (cause: unknown) => cause instanceof Error ? cause.message : "Pa
 /** Phrases à taper exactement (demande du 19/11) : le bouton reste désactivé sinon. */
 export const SHARE_PHRASE = "PARTAGER AVEC CE PERSONNEL";
 export const REVOKE_PHRASE = "RETIRER CE PARTAGE";
+/** Version 1.15.2 : renommer une rubrique exige cette phrase, tapée à la main. */
+export const RENAME_PHRASE = "RENOMMER CETTE RUBRIQUE";
+/** Seule la frappe au clavier est acceptée : pas de coller, de glisser-déposer ni de remplissage automatique. */
+export const HAND_TYPED_INPUTS = new Set(["insertText", "insertCompositionText", "deleteContentBackward", "deleteContentForward", "deleteWordBackward", "deleteWordForward"]);
+export function blockNonTyped(event: FormEvent<HTMLInputElement>) {
+  const inputType = (event.nativeEvent as InputEvent).inputType;
+  if (inputType && !HAND_TYPED_INPUTS.has(inputType)) event.preventDefault();
+}
+
+/** Phrase à taper à la main (renommage) : coller et remplissage automatique refusés. */
+export function HandTypedPhraseField({ phrase, value, onChange }: { phrase: string; value: string; onChange: (value: string) => void }) {
+  return <label className="mt-2 grid gap-1 text-justify text-sm">Pour confirmer, tapez à la main « {phrase} »
+    <input className="input" value={value} name={`phrase-${phrase.length}`} autoComplete="off" autoCorrect="off" autoCapitalize="characters" spellCheck={false} data-lpignore="true" data-1p-ignore="true"
+      aria-label={`Tapez à la main « ${phrase} »`} onBeforeInput={blockNonTyped} onPaste={(event) => event.preventDefault()} onDrop={(event) => event.preventDefault()}
+      onChange={(event) => onChange(event.target.value)} /></label>;
+}
 /** Boutons côte à côte à parts égales ; un bouton seul prend toute la largeur. */
 export const BUTTON_ROW = "grid w-full min-w-0 auto-cols-fr grid-flow-col gap-2";
 
@@ -50,9 +67,11 @@ export function ShareRubricButton({ schoolId, rubric, shares, onChanged }: { sch
     } catch (cause) { setError(cause instanceof AllocationApiError && cause.status === 409 ? "Le partage a changé entre-temps. Fermez puis rouvrez pour voir la dernière version." : message(cause)); }
     finally { setBusy(false); }
   }
+  // Version 1.15.2 : le partage se fait dans un drawer à part, avec la croix pour revenir.
   return <span className="relative block min-w-0">
     <button type="button" className="secondary-button w-full justify-center" aria-expanded={open} onClick={() => open ? setOpen(false) : begin()}>Partager</button>
-    {open && <SidePopover title={`Partager « ${rubric.name} » avec…`} onClose={() => setOpen(false)}>
+    {open && <AdminDrawer title={`Partager « ${rubric.name} »`} closeLabel="Fermer le partage" onClose={() => { if (!busy) setOpen(false); }}>
+      <div className="grid gap-1 text-justify text-sm"><p className="mb-2 font-semibold">Avec qui partager cette rubrique ?</p>
       <label className="flex items-start gap-2 py-1"><input type="radio" name={`mode-${rubric.id}`} checked={mode === "all"} onChange={() => setMode("all")} />Tout le personnel (y compris celui ajouté plus tard)</label>
       <label className="flex items-start gap-2 py-1"><input type="radio" name={`mode-${rubric.id}`} checked={mode === "some"} onChange={() => setMode("some")} />Des personnes au choix :</label>
       {mode === "some" && <fieldset className="ml-6 grid gap-1" aria-label="Personnes au choix">
@@ -66,7 +85,8 @@ export function ShareRubricButton({ schoolId, rubric, shares, onChanged }: { sch
       {error && <p role="alert" className="mt-2 text-red-700">{error}</p>}
       <div className={`mt-3 ${BUTTON_ROW}`}><button type="button" className="secondary-button w-full justify-center" onClick={() => setOpen(false)}>Annuler</button>
         <button type="button" className="primary-button w-full justify-center" disabled={busy || typed !== SHARE_PHRASE} onClick={() => void save()}>{busy ? "Enregistrement…" : "Partager"}</button></div>
-    </SidePopover>}
+      </div>
+    </AdminDrawer>}
   </span>;
 }
 
