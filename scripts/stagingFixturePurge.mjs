@@ -156,13 +156,14 @@ async function deleteFixtureAccounts(auth, tag, uids) {
  * Efface tout ce qu'a créé la recette `tag` sur le staging.
  * `extraUids` : comptes connus par le manifeste (coordinateurs sans école, etc.).
  */
-export async function purgeStagingFixture({ db, auth, bucket, projectId, tag, extraUids = [], settleMs = TRIGGER_SETTLE_MS, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
+export async function purgeStagingFixture({ db, auth, bucket, projectId, tag, extraUids = [], knownSchoolIds = [], settleMs = TRIGGER_SETTLE_MS, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   assertStagingFixtureTag(projectId, tag);
   const schools = (await db.collection('schools').where('fixtureId', '==', tag).get()).docs;
   for (const school of schools) if (!isFixtureDocumentOf(tag, school.id, school.data())) throw new Error(`École étrangère ${school.id} : effacement refusé.`);
-  const schoolIds = schools.map((school) => school.id);
+  // Écoles déjà effacées lors d'un essai interrompu : leurs documents restent rattachés par schoolId.
+  const schoolIds = [...new Set([...schools.map((school) => school.id), ...knownSchoolIds.filter((id) => typeof id === 'string' && id.startsWith(tag))])];
   const users = (await db.collection('users').where('fixtureId', '==', tag).get()).docs.filter((doc) => isFixtureDocumentOf(tag, doc.id, doc.data()));
-  const report = { tag, schools: schoolIds.length, accounts: 0, documents: 0 };
+  const report = { tag, schools: schools.length, accounts: 0, documents: 0 };
   report.accounts += await deleteFixtureAccounts(auth, tag, [...users.map((doc) => doc.id), ...extraUids]);
   for (const school of schools) {
     const result = await deleteSchoolCompletely({ db, auth, bucket, schoolId: school.id, schoolData: school.data(), actor: ACTOR });

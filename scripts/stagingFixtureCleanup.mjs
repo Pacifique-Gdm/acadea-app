@@ -53,7 +53,7 @@ try {
       console.log('Attente des déclencheurs (60 s)…');
       await new Promise((resolve) => setTimeout(resolve, 60_000));
       const previous = JSON.parse(readFileSync(listPath, 'utf8'));
-      for (const group of previous.groups) await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId: process.env.GOOGLE_CLOUD_PROJECT, tag: group.tag, settleMs: 0 }).catch(() => undefined);
+      for (const group of previous.groups) await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId: process.env.GOOGLE_CLOUD_PROJECT, tag: group.tag, knownSchoolIds: group.schools, settleMs: 0 }).catch(() => undefined);
       for (const group of previous.groups) {
         const signals = [];
         for (const schoolId of group.schools) signals.push(...(await s.db.collection('feeAllocationForecastSignals').where('schoolId', '==', schoolId).get()).docs);
