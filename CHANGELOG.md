@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.14.0] — 2026-11-19 — Fonctionnalité
+- Campagnes publicitaires dans l'en-tête : bannière « Publicité » tournante (30 s par défaut, part d'affichage), gérée par le Super administrateur, jamais sur les reçus, rapports, PDF ni écrans de paiement, statistiques groupées sans donnée personnelle
+
 ## [1.13.2] — 2026-11-19 — Correction
 - Messages : le destinataire Coordinateur apparaît tout de suite et l'écran ne s'actualise plus en boucle
 
