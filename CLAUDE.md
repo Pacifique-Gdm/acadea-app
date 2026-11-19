@@ -1,3 +1,5 @@
+RÈGLE ABSOLUE : écrire UNIQUEMENT en français, chaque phrase sans exception (messages, notes courtes entre deux actions, explications d'erreur, résumés de mesure, messages de commit, descriptions de PR). Vérifier chaque phrase avant de l'écrire ; une phrase sortie en anglais est réécrite aussitôt en français.
+
 # Consignes pour Claude Code
 
 Les règles communes à tous les agents (langue, version, mise en production, sécurité) sont dans **`AGENTS.md`**. Elles s'appliquent entièrement à Claude Code.
