@@ -953,5 +953,11 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "schoolSearchIndex",
+      "fieldPath": "entries",
+      "indexes": []
+    }
+  ]
 }

@@ -16,3 +16,4 @@ export { messageAttachmentFile } from "./audit/messageAttachmentFile.js";
 export { onStudentAllocationForecastChanged, onFeeAllocationForecastChanged } from "./finance/forecastSignals.js";
 export { allocationMaintenanceEvery10Minutes, allocationNightlyCheck } from "./finance/allocationMaintenance.js";
 export { onAllocationCashChanged, onAllocationEvidenceChanged, onAllocationStateChanged, onAllocationCatalogChanged, onAllocationSharesChanged, onAllocationPendingChanged, onAllocationForecastSignalChanged } from "./finance/allocationChangeCounter.js";
+export { onSchoolSearchIndexChanged, schoolSearchUserCounts } from "./platform/schoolSearchIndex.js";
