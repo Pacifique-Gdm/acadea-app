@@ -77,6 +77,15 @@ function startOfWeek(date: Date) {
   return next;
 }
 
+/** Lot « Présence rapide » : comparateurs créés une seule fois (localeCompare avec une langue recrée un comparateur à chaque appel). */
+export const nameCollator = new Intl.Collator("fr");
+const classCollator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
+const sortKeys = new WeakMap<Student, string>();
+function compareStudentNames(first: Student, second: Student) {
+  const key = (student: Student) => { let value = sortKeys.get(student); if (value === undefined) { value = studentFullName(student); sortKeys.set(student, value); } return value; };
+  return nameCollator.compare(key(first), key(second));
+}
+
 function studentFullName(student: Student) {
   return [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ").trim();
 }
@@ -130,13 +139,13 @@ function compareClassNames(first: string, second: string) {
   const secondRank = classSortRank(second);
   if (firstRank.section !== secondRank.section) return firstRank.section - secondRank.section;
   if (firstRank.level !== secondRank.level) return firstRank.level - secondRank.level;
-  return first.localeCompare(second, "fr", { numeric: true, sensitivity: "base" });
+  return classCollator.compare(first, second);
 }
 
 function compareAttendanceGroups(first: AttendanceGroup, second: AttendanceGroup) {
   const classOrder = compareClassNames(first.className, second.className);
   if (classOrder !== 0) return classOrder;
-  return first.option.localeCompare(second.option, "fr", { numeric: true, sensitivity: "base" });
+  return classCollator.compare(first.option, second.option);
 }
 
 function groupStudents(students: Student[]) {
@@ -155,7 +164,7 @@ function groupStudents(students: Student[]) {
   return Array.from(groups.values())
     .map((group) => ({
       ...group,
-      students: [...group.students].sort((first, second) => studentFullName(first).localeCompare(studentFullName(second), "fr")),
+      students: [...group.students].sort((first, second) => compareStudentNames(first, second)),
     }))
     .sort(compareAttendanceGroups);
 }
@@ -211,7 +220,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
     const source = students
       .filter((student) => selectedSection === "all" || classSection(studentClassName(student)) === selectedSection)
       .filter((student) => !selectedClass || studentClassName(student) === selectedClass);
-    return Array.from(new Set(source.map((student) => student.option).filter((option): option is string => Boolean(option)))).sort((first, second) => first.localeCompare(second, "fr"));
+    return Array.from(new Set(source.map((student) => student.option).filter((option): option is string => Boolean(option)))).sort(nameCollator.compare);
   }, [selectedClass, selectedSection, students]);
   const showOptionFilter =
     (selectedSection === "all" || selectedSection === "Secondaire") &&
@@ -247,7 +256,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
           .toLocaleLowerCase("fr");
         return haystack.includes(normalizedSearch);
       })
-      .sort((first, second) => studentFullName(first).localeCompare(studentFullName(second), "fr"));
+      .sort((first, second) => compareStudentNames(first, second));
   }, [search, selectedClass, selectedOption, selectedSection, showOptionFilter, students]);
 
   const groupedStudents = useMemo(() => {
@@ -288,7 +297,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
           .toLocaleLowerCase("fr");
         return haystack.includes(normalizedSearch);
       })
-      .sort((first, second) => studentFullName(first).localeCompare(studentFullName(second), "fr"));
+      .sort((first, second) => compareStudentNames(first, second));
   }, [manualStudentSearch, selectedClass, selectedOption, selectedSection, showOptionFilter, students]);
   const selectedManualStudents = useMemo(
     () => manualStudentIds.map((studentId) => students.find((student) => student.id === studentId)).filter((student): student is Student => Boolean(student)),

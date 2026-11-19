@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppVersion } from "../../components/ui/AppVersion";
 import type { ComponentType, ReactNode } from "react";
 import { BarChart3, BookOpen, CalendarRange, CheckCircle2, Clock3, LogOut, Settings } from "lucide-react";
@@ -138,6 +138,10 @@ export function DisciplinePortal({
   renderPublishedTimetable?: () => ReactNode;
 }) {
   const [activeDisciplineTab, setActiveDisciplineTab] = useState<DisciplineTab>("status");
+  // Lot « Présence rapide » : une fois ouvert, l'onglet Présence reste en mémoire (caché quand on change d'onglet).
+  // Au retour, il s'affiche tout de suite, sans tout recalculer ; il ne se met à jour que si ses données changent.
+  const attendanceVisited = useRef(false);
+  if (activeDisciplineTab === "attendance") attendanceVisited.current = true;
   const [classRecords, setClassRecords] = useState<SchoolClassRecord[]>([]);
   const [classesError, setClassesError] = useState("");
   useEffect(() => {
@@ -712,7 +716,8 @@ export function DisciplinePortal({
         {activeDisciplineTab === "status" && (
           <DisciplineStatus students={yearData.students} sanctions={yearData.disciplineSanctions} onNewSanction={() => setNewSanctionOpen(true)} onOpenStudent={setSelectedDisciplineStudentId} onExportPdf={exportDisciplinePdf} />
         )}
-        {activeDisciplineTab === "attendance" && (
+        {attendanceVisited.current && (
+          <div hidden={activeDisciplineTab !== "attendance"} data-attendance-tab className="min-w-0">
           <DisciplineAttendanceDrawer
             students={yearData.students}
             attendance={yearData.attendance}
@@ -724,6 +729,7 @@ export function DisciplinePortal({
             year={year}
             onSaveManualAttendance={saveManualAttendance}
           />
+          </div>
         )}
         {activeDisciplineTab === "messages" && (
           <MessagesModuleComponent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} createId={createId} />
