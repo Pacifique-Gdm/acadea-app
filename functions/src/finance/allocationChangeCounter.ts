@@ -29,9 +29,13 @@ export function counterScopes(before: Data, after: Data, docId: string): Counter
   return [...scopes.values()];
 }
 
-async function bump(scopes: CounterScope[], changedAt: string) {
+/** Un effacement ne crée jamais de compteur pour une école qui n'existe plus (école d'essai effacée, par exemple). */
+export function needsSchoolCheck(after: Data) { return after === undefined; }
+
+async function bump(scopes: CounterScope[], changedAt: string, deletion = false) {
   const db = getFirestore();
   await Promise.all(scopes.map(async ({ schoolId, schoolYearId }) => {
+    if (deletion && !(await db.doc(`schools/${schoolId}`).get()).exists) return;
     // Sans année dans le document (répartition en attente) : l'année active de l'école.
     const yearId = schoolYearId ?? (await db.doc(`schools/${schoolId}`).get()).data()?.activeSchoolYearId;
     if (typeof yearId !== 'string' || !SAFE_ID.test(yearId)) return;
@@ -42,8 +46,9 @@ async function bump(scopes: CounterScope[], changedAt: string) {
 
 function counted(document: string) {
   return onDocumentWritten({ document, region: 'europe-west1', maxInstances: 5, retry: false }, async (event) => {
-    const scopes = counterScopes(event.data?.before.data(), event.data?.after.data(), String(event.params.id ?? ''));
-    if (scopes.length) await bump(scopes, event.time);
+    const after = event.data?.after.data();
+    const scopes = counterScopes(event.data?.before.data(), after, String(event.params.id ?? ''));
+    if (scopes.length) await bump(scopes, event.time, needsSchoolCheck(after));
   });
 }
 
