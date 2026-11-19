@@ -49,8 +49,8 @@ export function FeeAllocationEntry({ user, schools, selectedSchoolId = "", onSch
   if (!roles.has(user.role) && !shared) return null;
   const selected = schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId);
   return <>
-    <button type="button" className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-mint" onClick={() => setOpen(true)}>
-      <span className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><ChartPie className="h-5 w-5" /></span><span className="min-w-0"><span className="block break-words font-bold text-ink">Répartition des frais</span><span className="mt-1 block break-words text-sm text-slate-500">{FEE_ALLOCATION_MENU_DESCRIPTION}</span></span></span>
+    <button type="button" aria-label="Répartition des frais" aria-describedby="menu-repartition-description" className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-mint" onClick={() => setOpen(true)}>
+      <span className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><ChartPie className="h-5 w-5" /></span><span className="min-w-0"><span className="block break-words font-bold text-ink">Répartition des frais</span><span id="menu-repartition-description" className="mt-1 block break-words text-sm text-slate-500">{FEE_ALLOCATION_MENU_DESCRIPTION}</span></span></span>
     </button>
     {open && <AdminDrawer title="Répartition des frais" closeLabel="Fermer Répartition des frais" width="wide" onClose={() => setOpen(false)}
       toolbar={onSchoolChange && <label className="grid gap-1 text-sm">Établissement<select className="input" value={selectedSchoolId} onChange={(event) => onSchoolChange(event.target.value)}><option value="">Toutes les écoles autorisées</option>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>}>

@@ -42,7 +42,9 @@ describe("2. l'état d'activation finit toujours de charger", () => {
 describe("3 à 11. présentation", () => {
   it("3. description sous le bouton du Menu", () => {
     expect(FEE_ALLOCATION_MENU_DESCRIPTION).toBe("Parts des frais par rubrique, encaissements et dépenses.");
-    expect(drawer).toContain("{FEE_ALLOCATION_MENU_DESCRIPTION}</span>");
+    expect(drawer).toContain(">{FEE_ALLOCATION_MENU_DESCRIPTION}</span>");
+    // Le nom du bouton reste « Répartition des frais » (la description est liée, pas ajoutée au nom).
+    expect(drawer).toContain("aria-label=\"Répartition des frais\" aria-describedby=\"menu-repartition-description\"");
   });
   it("4. les 4 commandes sur une seule ligne à parts égales, téléphone compris", () => {
     expect(drawer).toContain("grid min-w-0 items-center gap-1 sm:gap-2 ${configurable ? 'grid-cols-4' : 'grid-cols-3'}");
