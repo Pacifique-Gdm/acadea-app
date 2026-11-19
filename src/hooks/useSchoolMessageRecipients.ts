@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { collection, doc, onSnapshot, query, where, type DocumentData } from "firebase/firestore";
+import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
+
+type DocumentData = Record<string, unknown>;
 import { db } from "../firebase";
 import { loadSchoolMessageRecipients, type SchoolMessageRecipient } from "../services/schoolMessaging";
 import type { AppUser, School } from "../types";
