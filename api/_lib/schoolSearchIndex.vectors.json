@@ -1,0 +1,28 @@
+{
+  "normalize": [
+    ["C.S LUMBULA", "c s lumbula"],
+    ["Lumbulá", "lumbula"],
+    ["  Complexe Scolaire « Pangu » - Kinshasa/Lemba ", "complexe scolaire pangu kinshasa lemba"],
+    ["contact@cs-lumbula.cd", "contact cs lumbula cd"],
+    ["École Élégance Ñ°1", "ecole elegance n 1"],
+    ["", ""]
+  ],
+  "parts": [
+    ["school-210fc308", "part-05"],
+    ["staging-school-001", "part-03"],
+    ["e2e-social-0123456789abcdef0123456789abcdef-a", "part-00"]
+  ],
+  "entry": {
+    "school": { "name": "C.S LUMBULA", "acronym": "C.S.L", "address": "Av. Kasa-Vubu 12, Commune de Lemba, Kinshasa", "email": "contact@cs-lumbula.cd", "status": "active", "schoolType": "Primaire", "createdAt": "2026-09-01T08:00:00.000Z", "logoVersion": "abc123" },
+    "expected": {
+      "name": "C.S LUMBULA",
+      "acronym": "C.S.L",
+      "status": "active",
+      "schoolType": "Primaire",
+      "createdAt": "2026-09-01T08:00:00.000Z",
+      "logoVersion": "abc123",
+      "k": "c s lumbula | c s l | av kasa vubu 12 commune de lemba kinshasa | contact cs lumbula cd | cslumbula | csl",
+      "o": "c s lumbula"
+    }
+  }
+}
