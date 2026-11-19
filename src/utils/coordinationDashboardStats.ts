@@ -135,3 +135,23 @@ export function buildCoordinationDashboardStats(
     financialGroups,
   };
 }
+
+export type CoordinationYearExclusion = {
+  schoolId: string;
+  schoolName: string;
+  /** Nom de l'année active de l'école, ou null si elle n'a pas pu être lue. */
+  activeYearName: string | null;
+  reason: "not-aligned" | "year-unreadable";
+};
+
+/** Pourquoi chaque école est exclue des statistiques (jamais de 0 présentés comme de vrais chiffres). */
+export function coordinationYearExclusions(schools: School[], schoolYears: CoordinationDashboardModel["schoolYears"], referenceSchoolYear?: string): CoordinationYearExclusion[] {
+  const yearsById = new Map(schoolYears.map((year) => [year.id, year]));
+  const reference = referenceSchoolYear || yearsById.get(schools[0]?.activeSchoolYearId ?? "")?.name;
+  return schools.flatMap((school): CoordinationYearExclusion[] => {
+    const year = yearsById.get(school.activeSchoolYearId);
+    if (!year || year.schoolId !== school.id) return [{ schoolId: school.id, schoolName: school.name, activeYearName: null, reason: "year-unreadable" as const }];
+    if (reference && year.name !== reference) return [{ schoolId: school.id, schoolName: school.name, activeYearName: year.name, reason: "not-aligned" as const }];
+    return [];
+  });
+}

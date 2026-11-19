@@ -57,9 +57,9 @@ function seeded(received = 500000) {
 function payroll(db: FakeDb, amount: number, id: string, changes: Data = {}) {
   return createPersonnelPayment({ db, caller, body: { ...body, amount, clientRequestId: id, ...changes }, now: "2026-10-13T10:00:00.000Z" });
 }
-function ordinaryExpense(db: FakeDb, amount: number, id: string) {
+function ordinaryExpense(db: FakeDb, amount: number, id: string, changes: Data = {}) {
   return executeFinancialOperation({ db, caller, body: { action: "create-expense", schoolYearId: "year-a", amount,
-    category: "Fournitures", description: "Dépense fictive", beneficiary: "Test", paymentMethod: "Espèces", clientRequestId: id }, now: "2026-10-13T10:00:00.000Z" });
+    category: "Fournitures", description: "Dépense fictive", beneficiary: "Test", paymentMethod: "Espèces", clientRequestId: id, ...changes }, now: "2026-10-13T10:00:00.000Z" });
 }
 function correctExpense(db: FakeDb, expenseId: string, amount: number, id: string) {
   return executeFinancialOperation({ db, caller: { uid: "admin-a", role: "school_admin", schoolId: "school-a" }, body: {
@@ -315,5 +315,20 @@ describe("caisse annuelle — contrôle serveur", () => {
       .resolves.toMatchObject({ availableCents: 50000000, schoolId: "school-a", currency: "CDF" });
     await expect(listPayroll({ db, caller: { ...caller, role: "teacher" }, body: { action: "list-cash-balance", schoolYearId: "year-a" } }))
       .rejects.toMatchObject({ code: "permission-denied" });
+  });
+
+
+  it("nature « Autre » : précision obligatoire (3 caractères), enregistrée ; refusée pour une autre nature", async () => {
+    const db = seeded();
+    for (const category of ["Autre", "Autres"]) {
+      await expect(ordinaryExpense(db, 100, `autre-sans-${category}`, { category })).rejects.toMatchObject({ status: 400 });
+      await expect(ordinaryExpense(db, 100, `autre-court-${category}`, { category, categoryDetail: " ab " })).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(ordinaryExpense(db, 100, "fourniture-precisee", { categoryDetail: "Craie" })).rejects.toMatchObject({ status: 400 });
+    const { expense } = await ordinaryExpense(db, 100, "autre-precise-0001", { category: "Autre", categoryDetail: "  Réparation du portail  " }) as { expense: Data };
+    expect(expense).toMatchObject({ category: "Autre", categoryDetail: "Réparation du portail" });
+    expect(db.values.get(`expenses/${expense.id}`)).toMatchObject({ categoryDetail: "Réparation du portail" });
+    const plain = await ordinaryExpense(db, 100, "fourniture-simple01") as { expense: Data };
+    expect(plain.expense).not.toHaveProperty("categoryDetail");
   });
 });

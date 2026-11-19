@@ -91,6 +91,7 @@ type MessagesModuleComponentProps = {
   school: School;
   year: SchoolYear;
   updateData: (next: Partial<AppData>, options?: { persist?: boolean }) => void;
+  createId: (prefix: string) => string;
 };
 
 export function DisciplinePortal({
@@ -725,7 +726,7 @@ export function DisciplinePortal({
           />
         )}
         {activeDisciplineTab === "messages" && (
-          <MessagesModuleComponent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} />
+          <MessagesModuleComponent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} createId={createId} />
         )}
         {activeDisciplineTab === "menu" && (
           <section className="grid min-w-0 gap-3">

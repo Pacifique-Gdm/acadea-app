@@ -77,8 +77,9 @@ export function MessagesModule({
   const isStudyDirector = user.role === "study_director";
   const isSecretary = user.role === "secretary";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
-  const { recipients: secureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError } = useSchoolMessageRecipients(user, school, year.id);
-  const recipientCategories = useMemo(() => schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
+  const { recipients: secureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError, hasCoordination } = useSchoolMessageRecipients(user, school, year.id);
+  const recipientCategories = useMemo(() => schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin, hasCoordination, !isLoadingAdministrativeRecipients),
+    [isSchoolAdmin, secureDirectory, hasCoordination, isLoadingAdministrativeRecipients]);
   const administrativeRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "administrative", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const coordinationRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "coordination", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const subCoordinationRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "subCoordination", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);

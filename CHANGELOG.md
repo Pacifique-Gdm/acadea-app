@@ -3,6 +3,18 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.14.0] — 2026-11-19 — Fonctionnalité
+- Répartition des frais : rubrique d'imputation au-dessus du solde avec les montants de la rubrique, blocage au-delà de son disponible, précision obligatoire pour la nature « Autre », texte des étapes d'activation mis à jour, boutons « Partager » et « PDF », onglets fixes, filtres adaptés au téléphone, phrases de confirmation pour partager et retirer
+
+## [1.13.4] — 2026-11-19 — Correction
+- Dashboard Coordination et Sous-coordination : les écoles exclues sont nommées avec leur année active et la façon de corriger ; aucun chiffre à 0 n'est affiché ni exporté quand aucune école n'est comptée
+
+## [1.13.3] — 2026-11-19 — Correction
+- Recettes automatiques du staging : elles effacent désormais complètement leurs écoles d'essai à la fin (écoles, documents, sous-documents, signaux, fichiers, comptes) au lieu de les désactiver ; commande de nettoyage des écoles d'essai déjà retirées (essai à blanc, effacement, vérification). Staging uniquement.
+
+## [1.13.2] — 2026-11-19 — Correction
+- Messages : le destinataire Coordinateur apparaît tout de suite et l'écran ne s'actualise plus en boucle
+
 ## [1.13.1] — 2026-11-19 — Correction
 - Super administrateur : l'onglet Messages ne montre plus que « Nouveau message » ; « Messages et réponses » n'est plus que dans la cloche (lot SA-6a).
 

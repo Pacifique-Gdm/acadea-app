@@ -3,7 +3,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
-import { AllocationRubricSelect } from "../../components/AllocationRubricSelect";
+import { AllocationRubricSelect, formatRubricAmount, rubricSpendCheck, useAllocationSpendOptions } from "../../components/AllocationRubricSelect";
 import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
 import { FormerStudentPaymentForm } from "../../components/finance/FormerStudentPaymentForm";
 import { isArchivedStudent } from "../../utils/formerStudents";
@@ -83,6 +83,7 @@ export function ControlModule({
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
   const [allocationRubricId, setAllocationRubricId] = useState("");
+  const [expenseCategoryDetail, setExpenseCategoryDetail] = useState("");
   const [expenseBeneficiary, setExpenseBeneficiary] = useState("");
   const [expensePaymentMethod, setExpensePaymentMethod] = useState("");
   const [expenseReference, setExpenseReference] = useState("");
@@ -236,6 +237,8 @@ export function ControlModule({
   }, [cashierControlFeedback, cashierControlFeedbackDrawer]);
   const isArchivedContext = year.status === "archived";
   const canPay = user.role === "cashier" && !isArchivedContext;
+  // Répartition des frais active : rubrique obligatoire, montants et limite de la rubrique choisie.
+  const expenseSpend = useAllocationSpendOptions(school.id, year.id, canPay);
   const canCorrectPayments = user.role === "school_admin" && !isArchivedContext;
   const canManageExpenses = user.role === "school_admin" && !isArchivedContext;
   const expenseCurrency = resolveSchoolYearCurrency(year, school);
@@ -324,7 +327,11 @@ export function ControlModule({
   const expenseEditDeltaCents = (() => { try { return expenseEditTarget ? toMoneyMinor(Number(expenseEditAmount)) - toMoneyMinor(expenseEditTarget.amount) : 0; } catch { return 0; } })();
   const expenseEditCashInsufficient = expenseCashBalance !== undefined && expenseEditDeltaCents > 0
     && (expenseCashBalance.availableCents < 0 || expenseEditDeltaCents > expenseCashBalance.availableCents);
+  const isOtherExpenseCategory = expenseCategory === "Autre" || expenseCategory === "Autres";
+  const expenseRubric = rubricSpendCheck(expenseSpend, allocationRubricId, expenseDebitCents);
+  const expenseRubricBlocked = expenseRubric.kind === "loading" || expenseRubric.kind === "choose" || (expenseRubric.kind === "ready" && expenseRubric.over);
   const isExpenseEntryIncomplete = !expenseCategory.trim()
+    || (isOtherExpenseCategory && expenseCategoryDetail.trim().length < 3)
     || !expenseAmount.trim()
     || !Number.isFinite(expenseAmountValue)
     || expenseDebitCents <= 0
@@ -471,17 +478,27 @@ export function ControlModule({
     return formatSchoolMoney(value, school);
   }
 
-  function renderExpenseCashBalance(debitCents: number, label = "Montant à décaisser") {
+  function renderExpenseCashBalance(debitCents: number, label = "Montant à décaisser", byRubric = false) {
     const balance = expenseCashBalance;
     const format = (cents: number) => formatCurrencyMoney(cents / 100, balance?.currency ?? "CDF");
-    return <section aria-label="Solde de caisse" className="grid min-w-0 gap-1 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
-      {expenseCashLoading ? <p role="status">Chargement du solde disponible…</p> : expenseCashError ? <p role="alert" className="text-red-700">{expenseCashError}</p> : balance ? <>
+    const rubric = byRubric && expenseRubric.kind !== "not-required" && expenseRubric.kind !== "unavailable" ? expenseRubric : null;
+    const rubricMoney = (minor: number) => formatRubricAmount(minor, expenseSpend.options?.currency);
+    const debit = Math.max(0, debitCents);
+    return <section aria-label={rubric ? "Disponible de la rubrique" : "Solde de caisse"} className="grid min-w-0 gap-1 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
+      {rubric ? rubric.kind === "loading" ? <p role="status">Vérification de la répartition…</p>
+        : rubric.kind === "choose" ? <p role="status">Choisissez la rubrique d'imputation pour voir son disponible.</p> : <>
+        <p>Disponible de la rubrique « {rubric.rubric.name} » : <strong>{rubricMoney(rubric.availableMinor)}</strong></p>
+        <p>{label} : <strong>{rubricMoney(debit)}</strong></p>
+        <p>Disponible après opération : <strong>{rubricMoney(rubric.availableMinor - debit)}</strong></p>
+        {rubric.over && <p role="alert" className="rounded bg-red-50 p-2 font-semibold text-red-700">Montant supérieur au disponible de la rubrique : {rubricMoney(rubric.availableMinor)}</p>}
+        {balance && debitCents > 0 && (balance.availableCents < 0 || debitCents > balance.availableCents) && <p role="alert" className="rounded bg-red-50 p-2 text-red-700">Opération impossible : solde de caisse insuffisant. Solde disponible : {format(balance.availableCents)}.</p>}
+      </> : expenseCashLoading ? <p role="status">Chargement du solde disponible…</p> : expenseCashError ? <p role="alert" className="text-red-700">{expenseCashError}</p> : balance ? <>
         <p>Solde disponible : <strong>{format(balance.availableCents)}</strong></p>
         <p>{label} : <strong>{format(Math.max(0, debitCents))}</strong></p>
         <p>Solde après opération : <strong>{format(balance.availableCents - Math.max(0, debitCents))}</strong></p>
         {debitCents > 0 && (balance.availableCents < 0 || debitCents > balance.availableCents) && <p role="alert" className="rounded bg-red-50 p-2 text-red-700">Opération impossible : solde de caisse insuffisant. Solde disponible : {format(balance.availableCents)}. Montant demandé : {format(debitCents)}. Montant manquant : {format(Math.max(0, debitCents - balance.availableCents))}.</p>}
       </> : <p role="alert" className="text-red-700">Solde de caisse indisponible : dépense bloquée.</p>}
-      <button type="button" className="secondary-button justify-center" disabled={expenseCashLoading} onClick={() => void refreshExpenseCashBalance().catch(() => {})}>Actualiser le solde</button>
+      <button type="button" className="secondary-button justify-center" disabled={expenseCashLoading} onClick={() => { if (rubric) expenseSpend.reload(); void refreshExpenseCashBalance().catch(() => {}); }}>Actualiser le solde</button>
     </section>;
   }
 
@@ -674,7 +691,18 @@ export function ControlModule({
       setExpenseError("Opération impossible : solde de caisse insuffisant ou indisponible.");
       return;
     }
-    const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference, allocationRubricId]);
+    const trimmedCategoryDetail = expenseCategoryDetail.trim();
+    if (isOtherExpenseCategory && trimmedCategoryDetail.length < 3) {
+      setExpenseError("Précisez la nature de la dépense (au moins 3 caractères).");
+      return;
+    }
+    if (expenseRubric.kind === "loading") { setExpenseError("Vérification de la répartition en cours. Réessayez dans un instant."); return; }
+    if (expenseRubric.kind === "choose") { setExpenseError("Choisissez la rubrique d'imputation."); return; }
+    if (expenseRubric.kind === "ready" && expenseRubric.over) {
+      setExpenseError("Montant supérieur au disponible de la rubrique : " + formatRubricAmount(expenseRubric.availableMinor, expenseSpend.options?.currency));
+      return;
+    }
+    const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedCategoryDetail, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference, allocationRubricId]);
     const requestId = expenseAttemptRef.current?.signature === signature ? expenseAttemptRef.current.requestId : crypto.randomUUID();
     expenseAttemptRef.current = { signature, requestId };
     expenseSubmittingRef.current = true;
@@ -685,7 +713,7 @@ export function ControlModule({
         setExpenseError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
         return;
       }
-      const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId, ...(allocationRubricId ? { allocationRubricId } : {}) });
+      const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId, ...(isOtherExpenseCategory ? { categoryDetail: trimmedCategoryDetail } : {}), ...(allocationRubricId ? { allocationRubricId } : {}) });
       expenseHistory.prependItem(expense);
       expenseAttemptRef.current = null;
       setExpenseAmount("");
@@ -693,6 +721,8 @@ export function ControlModule({
       setExpenseBeneficiary("");
       setExpensePaymentMethod("");
       setExpenseReference("");
+      setExpenseCategoryDetail("");
+      expenseSpend.reload();
       void refreshExpenseCashBalance().catch(() => {});
       if (user.role === "cashier") {
         setCashierControlFeedback("Dépense enregistrée avec succès.");
@@ -1226,8 +1256,8 @@ export function ControlModule({
             <div key={expense.id} className="rounded border border-slate-100 p-3 text-sm">
               <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <p className="break-words font-semibold text-ink">{expense.description || expenseCategoryLabel(expense.category)}</p>
-                  <p className="break-words text-slate-500">{formatExpenseDateTime(expense)} | {expenseCategoryLabel(expense.category)} | {formatMoney(expense.amount)}</p>
+                  <p className="break-words font-semibold text-ink">{expense.description || expenseCategoryLabel(expense.category, expense.categoryDetail)}</p>
+                  <p className="break-words text-slate-500">{formatExpenseDateTime(expense)} | {expenseCategoryLabel(expense.category, expense.categoryDetail)} | {formatMoney(expense.amount)}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-1">
                   <button disabled={receiptAction.isPending(expense.id)} aria-busy={receiptAction.isPending(expense.id)} onClick={() => void receiptAction.run(expense.id, () => generateExpensePdf(expense, school, year, resolveExpenseCashierName(expense, yearData.auditLogs)))} className="rounded bg-slate-100 p-2" title="Télécharger le justificatif PDF" type="button">
@@ -1547,11 +1577,12 @@ export function ControlModule({
               <option>Maintenance</option>
               <option>Autres</option>
             </select>
+            {isOtherExpenseCategory && <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Précisez la nature (obligatoire)<input className="input" maxLength={200} value={expenseCategoryDetail} onChange={(event) => { setExpenseCategoryDetail(event.target.value); setExpenseError(""); }} placeholder="Ex. : réparation du portail" aria-required="true" /></label>}
             <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
-            {renderExpenseCashBalance(expenseDebitCents)}
-            <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId}/>
+            <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId} spend={expenseSpend}/>
+            {renderExpenseCashBalance(expenseDebitCents, "Montant à décaisser", true)}
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
-            <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+            <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseRubricBlocked || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
           </FormPanel>
         )}
       </div>
@@ -1668,9 +1699,10 @@ export function ControlModule({
                 <option>Maintenance</option>
                 <option>Autre</option>
               </select>
+              {isOtherExpenseCategory && <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Précisez la nature (obligatoire)<input className="input" maxLength={200} value={expenseCategoryDetail} onChange={(event) => { setExpenseCategoryDetail(event.target.value); setExpenseError(""); }} placeholder="Ex. : réparation du portail" aria-required="true" /></label>}
               <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
-              {renderExpenseCashBalance(expenseDebitCents)}
-              <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId}/>
+              <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={(value) => { setAllocationRubricId(value); setExpenseError(""); }} spend={expenseSpend}/>
+              {renderExpenseCashBalance(expenseDebitCents, "Montant à décaisser", true)}
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
                 <textarea
@@ -1711,7 +1743,7 @@ export function ControlModule({
                 placeholder="Référence / pièce (facultatif)"
               />
               {expenseError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
-              <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseRubricBlocked || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
         </AdminDrawer>

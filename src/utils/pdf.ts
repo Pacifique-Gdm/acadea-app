@@ -582,8 +582,8 @@ export async function generateExpensePdf(expense: Expense, school: School, year?
       `<section class="pdf-section expense-details">
         ${pdfInfoGrid([
           { label: "Date", value: formatExpensePdfDateTime(expense) },
-          { label: "Libellé / motif", value: expense.description || expenseCategoryLabel(expense.category) },
-          { label: "Catégorie", value: expenseCategoryLabel(expense.category) },
+          { label: "Libellé / motif", value: expense.description || expenseCategoryLabel(expense.category, expense.categoryDetail) },
+          { label: "Catégorie", value: expenseCategoryLabel(expense.category, expense.categoryDetail) },
           { label: "Montant", value: formatRecordedOperation(expense) },
           { label: "Bénéficiaire / fournisseur", value: beneficiary || "-" },
           { label: "Caissier", value: cashierName || "-" },

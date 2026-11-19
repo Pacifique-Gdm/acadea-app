@@ -11,6 +11,30 @@ const parseAmount = (value: string) => {
 };
 
 /** The UI never invents an opening allocation or treats an uncertain reply as success. */
+/** Texte des étapes validé par l’utilisateur le 19/11. */
+export function ActivationSteps() {
+  return <>
+    <p className="mt-2 font-semibold">Avant l’activation</p>
+    <ol className="ml-5 mt-1 grid list-decimal gap-1">
+      <li>Créer la répartition : « + Ajouter », choisir le frais et les classes, puis les rubriques (en pourcentage ou en montant fixe ; le reste va dans « Non affecté »). Une rubrique créée par « + Nouvelle rubrique… » n’est enregistrée qu’avec la répartition.</li>
+      <li>Préparer puis publier la répartition de chaque frais.</li>
+      <li>Vérifier le solde de départ : Acadéa examine les encaissements et dépenses déjà enregistrés. Justifier les écritures signalées par une preuve.</li>
+      <li>Préparer le solde de départ : saisir la caisse constatée, partager les fonds justifiés entre les rubriques (et « Non affecté »), puis confirmer avec la phrase demandée.</li>
+      <li>Approuver le solde de départ.</li>
+      <li>Activer la répartition : seul l’administrateur qui a approuvé, avec la phrase demandée.</li>
+    </ol>
+    <p className="mt-2 font-semibold">Après l’activation</p>
+    <ul className="ml-5 mt-1 grid list-disc gap-1">
+      <li>Chaque paiement est réparti automatiquement. Un paiement qui ne peut pas l’être tout de suite est quand même encaissé et attend : il n’est jamais bloqué.</li>
+      <li>Les arriérés vont dans leurs propres lignes « … (arriéré AAAA-AAAA) ».</li>
+      <li>Cas sociaux (tableau 2) : une partie 2 peut être publiée à part pour chaque frais. Elle s’applique dès le premier paiement réparti d’un cas social après sa publication. Une nouvelle partie 2 s’applique aux paiements suivants de cet élève.</li>
+      <li>Chaque dépense est imputée à une rubrique, dans la limite de son disponible.</li>
+      <li>Un nouveau frais peut être ajouté et publié ; il ne concerne que les nouveaux encaissements.</li>
+      <li>« Partager » : donner au personnel choisi une vue en lecture seule de la ligne d’ensemble des rubriques partagées. L’onglet « Partage répartition » permet de la retirer.</li>
+    </ul>
+  </>;
+}
+
 export function FeeAllocationActivation({ workspace, onChanged }: { workspace: AllocationWorkspace; onChanged: () => void }) {
   const [view, setView] = useState<AllocationActivationView | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
@@ -139,7 +163,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
           : opening.status === 'proposed' ? primary('approve-opening', 'Approuver le solde de départ', () => void mutate('approve-opening', { openingId: opening.id, confirmation }), confirmation !== phrase)
           : primary('activate', 'Activer la répartition', () => void mutate('activate', { openingId: opening.id, confirmation }), confirmation !== phrase || !opening.approvedByCurrentUser)}
         {scanning && <button className="secondary-button justify-self-start" type="button" onClick={() => { stopScan.current = true; }}>Suspendre la vérification après cette étape</button>}
-        <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ol className="ml-5 mt-2 list-decimal"><li>Configurer et publier une répartition.</li><li>Vérifier le solde de départ et justifier les écritures signalées.</li><li>Préparer puis approuver le solde de départ.</li><li>Activer la répartition avec la confirmation requise.</li></ol><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde approuvé n’est pas une activation.</p></details>
+        <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ActivationSteps /><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde approuvé n’est pas une activation.</p></details>
         {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
         {!!run?.pageCount && <Action busy={busy && actionBusy === 'evidence'} disabled={fieldsLocked} className="secondary-button justify-self-start" onClick={() => { setEvidenceOpen(v => !v); if (!evidenceOpen && blockedOnly) void refresh(0, false, 'evidence'); }}>{evidenceOpen ? 'Masquer les pièces' : 'Voir les pièces vérifiées'}</Action>}
         {evidenceOpen && <div className="grid gap-2 rounded border p-3 text-sm" aria-label="Pièces examinées"><p>Vérifier une ancienne écriture ne l’affecte pas à une rubrique et n’approuve pas le solde.</p>
