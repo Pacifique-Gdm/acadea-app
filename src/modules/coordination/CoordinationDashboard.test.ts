@@ -83,10 +83,10 @@ describe("alignement du Dashboard Coordination", () => {
 
   it("ne confond pas chargement, erreur et exclusion d'une école réellement non alignée", () => {
     expect(portal).toContain("loadedSupervisionScope !== supervisionScope");
-    expect(dashboard).toContain("!firstLoad && !loadError && stats.excludedSchoolIds.length > 0");
+    expect(dashboard).toContain("const exclusionsKnown = !firstLoad && !loadError && !loading;");
     expect(dashboard).toContain("displayVerified && hasUnknownFinancialCurrency");
     expect(dashboard).toContain("disabled={!scopedSchools.length || pdfExportBlocked}");
-    expect(dashboard).toContain('pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error)');
+    expect(dashboard).toContain('pdfExportBlocked = financialExportBlocked || noCountedSchool || !dashboardArrears.totals || Boolean(dashboardArrears.error)');
     expect(adminDashboard).toContain("expenseResolution.status === \"loading\"");
     expect(adminDashboard).toContain("financialVerificationReady && hasUnreliableFinancialCurrency");
   });
@@ -103,5 +103,16 @@ describe("alignement du Dashboard Coordination", () => {
     expect(dashboard).toContain("stats.financialGroups.map");
     expect(dashboard).toContain("chartGroups.map");
     expect(dashboard).not.toContain('.join(" · ")');
+  });
+});
+
+describe("Dashboard Coordination : écoles exclues expliquées, jamais de faux 0", () => {
+  const source = readFileSync(new URL("./CoordinationDashboard.tsx", import.meta.url), "utf8");
+  it("si aucune école n'est comptée, aucun chiffre n'est affiché, et l'explication dit comment corriger", () => {
+    expect(source).toContain("const noCountedSchool = exclusionsKnown && scopedSchools.length > 0 && exclusions.length === scopedSchools.length;");
+    expect(source).toContain("{!noCountedSchool && <>");
+    expect(source).toContain("Aucun chiffre n'est affiché : aucune école de ce périmètre n'est comptée dans les statistiques.");
+    expect(source).toContain("<b>Pour corriger :</b> ouvrez Menu › Année scolaire");
+    expect(source).not.toContain("école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.");
   });
 });

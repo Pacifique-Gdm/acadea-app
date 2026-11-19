@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.13.4] — 2026-11-19 — Correction
+- Dashboard Coordination et Sous-coordination : les écoles exclues sont nommées avec leur année active et la façon de corriger ; aucun chiffre à 0 n'est affiché ni exporté quand aucune école n'est comptée
+
 ## [1.13.3] — 2026-11-19 — Correction
 - Recettes automatiques du staging : elles effacent désormais complètement leurs écoles d'essai à la fin (écoles, documents, sous-documents, signaux, fichiers, comptes) au lieu de les désactiver ; commande de nettoyage des écoles d'essai déjà retirées (essai à blanc, effacement, vérification). Staging uniquement.
 
