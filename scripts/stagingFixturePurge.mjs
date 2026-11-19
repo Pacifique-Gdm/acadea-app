@@ -27,11 +27,24 @@ export function isFixtureDocumentOf(tag, id, data) {
     && (data.id === undefined || data.id === id);
 }
 
-/** Écoles d'essai déjà « retirées » par l'ancienne clôture (désactivées et gardées). */
+/**
+ * Écoles d'essai déjà « retirées » par l'ancienne clôture (désactivées et gardées),
+ * ou dont un effacement a été commencé puis interrompu (« deleting »), pour pouvoir reprendre.
+ */
 export function isRetiredFixtureSchool(id, data) {
   return typeof data?.fixtureId === 'string'
     && isFixtureDocumentOf(data.fixtureId, id, data)
-    && data.status === 'inactive' && data.active === false && data.fixtureLifecycle === 'retired';
+    && ['inactive', 'deleting'].includes(data.status) && data.active === false && data.fixtureLifecycle === 'retired';
+}
+
+/** Exécute `task` sur chaque élément, `limit` à la fois (les requêtes Firestore attendent surtout le réseau). */
+async function eachLimited(items, limit, task) {
+  const results = [];
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) { const index = next++; results[index] = await task(items[index]); }
+  }));
+  return results;
 }
 
 /**
@@ -101,19 +114,25 @@ async function deleteRefs(db, refs) {
 }
 
 /** Passe sur toutes les collections : documents marqués `tag` ou appartenant aux écoles d'essai. */
-async function sweep(db, tag, schoolIds) {
-  let deleted = 0;
-  for (const collection of await db.listCollections()) {
-    const refs = new Map();
-    const marked = await collection.where('fixtureId', '==', tag).get().catch(() => ({ docs: [] }));
-    for (const doc of marked.docs) if (isFixtureDocumentOf(tag, doc.id, doc.data())) refs.set(doc.ref.path, doc.ref);
-    for (const schoolId of schoolIds) {
-      const owned = await collection.where('schoolId', '==', schoolId).select().get().catch(() => ({ docs: [] }));
-      for (const doc of owned.docs) refs.set(doc.ref.path, doc.ref);
-    }
-    deleted += await deleteRefs(db, [...refs.values()]);
+const SWEEP_CONCURRENCY = 12;
+
+/** Documents d'une collection marqués `tag` ou appartenant aux écoles d'essai (requêtes « in » par 30). */
+async function fixtureRefsIn(collection, tag, schoolIds, { limit } = {}) {
+  const refs = new Map();
+  let marked = collection.where('fixtureId', '==', tag).select('fixtureId', 'id');
+  if (limit) marked = marked.limit(limit);
+  for (const doc of (await marked.get().catch(() => ({ docs: [] }))).docs) if (isFixtureDocumentOf(tag, doc.id, doc.data())) refs.set(doc.ref.path, doc.ref);
+  for (let start = 0; start < schoolIds.length; start += 30) {
+    let owned = collection.where('schoolId', 'in', schoolIds.slice(start, start + 30)).select();
+    if (limit) owned = owned.limit(limit);
+    for (const doc of (await owned.get().catch(() => ({ docs: [] }))).docs) refs.set(doc.ref.path, doc.ref);
   }
-  return deleted;
+  return [...refs.values()];
+}
+
+async function sweep(db, tag, schoolIds) {
+  const counts = await eachLimited(await db.listCollections(), SWEEP_CONCURRENCY, async (collection) => deleteRefs(db, await fixtureRefsIn(collection, tag, schoolIds)));
+  return counts.reduce((sum, value) => sum + value, 0);
 }
 
 /** Comptes de connexion de la recette : identifiant préfixé par le tag et adresse fictive. */
@@ -158,12 +177,9 @@ export async function purgeStagingFixture({ db, auth, bucket, projectId, tag, ex
 
 /** Restes éventuels de la recette `tag` (lecture seule). */
 export async function fixtureLeftovers(db, tag, schoolIds = []) {
-  const leftovers = [];
-  for (const collection of await db.listCollections()) {
-    const marked = await collection.where('fixtureId', '==', tag).limit(5).select().get().catch(() => ({ size: 0 }));
-    let owned = 0;
-    for (const schoolId of schoolIds) owned += (await collection.where('schoolId', '==', schoolId).limit(5).select().get().catch(() => ({ size: 0 }))).size;
-    if (marked.size || owned) leftovers.push(`${collection.id} : ${marked.size + owned}`);
-  }
-  return leftovers;
+  const found = await eachLimited(await db.listCollections(), SWEEP_CONCURRENCY, async (collection) => {
+    const refs = await fixtureRefsIn(collection, tag, schoolIds, { limit: 5 });
+    return refs.length ? `${collection.id} : ${refs.length}` : '';
+  });
+  return found.filter(Boolean);
 }

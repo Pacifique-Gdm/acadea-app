@@ -18,14 +18,14 @@ type Row = Record<string, unknown>;
 /** Petite base en mémoire : collections racines, filtres « == », lots d'effacement. */
 function fakeDb(collections: Record<string, Record<string, Row>>) {
   const ref = (name: string, id: string) => ({ id, path: `${name}/${id}`, parent: { id: name }, collection: () => ({ select: () => ({ get: async () => ({ docs: [] }) }) }) });
-  const query = (name: string, filters: [string, unknown][] = []) => {
+  const query = (name: string, filters: [string, string, unknown][] = []) => {
     const api = {
-      where: (field: string, _op: string, value: unknown) => query(name, [...filters, [field, value]]),
+      where: (field: string, op: string, value: unknown) => query(name, [...filters, [field, op, value]]),
       select: () => api,
       limit: () => api,
       get: async () => {
         const docs = Object.entries(collections[name] ?? {})
-          .filter(([, data]) => filters.every(([field, value]) => data[field] === value))
+          .filter(([, data]) => filters.every(([field, op, value]) => (op === "in" ? (value as unknown[]).includes(data[field]) : data[field] === value)))
           .map(([id, data]) => ({ id, ref: ref(name, id), data: () => data }));
         return { docs, size: docs.length };
       },
