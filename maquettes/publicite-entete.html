@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette publicité en-tête</title>
+<style>
+  :root{
+    --ink:#14213d; --bg:#f6f8fb; --line:#e2e8f0; --muted:#64748b; --soft:#f1f5f9;
+    --blue:#1d4ed8; --blue-50:#eff6ff; --blue-200:#bfdbfe;
+    --green:#047857; --green-50:#ecfdf5; --amber:#b45309; --amber-50:#fffbeb; --red:#b91c1c; --red-50:#fef2f2;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;line-height:1.45}
+  h1,h2,h3,p{margin:0}
+  button,input,select{font:inherit;color:inherit}
+  .wrap{max-width:1180px;margin:0 auto;padding:16px}
+  .note{background:var(--amber-50);border:1px solid #fde68a;color:#92400e;border-radius:4px;padding:10px 12px;font-size:13px;font-weight:600}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0}
+  .tab{border:1px solid var(--line);background:#fff;border-radius:4px;padding:8px 12px;font-weight:700;cursor:pointer;color:var(--muted)}
+  .tab.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .panel{display:none}.panel.on{display:block}
+  .card{background:#fff;border:1px solid var(--line);border-radius:4px;box-shadow:0 1px 2px rgba(15,23,42,.05)}
+  .p4{padding:16px}.p3{padding:12px}
+  .grid{display:grid;gap:12px}
+  .muted{color:var(--muted)}.xs{font-size:12px}.sm{font-size:13px}.b{font-weight:700}.sb{font-weight:600}
+  .lbl{font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.04em}
+  .chip{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;white-space:nowrap}
+  .c-green{background:var(--green-50);color:var(--green)}.c-blue{background:var(--blue-50);color:var(--blue)}
+  .c-gray{background:var(--soft);color:#475569}.c-amber{background:var(--amber-50);color:var(--amber)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:4px;padding:8px 12px;font-weight:700;cursor:pointer;border:1px solid var(--line);background:#fff}
+  .btn.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .btn.sm{padding:5px 9px;font-size:12px}
+  .btn.danger{color:var(--red);border-color:#fecaca}
+  .field{display:grid;gap:4px}
+  .field input[type=text],.field input[type=url],.field input[type=date],.field select{width:100%;border:1px solid #cbd5e1;border-radius:4px;padding:8px 10px;background:#fff}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .between{justify-content:space-between}
+  .two{display:grid;gap:12px;grid-template-columns:1fr}
+  @media(min-width:720px){.two{grid-template-columns:1fr 1fr}}
+  .split{display:grid;gap:16px;grid-template-columns:1fr}
+  @media(min-width:980px){.split{grid-template-columns:320px 1fr}}
+  .ico{width:18px;height:18px;flex:none}
+  .sectiontitle{font-size:18px;font-weight:800;margin:4px 0 10px}
+
+  /* ---- Module Super administrateur ---- */
+  .sa-nav{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:8px;margin-bottom:12px}
+  .sa-nav span{padding:6px 10px;border-radius:4px;font-weight:700;color:var(--muted);font-size:13px}
+  .sa-nav span.on{background:var(--blue-50);color:var(--blue)}
+  .menucard{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px;border:1px solid var(--line);border-radius:4px;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .menucard .t{font-weight:700}.menucard .d{font-size:13px;color:var(--muted);margin-top:2px}
+  .menucard.new{border-color:#93c5fd;background:var(--blue-50);outline:2px dashed #60a5fa;outline-offset:2px}
+
+  /* Tiroir */
+  .drawer{border:1px solid var(--line);border-radius:4px;background:#fff;box-shadow:0 20px 40px rgba(15,23,42,.18);padding:16px;min-width:0}
+  .drawer-h{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:12px}
+  .x{width:30px;height:30px;border:1px solid var(--line);border-radius:4px;display:grid;place-items:center;color:var(--muted);background:#fff}
+  .dtabs{display:flex;gap:4px;background:var(--soft);padding:4px;border-radius:4px;margin-bottom:14px;flex-wrap:wrap}
+  .dtab{flex:1;min-width:110px;text-align:center;padding:7px 8px;border-radius:3px;font-weight:700;font-size:13px;color:var(--muted);cursor:pointer;border:0;background:transparent}
+  .dtab.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(15,23,42,.1)}
+  .dpanel{display:none}.dpanel.on{display:grid;gap:12px}
+  .camp{display:grid;gap:8px;border:1px solid var(--line);border-radius:4px;padding:12px}
+  .camp .thumb{width:100%;height:46px;border-radius:3px}
+  .kv{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:#475569}
+  .kv b{color:var(--ink)}
+  .upl{border:1px dashed #94a3b8;border-radius:4px;padding:10px;display:grid;gap:8px;background:#f8fafc}
+  .seg{display:grid;gap:6px}
+  .opt{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:4px;padding:10px;cursor:pointer}
+  .opt.on{border-color:#93c5fd;background:var(--blue-50)}
+  .opt input{margin-top:3px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .pill{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:600;background:#fff}
+  .checks{display:grid;gap:6px;grid-template-columns:1fr}
+  @media(min-width:560px){.checks{grid-template-columns:1fr 1fr}}
+  .checks label{display:flex;gap:8px;align-items:center;font-size:13px;font-weight:600}
+  .warn{background:var(--amber-50);border:1px solid #fde68a;border-radius:4px;padding:10px;color:#92400e;font-size:13px}
+  .info{background:var(--blue-50);border:1px solid var(--blue-200);border-radius:4px;padding:10px;color:#1e3a8a;font-size:13px}
+  .ok{background:var(--green-50);border:1px solid #a7f3d0;border-radius:4px;padding:10px;color:#065f46;font-size:13px}
+  .kpis{display:grid;gap:8px;grid-template-columns:repeat(2,1fr)}
+  @media(min-width:640px){.kpis{grid-template-columns:repeat(4,1fr)}}
+  .kpi{border:1px solid var(--line);border-radius:4px;padding:10px}
+  .kpi .v{font-size:20px;font-weight:800}
+  .bars{display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .bars div{flex:1;background:#93c5fd;border-radius:2px 2px 0 0;position:relative}
+  .bars div i{position:absolute;left:0;right:0;bottom:0;background:var(--ink);border-radius:2px 2px 0 0}
+  .meter{height:8px;border-radius:999px;background:var(--soft);overflow:hidden}
+  .meter i{display:block;height:100%;background:var(--blue)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:#475569;background:#f8fafc}
+  td.n,th.n{text-align:right;white-space:nowrap}
+  .tablewrap{overflow-x:auto}
+
+  /* ---- En-têtes ---- */
+  .frame-label{font-size:12px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin:0 0 6px}
+  .appframe{border:1px solid #cbd5e1;border-radius:6px;overflow:hidden;background:var(--bg)}
+  .appbar{display:flex;gap:5px;padding:7px 10px;background:#e2e8f0}
+  .appbar i{width:9px;height:9px;border-radius:50%;background:#94a3b8;display:block}
+  .hdr{background:#fff;border-bottom:1px solid var(--line);padding:12px 16px;display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+  .logo{width:40px;height:40px;border-radius:4px;background:var(--ink);color:#fff;display:grid;place-items:center;font-weight:800;flex:none}
+  .logo.sm{width:22px;height:22px;font-size:11px;border-radius:3px}
+  .hello{font-size:17px;font-weight:800}
+  .tools{display:flex;gap:10px;align-items:center;color:var(--muted)}
+  .year{background:var(--soft);border-radius:4px;padding:7px 10px;font-weight:700;color:#475569;font-size:13px}
+  .thin{background:#fff;border-bottom:1px solid var(--line);padding:6px 16px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .thin .name{font-weight:700;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .thin .tools .year{padding:3px 8px;font-size:12px}
+  .adzone{position:relative;background:#fff;border-bottom:1px solid var(--line);padding:8px 16px}
+  .ad{position:relative;display:block;border-radius:4px;overflow:hidden;text-decoration:none;color:#fff}
+  .ad .tag{position:absolute;top:6px;left:6px;background:rgba(255,255,255,.92);color:#334155;font-size:10px;font-weight:800;padding:2px 6px;border-radius:3px;letter-spacing:.04em;text-transform:uppercase}
+  .ad .go{position:absolute;right:8px;bottom:8px;background:rgba(15,23,42,.65);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:3px}
+  .ad-desk{height:120px}
+  .ad-phone{height:110px}
+  .content-ph{padding:16px;display:grid;gap:10px}
+  .ph{height:14px;border-radius:3px;background:#e2e8f0}
+  .phone{width:340px;max-width:100%;border:10px solid #0f172a;border-radius:28px;overflow:hidden;background:var(--bg);margin:0 auto}
+  .phone .hdr{padding:10px 12px}
+  .phone .hello{font-size:15px}
+  .phones{display:grid;gap:20px;grid-template-columns:1fr}
+  @media(min-width:760px){.phones{grid-template-columns:1fr 1fr}}
+  .ended .adzone{display:none}.ended .thin{display:none}.ended .full{display:flex!important}
+  .full{display:none!important}
+  .never{display:grid;gap:8px;grid-template-columns:1fr}
+  @media(min-width:720px){.never{grid-template-columns:1fr 1fr}}
+  .never div{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:4px;padding:10px;background:#fff}
+  .no{color:var(--red);font-weight:900}
+  .yes{color:var(--green);font-weight:900}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="row between" style="margin-bottom:10px">
+    <div>
+      <h1 style="font-size:22px;font-weight:800">Publicité dans l'en-tête — maquette</h1>
+      <p class="muted sm">Acadéa · proposition à valider · rien n'est encore programmé</p>
+    </div>
+    <span class="chip c-amber">Maquette seulement</span>
+  </div>
+  <p class="note">Les marques, images et chiffres ci-dessous sont inventés pour l'exemple. Aucune donnée réelle d'école ou d'utilisateur.</p>
+
+  <div class="tabs" role="tablist">
+    <button class="tab on" data-p="sa">1. Super administrateur</button>
+    <button class="tab" data-p="desk">2. En-tête ordinateur</button>
+    <button class="tab" data-p="phone">3. En-tête téléphone</button>
+    <button class="tab" data-p="rules">4. Règles d'affichage</button>
+    <button class="tab" data-p="cost">5. Coût Firebase</button>
+  </div>
+
+  <!-- =============== 1. SUPER ADMINISTRATEUR =============== -->
+  <section class="panel on" id="p-sa">
+    <div class="split">
+      <!-- Menu du module -->
+      <div class="card p4" style="align-self:start">
+        <div class="sa-nav"><span>Dashboard</span><span>Écoles</span><span>Coordinations</span><span>Messages</span><span class="on">Menu</span></div>
+        <div class="grid">
+          <div class="menucard"><div><div class="t">Créer Coordination</div><div class="d">Créer une Coordination multi-écoles.</div></div><span class="muted">＋</span></div>
+          <div class="menucard"><div><div class="t">Créer une école</div><div class="d">Ajouter une école et son administrateur principal.</div></div><span class="muted">＋</span></div>
+          <div class="menucard"><div><div class="t">Logo de l'application</div><div class="d">Logo de l'écran de connexion.</div></div><span class="muted">⇪</span></div>
+          <div class="menucard"><div><div class="t">Contrôle des pièces jointes Valves</div><div class="d">Suspendre ou réactiver les uploads.</div></div><span class="muted">⛨</span></div>
+          <div class="menucard new"><div><div class="t">Campagnes publicitaires <span class="chip c-blue">Nouveau</span></div><div class="d">Bannières dans l'en-tête des écoles, dates, ciblage et statistiques.</div></div><span style="color:var(--blue)">📣</span></div>
+        </div>
+        <p class="xs muted" style="margin-top:10px">Carte visible uniquement pour le Super administrateur. Les autres rôles ne voient ni la carte ni le tiroir.</p>
+      </div>
+
+      <!-- Tiroir -->
+      <div class="drawer">
+        <div class="drawer-h">
+          <div><h2 style="font-size:17px;font-weight:800">Campagnes publicitaires</h2><p class="xs muted">Super administrateur uniquement</p></div>
+          <span class="x">✕</span>
+        </div>
+        <div class="dtabs">
+          <button class="dtab on" data-d="list">Campagnes</button>
+          <button class="dtab" data-d="form">Nouvelle campagne</button>
+          <button class="dtab" data-d="stats">Statistiques</button>
+        </div>
+
+        <!-- Liste -->
+        <div class="dpanel on" id="d-list">
+          <div class="row between">
+            <p class="sm muted">4 campagnes · une seule bannière à la fois par école</p>
+            <button class="btn pri sm" onclick="showD('form')">＋ Nouvelle campagne</button>
+          </div>
+
+          <div class="camp">
+            <div class="row between"><b>Papeterie Lumière — Rentrée</b><span class="chip c-green">● En cours</span></div>
+            <div class="thumb" style="background:linear-gradient(100deg,#0f766e,#14b8a6 55%,#fde68a)"></div>
+            <div class="kv"><span>Du <b>03/11/2026</b> au <b>30/11/2026</b></span><span>Cible : <b>toutes les écoles</b></span><span>Rôles : <b>Parents, Administrateurs</b></span></div>
+            <div class="kv"><span>Affichages : <b>182 340</b></span><span>Clics : <b>2 917</b></span><span>Taux : <b>1,6 %</b></span></div>
+            <div class="row"><button class="btn sm" onclick="showD('stats')">Statistiques</button><button class="btn sm" onclick="showD('form')">Modifier</button><button class="btn sm danger">Arrêter maintenant</button></div>
+          </div>
+
+          <div class="camp">
+            <div class="row between"><b>Banque Horizon — Épargne scolaire</b><span class="chip c-blue">Programmée</span></div>
+            <div class="thumb" style="background:linear-gradient(100deg,#1e3a8a,#3b82f6 60%,#e0e7ff)"></div>
+            <div class="kv"><span>Du <b>01/12/2026</b> au <b>20/12/2026</b></span><span>Cible : <b>Coordination Kinshasa-Est (42 écoles)</b></span><span>Rôles : <b>tous</b></span></div>
+            <div class="row"><button class="btn sm" onclick="showD('form')">Modifier</button><button class="btn sm danger">Supprimer</button></div>
+          </div>
+
+          <div class="camp">
+            <div class="row between"><b>Librairie Savoir+</b><span class="chip c-gray">Brouillon</span></div>
+            <div class="kv"><span>Dates non fixées</span><span>Cible : <b>12 écoles choisies</b></span><span>Image téléphone manquante</span></div>
+            <div class="row"><button class="btn sm" onclick="showD('form')">Compléter</button></div>
+          </div>
+
+          <div class="camp" style="opacity:.75">
+            <div class="row between"><b>Uniformes Étoile</b><span class="chip c-gray">Terminée</span></div>
+            <div class="kv"><span>Du <b>01/09/2026</b> au <b>30/09/2026</b></span><span>Affichages : <b>241 905</b></span><span>Clics : <b>3 388</b></span></div>
+            <p class="xs muted">L'en-tête normal des écoles est revenu automatiquement le 01/10/2026 à 00 h 00.</p>
+            <div class="row"><button class="btn sm" onclick="showD('stats')">Statistiques</button><button class="btn sm">Dupliquer</button></div>
+          </div>
+        </div>
+
+        <!-- Formulaire -->
+        <div class="dpanel" id="d-form">
+          <div class="field"><span class="lbl">Marque</span><input type="text" value="Papeterie Lumière"></div>
+          <div class="field"><span class="lbl">Lien du clic</span><input type="url" value="https://exemple-papeterie.cd/rentree"><span class="xs muted">Adresse en https seulement. S'ouvre dans un nouvel onglet ; l'élève ou le parent ne quitte pas Acadéa.</span></div>
+
+          <div class="two">
+            <div class="upl">
+              <span class="lbl">Image ordinateur</span>
+              <div style="height:42px;border-radius:3px;background:linear-gradient(100deg,#0f766e,#14b8a6 55%,#fde68a)"></div>
+              <span class="xs muted">Format conseillé 1200 × 150 px. Allégée automatiquement à l'envoi : <b>40 Ko maximum</b>.</span>
+              <span class="xs"><span class="yes">✓</span> 1200 × 150 · 36 Ko</span>
+              <button class="btn sm" style="justify-self:start">Remplacer</button>
+            </div>
+            <div class="upl">
+              <span class="lbl">Image téléphone</span>
+              <div style="height:42px;width:126px;border-radius:3px;background:linear-gradient(100deg,#0f766e,#14b8a6 55%,#fde68a)"></div>
+              <span class="xs muted">Format conseillé 720 × 240 px. Allégée automatiquement : <b>20 Ko maximum</b>.</span>
+              <span class="xs"><span class="yes">✓</span> 720 × 240 · 17 Ko</span>
+              <button class="btn sm" style="justify-self:start">Remplacer</button>
+            </div>
+          </div>
+
+          <div class="two">
+            <div class="field"><span class="lbl">Début</span><input type="date" value="2026-11-03"></div>
+            <div class="field"><span class="lbl">Fin (incluse)</span><input type="date" value="2026-11-30"></div>
+          </div>
+          <p class="xs muted" style="margin-top:-6px">Le lendemain de la date de fin à 00 h 00 (heure de Kinshasa), la bannière disparaît et l'en-tête de l'école revient seul, sans action de votre part.</p>
+
+          <div class="seg">
+            <span class="lbl">Écoles visées</span>
+            <label class="opt on"><input type="radio" name="t" checked onchange="pickTarget(this)"><span><b>Toutes les écoles</b><br><span class="xs muted">Écoles actives uniquement (les écoles suspendues ne l'affichent pas).</span></span></label>
+            <label class="opt"><input type="radio" name="t" onchange="pickTarget(this)"><span><b>Certaines écoles</b><br><span class="xs muted">Recherche par nom ou sigle, puis ajout une à une.</span></span></label>
+            <label class="opt"><input type="radio" name="t" onchange="pickTarget(this)"><span><b>Une Coordination</b><br><span class="xs muted">Toutes les écoles rattachées à la Coordination choisie, y compris celles ajoutées pendant la campagne.</span></span></label>
+          </div>
+          <div class="upl" id="schoolPick" style="display:none">
+            <input type="text" placeholder="Rechercher une école (nom ou sigle)…" style="border:1px solid #cbd5e1;border-radius:4px;padding:8px 10px">
+            <div class="chips"><span class="pill">Complexe scolaire La Source ✕</span><span class="pill">Institut Mwinda ✕</span><span class="pill">École Les Palmiers ✕</span><span class="pill">+ 9 autres</span></div>
+          </div>
+          <div class="upl" id="coordPick" style="display:none">
+            <select style="border:1px solid #cbd5e1;border-radius:4px;padding:8px 10px"><option>Coordination Kinshasa-Est — 42 écoles</option><option>Coordination Lubumbashi — 18 écoles</option></select>
+          </div>
+
+          <div class="seg">
+            <span class="lbl">Rôles qui voient la bannière</span>
+            <div class="checks">
+              <label><input type="checkbox" checked> Administrateur d'école</label>
+              <label><input type="checkbox"> Caissier</label>
+              <label><input type="checkbox"> Directeur de discipline</label>
+              <label><input type="checkbox"> Directeur des études</label>
+              <label><input type="checkbox"> Secrétaire</label>
+              <label><input type="checkbox"> Enseignant</label>
+              <label><input type="checkbox" checked> Parent</label>
+            </div>
+          </div>
+
+          <div class="info"><b>Résumé :</b> environ <b>180 écoles</b> actives, rôles <b>Administrateur d'école et Parent</b>, du 03/11 au 30/11/2026 (28 jours).</div>
+          <div class="warn"><b>Chevauchement :</b> « Banque Horizon » vise déjà 42 de ces écoles du 01/12 au 20/12. Pas de conflit sur ces dates. En cas de conflit, la campagne qui commence la première garde la place et l'autre est refusée à l'enregistrement.</div>
+
+          <div class="row" style="justify-content:flex-end;border-top:1px solid var(--line);padding-top:12px">
+            <button class="btn">Enregistrer en brouillon</button>
+            <button class="btn pri">Programmer la campagne</button>
+          </div>
+        </div>
+
+        <!-- Statistiques -->
+        <div class="dpanel" id="d-stats">
+          <div class="row between">
+            <div><b>Papeterie Lumière — Rentrée</b><p class="xs muted">Du 03/11 au 30/11/2026 · chiffres arrêtés au 18/11/2026</p></div>
+            <span class="chip c-green">● En cours</span>
+          </div>
+          <div class="kpis">
+            <div class="kpi"><div class="xs muted sb">Affichages</div><div class="v">182 340</div></div>
+            <div class="kpi"><div class="xs muted sb">Clics</div><div class="v">2 917</div></div>
+            <div class="kpi"><div class="xs muted sb">Taux de clic</div><div class="v">1,6 %</div></div>
+            <div class="kpi"><div class="xs muted sb">Écoles touchées</div><div class="v">164 / 180</div></div>
+          </div>
+
+          <div class="card p3">
+            <div class="row between"><b class="sm">Par jour</b><span class="xs muted"><span style="display:inline-block;width:10px;height:10px;background:#93c5fd;border-radius:2px"></span> affichages &nbsp; <span style="display:inline-block;width:10px;height:10px;background:var(--ink);border-radius:2px"></span> clics (échelle ×20)</span></div>
+            <div class="bars" id="bars"></div>
+            <div class="row between xs muted"><span>03/11</span><span>10/11</span><span>18/11</span></div>
+          </div>
+
+          <div class="two">
+            <div class="card p3 grid" style="gap:8px">
+              <b class="sm">Par appareil</b>
+              <div class="row between xs"><span>Ordinateur</span><b>38 %</b></div><div class="meter"><i style="width:38%"></i></div>
+              <div class="row between xs"><span>Téléphone</span><b>62 %</b></div><div class="meter"><i style="width:62%"></i></div>
+            </div>
+            <div class="card p3 grid" style="gap:8px">
+              <b class="sm">Par rôle (toutes écoles réunies)</b>
+              <div class="row between xs"><span>Parent</span><b>71 %</b></div><div class="meter"><i style="width:71%"></i></div>
+              <div class="row between xs"><span>Administrateur d'école</span><b>29 %</b></div><div class="meter"><i style="width:29%"></i></div>
+            </div>
+          </div>
+
+          <div class="card p3">
+            <b class="sm">Écoles où la bannière est la plus vue</b>
+            <div class="tablewrap"><table style="margin-top:6px">
+              <tr><th>École</th><th class="n">Affichages</th><th class="n">Clics</th></tr>
+              <tr><td>Complexe scolaire La Source</td><td class="n">6 812</td><td class="n">121</td></tr>
+              <tr><td>Institut Mwinda</td><td class="n">5 430</td><td class="n">84</td></tr>
+              <tr><td>École Les Palmiers</td><td class="n">4 977</td><td class="n">70</td></tr>
+            </table></div>
+          </div>
+
+          <div class="ok"><b>Aucune donnée personnelle.</b> Acadéa n'enregistre que des totaux : par jour, par école, par type d'appareil, et par rôle pour l'ensemble des écoles. Jamais de nom, de compte, d'adresse IP ni d'identifiant d'appareil. Le rôle n'est jamais croisé avec l'école (une petite école n'a parfois qu'un seul caissier).</div>
+          <p class="xs muted">Chiffres mis à jour une fois par jour : chaque appareil garde ses comptes et les envoie en un seul paquet le lendemain. Ces statistiques ne sont lues que quand vous ouvrez cet onglet, jamais à l'ouverture du Dashboard.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============== 2. EN-TÊTE ORDINATEUR =============== -->
+  <section class="panel" id="p-desk">
+    <div class="row between" style="margin-bottom:10px">
+      <p class="sm muted">Interface d'un administrateur d'école. Le même principe vaut pour tous les rôles visés.</p>
+      <button class="btn sm" onclick="toggleEnd('deskLive',this)">Simuler la fin de la campagne</button>
+    </div>
+    <div class="grid" style="gap:18px">
+      <div>
+        <p class="frame-label">Aujourd'hui (sans campagne)</p>
+        <div class="appframe">
+          <div class="appbar"><i></i><i></i><i></i></div>
+          <div class="hdr">
+            <div class="row" style="flex-wrap:nowrap;min-width:0">
+              <div class="logo">LS</div>
+              <div style="min-width:0">
+                <p class="hello">Bonjour, Mme Kabongo</p>
+                <p class="xs muted">Administrateur d'école</p>
+                <p class="sm b" style="margin-top:3px">Complexe scolaire La Source</p>
+                <p class="xs muted" style="font-style:italic">Savoir, discipline, réussite</p>
+                <p class="xs muted">Av. de la Paix 12, Kinshasa · +243 81 000 0000</p>
+              </div>
+            </div>
+            <div class="tools"><span class="year">Année scolaire : 2026-2027</span><span>⟳</span><span>🔔</span></div>
+          </div>
+          <div class="content-ph"><div class="ph" style="width:40%"></div><div class="ph"></div><div class="ph" style="width:80%"></div></div>
+        </div>
+      </div>
+
+      <div id="deskLive">
+        <p class="frame-label">Pendant la campagne</p>
+        <div class="appframe">
+          <div class="appbar"><i></i><i></i><i></i></div>
+          <!-- ligne fine -->
+          <div class="thin">
+            <div class="row" style="flex-wrap:nowrap;min-width:0;gap:8px">
+              <div class="logo sm">LS</div>
+              <span class="name">Complexe scolaire La Source</span>
+              <span class="xs muted" style="white-space:nowrap">· Mme Kabongo, Administrateur d'école</span>
+            </div>
+            <div class="tools"><span class="year">2026-2027</span><span>⟳</span><span>🔔</span></div>
+          </div>
+          <!-- bannière -->
+          <div class="adzone">
+            <a class="ad ad-desk" href="#" onclick="return false" style="background:linear-gradient(100deg,#0f766e,#14b8a6 55%,#fde68a)">
+              <span class="tag">Publicité</span>
+              <span style="position:absolute;left:24px;top:30px;font-size:26px;font-weight:900;letter-spacing:-.02em">Papeterie Lumière</span>
+              <span style="position:absolute;left:24px;top:66px;font-size:15px;font-weight:600;opacity:.95">Cahiers, cartables et fournitures : −15 % pour la rentrée</span>
+              <span class="go">Découvrir ↗</span>
+            </a>
+          </div>
+          <!-- en-tête complet revenu -->
+          <div class="hdr full">
+            <div class="row" style="flex-wrap:nowrap;min-width:0">
+              <div class="logo">LS</div>
+              <div style="min-width:0">
+                <p class="hello">Bonjour, Mme Kabongo</p>
+                <p class="xs muted">Administrateur d'école</p>
+                <p class="sm b" style="margin-top:3px">Complexe scolaire La Source</p>
+                <p class="xs muted" style="font-style:italic">Savoir, discipline, réussite</p>
+              </div>
+            </div>
+            <div class="tools"><span class="year">Année scolaire : 2026-2027</span><span>⟳</span><span>🔔</span></div>
+          </div>
+          <div class="content-ph"><div class="ph" style="width:40%"></div><div class="ph"></div><div class="ph" style="width:80%"></div></div>
+        </div>
+        <div class="grid xs muted" style="margin-top:8px;gap:4px">
+          <span>• Hauteur totale proche de l'en-tête actuel : le contenu de la page ne descend pas.</span>
+          <span>• La ligne fine garde le petit logo, le nom de l'école, l'année scolaire, l'actualisation et la cloche des messages.</span>
+          <span>• Le mot « Publicité » est toujours visible. Clic = nouvel onglet vers le lien de la marque.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============== 3. EN-TÊTE TÉLÉPHONE =============== -->
+  <section class="panel" id="p-phone">
+    <div class="row between" style="margin-bottom:10px">
+      <p class="sm muted">Interface d'un parent sur téléphone.</p>
+      <button class="btn sm" onclick="toggleEnd('phoneLive',this)">Simuler la fin de la campagne</button>
+    </div>
+    <div class="phones">
+      <div>
+        <p class="frame-label" style="text-align:center">Aujourd'hui</p>
+        <div class="phone">
+          <div class="hdr" style="display:grid;gap:8px">
+            <div class="row" style="flex-wrap:nowrap">
+              <div class="logo">LS</div>
+              <div style="min-width:0">
+                <p class="hello">Bonjour, M. Mukendi</p>
+                <p class="xs muted">Parent</p>
+                <p class="sm b">Complexe scolaire La Source</p>
+                <p class="xs muted" style="font-style:italic">Savoir, discipline, réussite</p>
+              </div>
+            </div>
+            <div class="tools" style="justify-content:flex-end"><span class="year">Année scolaire : 2026-2027</span><span>⟳</span><span>🔔</span></div>
+          </div>
+          <div class="content-ph"><div class="ph" style="width:60%"></div><div class="ph"></div><div class="ph"></div><div class="ph" style="width:70%"></div><div class="ph"></div><div class="ph" style="width:50%"></div></div>
+        </div>
+      </div>
+      <div id="phoneLive">
+        <p class="frame-label" style="text-align:center">Pendant la campagne</p>
+        <div class="phone">
+          <div class="thin" style="padding:6px 10px">
+            <div class="row" style="flex-wrap:nowrap;min-width:0;gap:6px">
+              <div class="logo sm">LS</div>
+              <span class="name">Complexe scolaire La Source</span>
+            </div>
+            <div class="tools" style="gap:8px"><span>⟳</span><span>🔔</span></div>
+          </div>
+          <div class="adzone" style="padding:6px 10px">
+            <a class="ad ad-phone" href="#" onclick="return false" style="background:linear-gradient(120deg,#0f766e,#14b8a6 60%,#fde68a)">
+              <span class="tag">Publicité</span>
+              <span style="position:absolute;left:14px;top:30px;font-size:19px;font-weight:900">Papeterie Lumière</span>
+              <span style="position:absolute;left:14px;top:56px;right:14px;font-size:12px;font-weight:600">−15 % sur les fournitures de rentrée</span>
+              <span class="go">Découvrir ↗</span>
+            </a>
+          </div>
+          <div class="hdr full" style="display:grid;gap:8px">
+            <div class="row" style="flex-wrap:nowrap">
+              <div class="logo">LS</div>
+              <div><p class="hello">Bonjour, M. Mukendi</p><p class="xs muted">Parent</p><p class="sm b">Complexe scolaire La Source</p></div>
+            </div>
+            <div class="tools" style="justify-content:flex-end"><span class="year">Année scolaire : 2026-2027</span><span>⟳</span><span>🔔</span></div>
+          </div>
+          <div class="content-ph"><div class="ph" style="width:60%"></div><div class="ph"></div><div class="ph"></div><div class="ph" style="width:70%"></div></div>
+        </div>
+        <p class="xs muted" style="text-align:center;margin-top:8px">Image téléphone légère (20 Ko max), gardée sur l'appareil : elle n'est téléchargée qu'une fois par campagne.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- =============== 4. RÈGLES =============== -->
+  <section class="panel" id="p-rules">
+    <h2 class="sectiontitle">Où la bannière s'affiche, et où jamais</h2>
+    <div class="never">
+      <div><span class="no">✕</span><span><b>Reçus</b><br><span class="xs muted">Écran du reçu, reçu imprimé et reçu partagé.</span></span></div>
+      <div><span class="no">✕</span><span><b>Rapports et bulletins</b><br><span class="xs muted">Rapports de caisse, bulletins, palmarès, listes imprimables.</span></span></div>
+      <div><span class="no">✕</span><span><b>Tous les PDF</b><br><span class="xs muted">Aucun PDF ne contient la bannière : elle n'existe que dans l'en-tête à l'écran.</span></span></div>
+      <div><span class="no">✕</span><span><b>Écrans de paiement</b><br><span class="xs muted">Encaissement à la caisse et paiement côté parent : l'en-tête normal de l'école est affiché.</span></span></div>
+      <div><span class="no">✕</span><span><b>Super administrateur</b><br><span class="xs muted">Son module n'affiche jamais de publicité (seulement l'aperçu dans le formulaire).</span></span></div>
+      <div><span class="no">✕</span><span><b>Écoles suspendues, hors ligne</b><br><span class="xs muted">École suspendue : pas de bannière. Sans connexion : en-tête normal, aucun envoi.</span></span></div>
+      <div><span class="yes">✓</span><span><b>En-tête des écrans de travail</b><br><span class="xs muted">Dashboard, élèves, notes, présences, messages… pour les rôles cochés.</span></span></div>
+      <div><span class="yes">✓</span><span><b>Fin automatique</b><br><span class="xs muted">À la date de fin, ou dès que le Super administrateur clique « Arrêter maintenant » (au plus tard 1 heure après sur les appareils déjà ouverts).</span></span></div>
+    </div>
+    <h2 class="sectiontitle" style="margin-top:18px">Points à trancher avec vous</h2>
+    <div class="card p4 grid" style="gap:8px">
+      <p class="sm">1. <b>Interface des Coordinations</b> : afficher aussi la bannière aux coordinateurs ? (proposition : non au départ)</p>
+      <p class="sm">2. <b>Bouton « Masquer »</b> sur la bannière : on propose de ne pas en mettre (sinon les clics baissent beaucoup).</p>
+      <p class="sm">3. <b>Plusieurs campagnes sur la même école aux mêmes dates</b> : refus à l'enregistrement (proposé) ou alternance à chaque ouverture ?</p>
+      <p class="sm">4. <b>Fuseau horaire</b> des dates : heure de Kinshasa pour toutes les écoles (proposé) ?</p>
+    </div>
+  </section>
+
+  <!-- =============== 5. COÛT =============== -->
+  <section class="panel" id="p-cost">
+    <h2 class="sectiontitle">Estimation du coût Firebase</h2>
+    <div class="info" style="margin-bottom:12px">Hypothèses : <b>15 appareils actifs par école et par jour</b> (personnel + parents), <b>3 ouvertures</b> par appareil et par jour, une campagne qui vise <b>toutes</b> les écoles et tous les rôles (cas le plus cher), 2 campagnes par mois. Prix europe-west1 : lecture 0,033 $ / 100 000, écriture 0,099 $ / 100 000, stockage 0,165 $ / Go / mois.</div>
+
+    <div class="card p4" style="margin-bottom:12px">
+      <b>Comment c'est rangé</b>
+      <div class="tablewrap"><table style="margin-top:8px">
+        <tr><th>Document</th><th>Contenu</th><th>Qui le lit, quand</th></tr>
+        <tr><td><code>adCampaigns/{id}</code></td><td>Fiche complète (marque, lien, dates, ciblage, état)</td><td>Super administrateur seulement, dans le tiroir</td></tr>
+        <tr><td><code>platformSettings/adsActive</code></td><td>Un seul petit document : les campagnes en cours ou programmées (≈ 2 à 40 Ko)</td><td>Chaque appareil, au plus <b>une fois par heure</b> (gardé sur l'appareil)</td></tr>
+        <tr><td><code>adCreatives/{id}_ordi</code> et <code>_tel</code></td><td>L'image allégée (40 Ko / 20 Ko)</td><td>Une fois par appareil et par campagne (comme le logo de l'école)</td></tr>
+        <tr><td><code>adStats/{id}/jours/{date}_{paquet}</code></td><td>Compteurs groupés : affichages, clics, par appareil, par rôle, par école</td><td>Écrit : 1 fois par appareil et par jour. Lu : seulement à l'ouverture de l'onglet Statistiques</td></tr>
+      </table></div>
+      <p class="xs muted" style="margin-top:8px">Les compteurs du jour sont répartis en <b>20 paquets</b> (selon l'école), pour ne jamais dépasser la limite d'environ 1 écriture par seconde sur un même document, même à 15 000 écoles un lundi matin. Le Dashboard du Super administrateur ne lit <b>rien de plus</b> : aucune lecture par école.</p>
+    </div>
+
+    <div class="card p4" style="margin-bottom:12px">
+      <b>Par jour, avec compteurs groupés (proposé)</b>
+      <div class="tablewrap"><table style="margin-top:8px">
+        <tr><th></th><th class="n">100 écoles</th><th class="n">1 000 écoles</th><th class="n">15 000 écoles</th></tr>
+        <tr><td>Appareils actifs par jour</td><td class="n">1 500</td><td class="n">15 000</td><td class="n">225 000</td></tr>
+        <tr><td>Lectures « campagne active » (≈ 2 par appareil)</td><td class="n">3 000</td><td class="n">30 000</td><td class="n">450 000</td></tr>
+        <tr><td>Lectures images (1 par appareil et par campagne, ramené au jour)</td><td class="n">≈ 150</td><td class="n">≈ 1 500</td><td class="n">≈ 22 500</td></tr>
+        <tr><td>Lectures statistiques (Super administrateur)</td><td class="n">≈ 100</td><td class="n">≈ 200</td><td class="n">≈ 600</td></tr>
+        <tr><td><b>Total lectures / jour</b></td><td class="n"><b>≈ 3 250</b></td><td class="n"><b>≈ 31 700</b></td><td class="n"><b>≈ 473 000</b></td></tr>
+        <tr><td><b>Écritures / jour</b> (1 paquet par appareil)</td><td class="n"><b>1 500</b></td><td class="n"><b>15 000</b></td><td class="n"><b>225 000</b></td></tr>
+      </table></div>
+    </div>
+
+    <div class="card p4" style="margin-bottom:12px">
+      <b>Coût par mois (30 jours)</b>
+      <div class="tablewrap"><table style="margin-top:8px">
+        <tr><th></th><th class="n">100 écoles</th><th class="n">1 000 écoles</th><th class="n">15 000 écoles</th></tr>
+        <tr><td>Lectures</td><td class="n">0,03 $</td><td class="n">0,31 $</td><td class="n">4,70 $</td></tr>
+        <tr><td>Écritures</td><td class="n">0,04 $</td><td class="n">0,45 $</td><td class="n">6,70 $</td></tr>
+        <tr><td>Stockage (images + compteurs, gardés 90 jours)</td><td class="n">&lt; 0,01 $</td><td class="n">&lt; 0,01 $</td><td class="n">≈ 0,02 $</td></tr>
+        <tr><td><b>Total publicité</b></td><td class="n"><b>≈ 0,08 $</b></td><td class="n"><b>≈ 0,77 $</b></td><td class="n"><b>≈ 11,40 $</b></td></tr>
+        <tr><td class="muted">Avec la part gratuite de Firebase (50 000 lectures et 20 000 écritures par jour)</td><td class="n muted">0 $</td><td class="n muted">0 $ à 0,77 $*</td><td class="n muted">≈ 10 $</td></tr>
+      </table></div>
+      <p class="xs muted" style="margin-top:6px">* La part gratuite est partagée avec le reste d'Acadéa : selon ce qu'il reste chaque jour, la publicité coûte entre rien et le montant affiché.</p>
+    </div>
+
+    <div class="two">
+      <div class="card p4">
+        <b>Sans compteurs groupés (à éviter)</b>
+        <p class="sm muted" style="margin-top:6px">1 écriture par affichage et 1 lecture par ouverture, à 15 000 écoles :</p>
+        <p class="sm" style="margin-top:6px">675 000 écritures + 675 000 lectures par jour ≈ <b>27 $ par mois</b>, et des refus d'écriture aux heures de pointe (trop d'écritures sur le même document).</p>
+      </div>
+      <div class="card p4">
+        <b>Pour réduire encore à 15 000 écoles</b>
+        <p class="sm" style="margin-top:6px">• Envoyer les comptes de l'appareil tous les 3 jours au lieu de chaque jour : écritures ÷ 3 → ≈ <b>2,20 $</b> au lieu de 6,70 $.</p>
+        <p class="sm" style="margin-top:4px">• Relire la campagne active toutes les 3 heures au lieu de chaque heure : lectures ÷ 2 environ.</p>
+        <p class="sm" style="margin-top:4px">→ Total possible ≈ <b>4,70 $ par mois</b> à 15 000 écoles, statistiques un peu moins fraîches.</p>
+      </div>
+    </div>
+
+    <div class="card p4" style="margin-top:12px">
+      <b>Taille des images</b>
+      <p class="sm" style="margin-top:6px">Une campagne = 1 image ordinateur (≤ 40 Ko) + 1 image téléphone (≤ 20 Ko). 50 campagnes par an ≈ 3 Mo : coût de stockage négligeable. Chaque appareil ne télécharge que l'image de son type d'écran, une seule fois par campagne : 225 000 appareils × 20 à 40 Ko ≈ 6 Go transférés par campagne à 15 000 écoles. Firestore offre 10 Go de sortie réseau par mois, puis environ 0,12 $ par Go : au pire ≈ 0,70 $ de plus par campagne à 15 000 écoles, rien à 100 ou 1 000 écoles (à vérifier sur la facture du premier mois).</p>
+    </div>
+  </section>
+</div>
+
+<script>
+  document.querySelectorAll('.tab').forEach(function(b){
+    b.addEventListener('click',function(){
+      document.querySelectorAll('.tab').forEach(function(x){x.classList.toggle('on',x===b)});
+      document.querySelectorAll('.panel').forEach(function(p){p.classList.toggle('on',p.id==='p-'+b.dataset.p)});
+    });
+  });
+  function showD(id){
+    document.querySelectorAll('.dtab').forEach(function(x){x.classList.toggle('on',x.dataset.d===id)});
+    document.querySelectorAll('.dpanel').forEach(function(p){p.classList.toggle('on',p.id==='d-'+id)});
+  }
+  document.querySelectorAll('.dtab').forEach(function(b){b.addEventListener('click',function(){showD(b.dataset.d)})});
+  function pickTarget(input){
+    var opts=document.querySelectorAll('.opt');
+    opts.forEach(function(o){o.classList.toggle('on',o.contains(input))});
+    var i=[].indexOf.call(opts,input.closest('.opt'));
+    document.getElementById('schoolPick').style.display=i===1?'grid':'none';
+    document.getElementById('coordPick').style.display=i===2?'grid':'none';
+  }
+  function toggleEnd(id,btn){
+    var el=document.getElementById(id);
+    var ended=el.classList.toggle('ended');
+    btn.textContent=ended?'Revenir à la campagne en cours':'Simuler la fin de la campagne';
+  }
+  (function(){
+    var d=[8,11,12,12,13,6,4,12,13,14,13,12,5,4,13,14],c=[7,9,8,9,10,4,3,9,10,9,8,9,3,2,9,10];
+    var max=15,box=document.getElementById('bars');
+    d.forEach(function(v,i){
+      var col=document.createElement('div');col.style.height=(v/max*100)+'%';
+      var k=document.createElement('i');k.style.height=(c[i]/v*100*0.18)+'%';
+      col.appendChild(k);box.appendChild(col);
+    });
+  })();
+</script>
+</body>
+</html>

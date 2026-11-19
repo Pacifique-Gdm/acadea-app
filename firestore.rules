@@ -541,6 +541,117 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // ---------------- Campagnes publicitaires de l'en-tête ----------------
+    // Lecture par les appareils sans aucune lecture supplémentaire dans les règles :
+    // le rôle vient du jeton signé par le serveur (contenu publicitaire, rien de privé).
+    function adReader() {
+      return request.auth != null && request.auth.token.role is string;
+    }
+
+    function adAudienceRole() {
+      return role() in ["coordination_admin", "sub_coordination_admin"] ? "coordination" : role();
+    }
+
+    function adCountOk(field, max) {
+      let after = request.resource.data.get(field, 0);
+      let before = resource == null ? 0 : resource.data.get(field, 0);
+      return after is int && before is int && after - before >= 0 && after - before <= max;
+    }
+
+    function adStatsFields() {
+      let audience = adAudienceRole();
+      let base = ["v", "c", "vd", "vp", "cd", "cp", "r_" + audience + "_v", "r_" + audience + "_c"];
+      return audience == "coordination"
+        ? base
+        : base.concat(["s_" + tenantSchoolId() + "_v", "s_" + tenantSchoolId() + "_c"]);
+    }
+
+    function adStatsCountsOk() {
+      let audience = adAudienceRole();
+      return adCountOk("v", 2000) && adCountOk("c", 500)
+        && adCountOk("vd", 2000) && adCountOk("vp", 2000)
+        && adCountOk("cd", 500) && adCountOk("cp", 500)
+        && adCountOk("r_" + audience + "_v", 2000) && adCountOk("r_" + audience + "_c", 500)
+        && (audience == "coordination"
+          || (adCountOk("s_" + tenantSchoolId() + "_v", 2000) && adCountOk("s_" + tenantSchoolId() + "_c", 500)));
+    }
+
+    function adStatsWriter() {
+      return adReader()
+        && adAudienceRole() in ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "coordination"]
+        && (adAudienceRole() == "coordination" || tenantSchoolId() is string);
+    }
+
+    match /platformSettings/adsActive {
+      allow read: if adReader();
+      allow create, update: if superAdmin()
+        && request.resource.data.keys().hasOnly(["rotationSeconds", "campaigns", "updatedAt"])
+        && request.resource.data.rotationSeconds is int
+        && request.resource.data.rotationSeconds >= 10
+        && request.resource.data.rotationSeconds <= 600
+        && request.resource.data.campaigns is list
+        && request.resource.data.campaigns.size() <= 30
+        && request.resource.data.updatedAt is string;
+      allow delete: if false;
+    }
+
+    match /adCampaigns/{campaignId} {
+      allow read: if superAdmin();
+      allow create, update: if superAdmin()
+        && campaignId.matches("^[A-Za-z0-9-]{1,40}$")
+        && request.resource.data.id == campaignId
+        && request.resource.data.keys().hasOnly(["id", "brand", "linkUrl", "startDate", "endDate", "targetMode", "schoolIds", "coordinationId", "roles", "weight", "status", "desktopVersion", "phoneVersion", "createdAt", "updatedAt", "updatedBy"])
+        && request.resource.data.brand is string
+        && request.resource.data.brand.size() > 0
+        && request.resource.data.brand.size() <= 60
+        && request.resource.data.linkUrl is string
+        && (request.resource.data.linkUrl == "" || request.resource.data.linkUrl.matches("^https://[^\\s]{1,490}$"))
+        && request.resource.data.targetMode in ["all", "schools", "coordination"]
+        && request.resource.data.schoolIds is list
+        && request.resource.data.schoolIds.size() <= 500
+        && request.resource.data.roles is list
+        && request.resource.data.weight is int
+        && request.resource.data.weight >= 1
+        && request.resource.data.weight <= 10
+        && request.resource.data.status in ["draft", "scheduled", "stopped"];
+      allow delete: if superAdmin();
+    }
+
+    match /adCreatives/{creativeId} {
+      allow read: if adReader();
+      allow create, update: if superAdmin()
+        && request.resource.data.keys().hasOnly(["campaignId", "format", "imageUrl", "version", "updatedAt"])
+        && request.resource.data.format in ["desktop", "phone"]
+        && creativeId == request.resource.data.campaignId + "_" + request.resource.data.format
+        && request.resource.data.imageUrl is string
+        && request.resource.data.imageUrl.size() <= 80000
+        && request.resource.data.imageUrl.matches("^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$")
+        && request.resource.data.version is string
+        && request.resource.data.version.size() <= 64;
+      allow delete: if superAdmin();
+    }
+
+    // Compteurs groupés : un envoi par appareil, par campagne et par jour.
+    // Seulement des additions plafonnées, sur les champs du rôle et de l'école du jeton.
+    match /adStats/{statId} {
+      allow read: if superAdmin();
+      allow create: if adStatsWriter()
+        && request.resource.data.campaignId is string
+        && request.resource.data.campaignId.matches("^[A-Za-z0-9-]{1,40}$")
+        && request.resource.data.date is string
+        && request.resource.data.date.matches("^20[0-9]{2}-[0-1][0-9]-[0-3][0-9]$")
+        && request.resource.data.shard is int
+        && request.resource.data.shard >= 0
+        && request.resource.data.shard < 20
+        && statId == request.resource.data.campaignId + "_" + request.resource.data.date + "_" + string(request.resource.data.shard)
+        && request.resource.data.keys().hasOnly(["campaignId", "date", "shard"].concat(adStatsFields()))
+        && adStatsCountsOk();
+      allow update: if adStatsWriter()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(adStatsFields())
+        && adStatsCountsOk();
+      allow delete: if false;
+    }
+
     match /platformSettings/schoolOptionsCatalog {
       allow read: if superAdmin();
       allow create, update: if superAdmin()
