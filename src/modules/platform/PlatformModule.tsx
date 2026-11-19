@@ -1245,7 +1245,7 @@ export function PlatformModule({
           </div>
         </header>
         <PushNotificationPrompt user={user} />
-        {messagingOpen && <MessagingDrawerShell onClose={() => setMessagingOpen(false)}><PlatformMessages user={user} schools={visibleSchools} /></MessagingDrawerShell>}
+        {messagingOpen && <MessagingDrawerShell onClose={() => setMessagingOpen(false)}><PlatformMessages user={user} schools={visibleSchools} section="inbox" /></MessagingDrawerShell>}
 
         <main className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8">
           {platformLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLoadError}</p>}
@@ -1326,7 +1326,7 @@ export function PlatformModule({
           </KeptTab>
 
           <KeptTab id="messages" active={platformView} visited={visitedViews}>
-            <PlatformMessages user={user} schools={visibleSchools} />
+            <PlatformMessages user={user} schools={visibleSchools} section="compose" />
           </KeptTab>
 
           <KeptTab id="menu" active={platformView} visited={visitedViews}>

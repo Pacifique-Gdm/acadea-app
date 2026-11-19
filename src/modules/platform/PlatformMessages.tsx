@@ -21,8 +21,13 @@ export function usePlatformUnreadCount(userId: string) {
 }
 
 /** Lot 23 : messagerie du Super administrateur (coordinations, sous-coordinations,
- * administrateurs d'école) et réception de leurs réponses, en temps réel. */
-export function PlatformMessages({ user, schools }: { user: AppUser; schools: School[] }) {
+ * administrateurs d'école) et réception de leurs réponses, en temps réel.
+ * Lot SA-6a : l'onglet Messages n'affiche QUE « Nouveau message » (section="compose") ;
+ * « Messages et réponses » n'est que dans la cloche (section="inbox"). Chaque partie ne charge
+ * que ce dont elle a besoin (destinataires pour l'une, messages et non-lus pour l'autre). */
+export type PlatformMessagesSection = "compose" | "inbox";
+
+export function PlatformMessages({ user, schools, section }: { user: AppUser; schools: School[]; section: PlatformMessagesSection }) {
   const [recipients, setRecipients] = useState<PlatformRecipient[]>([]);
   const [role, setRole] = useState<PlatformRecipient["role"]>("coordination_admin");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -35,13 +40,14 @@ export function PlatformMessages({ user, schools }: { user: AppUser; schools: Sc
   const attempt = useRef<{ signature: string; key: string } | null>(null);
 
   useEffect(() => {
+    if (section !== "compose") return undefined;
     let active = true;
     void loadPlatformRecipients().then((items) => { if (active) setRecipients(items); }).catch((cause) => { if (active) setStatus(cause instanceof Error ? cause.message : "Destinataires indisponibles."); });
     return () => { active = false; };
-  }, []);
+  }, [section]);
 
   useEffect(() => {
-    if (!firebaseReady || !db) return undefined;
+    if (section !== "inbox" || !firebaseReady || !db) return undefined;
     const database = db as unknown as Firestore;
     const unsubscribes = [
       onSnapshot(query(collection(database, "messages"), where("participantIds", "array-contains", user.id), where("platformMessage", "==", true), limit(100)),
@@ -50,7 +56,7 @@ export function PlatformMessages({ user, schools }: { user: AppUser; schools: Sc
         (snapshot) => setNotifications(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppNotification))),
     ];
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [user.id]);
+  }, [section, user.id]);
 
   const visible = useMemo(() => recipients.filter((item) => item.role === role), [recipients, role]);
   const sorted = useMemo(() => [...messages].sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt)), [messages]);
@@ -75,7 +81,7 @@ export function PlatformMessages({ user, schools }: { user: AppUser; schools: Sc
   }
 
   return <section className="grid min-w-0 gap-4">
-    <div className="grid gap-3 rounded border bg-white p-5 shadow-sm">
+    {section === "compose" && <div className="grid gap-3 rounded border bg-white p-5 shadow-sm">
       <h2 className="text-lg font-bold">Nouveau message</h2>
       <select className="input" aria-label="Catégorie de destinataires" value={role} onChange={(event) => { setRole(event.target.value as PlatformRecipient["role"]); setSelectedIds([]); }}>
         {Object.entries(roleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -92,8 +98,8 @@ export function PlatformMessages({ user, schools }: { user: AppUser; schools: Sc
       <textarea className="input min-h-32" placeholder="Message" value={body} onChange={(event) => setBody(event.target.value)} />
       <button type="button" className="primary-button justify-center" disabled={sending || !selectedIds.length || !subject.trim() || !body.trim()} onClick={() => void submit()}>{sending ? "Envoi en cours…" : "Envoyer"}</button>
       {status && <p role="status" className="text-sm font-semibold text-slate-600">{status}</p>}
-    </div>
-    <div className="grid gap-2 rounded border bg-white p-5 shadow-sm">
+    </div>}
+    {section === "inbox" && <div className="grid gap-2 rounded border bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-bold">Messages et réponses</h2>
         {notifications.length > 0 && <button type="button" className="rounded-full bg-blue-600 px-2 py-1 text-xs font-semibold text-white" onClick={() => void markRead()}>{notifications.length} non lu(s) · marquer comme lus</button>}
@@ -109,7 +115,8 @@ export function PlatformMessages({ user, schools }: { user: AppUser; schools: Sc
           {received && <ReplyToSender onSend={(text) => submit([message.senderId], text, `Re : ${message.subject}`)} />}
         </article>;
       })}
-    </div>
+      {status && <p role="status" className="text-sm font-semibold text-slate-600">{status}</p>}
+    </div>}
   </section>;
 }
 
