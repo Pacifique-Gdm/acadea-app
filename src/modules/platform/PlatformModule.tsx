@@ -43,6 +43,7 @@ import { coordinationStatusDistribution, schoolStatusDistribution } from "../../
 import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
 import { CoordinationCreateDrawer } from "./CoordinationCreateDrawer";
+import { useServerSchoolSearch } from "./useSchoolSearch";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass, SchoolYear } from "../../types";
 import { CLASSES } from "../../types";
 
@@ -311,6 +312,20 @@ export function PlatformModule({
       if (sortBy === "users") return getPlatformSchoolStats(b.id, data).users - getPlatformSchoolStats(a.id, data).users;
       return a.name.localeCompare(b.name);
     });
+
+  // Lot SA-2a : la liste de l'onglet « Écoles » vient de la recherche du serveur (25 par page, « Voir plus »).
+  // Si la liste de recherche du serveur n'est pas prête, l'écran garde la recherche locale ci-dessus.
+  const serverSearch = useServerSchoolSearch({ query: search, status: statusFilter, schoolType: typeFilter, sort: sortBy }, platformView === "students");
+  const listedSchools = serverSearch.schools?.map((row) => visibleSchools.find((school) => school.id === row.id) ?? row) ?? filteredSchools;
+  const schoolsSignature = visibleSchools.map((school) => `${school.id}:${school.name}:${school.acronym ?? ""}:${school.status}:${school.schoolType ?? ""}`).join("|");
+  const firstSignature = useRef(true);
+  const refreshServerSearch = serverSearch.refresh;
+  useEffect(() => {
+    // Une école créée, modifiée ou supprimée : relecture directe de la liste du serveur (pas au premier affichage).
+    if (firstSignature.current) { firstSignature.current = false; return; }
+    refreshServerSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schoolsSignature]);
 
   function writeAudit(schoolId: string | undefined, action: string): AuditLog {
     return {
@@ -1305,12 +1320,14 @@ export function PlatformModule({
               </div>
 
               <div className="grid min-w-0 gap-3">
-                {filteredSchools.length === 0 && (
+                {serverSearch.schools && <p className="text-sm text-slate-600" role="status" data-school-search-total>{serverSearch.total} école(s){serverSearch.loading ? " · recherche…" : ""}</p>}
+                {serverSearch.error && <p role="alert" className="text-sm text-red-700">{serverSearch.error}</p>}
+                {listedSchools.length === 0 && !serverSearch.loading && (
                   <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
                     Aucune école ne correspond aux filtres.
                   </div>
                 )}
-                {filteredSchools.map((school) => (
+                {listedSchools.map((school) => (
                   <SchoolSaasCard
                     key={school.id}
                     school={school}
@@ -1318,6 +1335,7 @@ export function PlatformModule({
                     onSelect={() => openSchoolDrawer(school.id)}
                   />
                 ))}
+                {serverSearch.hasMore && <button type="button" className="secondary-button justify-center" disabled={serverSearch.loading} onClick={serverSearch.loadMore}>{serverSearch.loading ? "Chargement…" : `Voir plus (${serverSearch.total - (serverSearch.schools?.length ?? 0)} restante(s))`}</button>}
               </div>
             </section>
           )}

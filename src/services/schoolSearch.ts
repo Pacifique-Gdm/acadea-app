@@ -42,5 +42,7 @@ export function schoolFromSearchRow(row: SchoolSearchRow): School {
     id: row.id, name: row.name, acronym: row.acronym || undefined, status: row.status as School["status"],
     schoolType: (row.schoolType || undefined) as School["schoolType"], createdAt: row.createdAt || undefined,
     logoVersion: row.logoVersion, address: "", phone: "", email: "",
+    // Champs non utilisés par la carte de la liste ; le drawer recharge l’école complète.
+    activeSchoolYearId: "", subscriptionPlan: "Standard", subscriptionAmount: 0,
   };
 }
