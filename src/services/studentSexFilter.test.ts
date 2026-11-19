@@ -60,6 +60,8 @@ describe("filtre Filles / Garçons", () => {
   });
   it("un index Firestore pour chaque combinaison avec le sexe", () => {
     for (let mask = 0; mask < 16; mask += 1) {
+      // Lot « allègement des index » : recherche + option n’utilisent plus d’index (option filtrée après la lecture).
+      if ((mask & 8) && (mask & 1)) continue;
       const fields: Array<{ fieldPath: string; order?: string; arrayConfig?: string }> = [];
       if (mask & 8) fields.push({ fieldPath: "searchPrefixes", arrayConfig: "CONTAINS" });
       if (mask & 2) fields.push({ fieldPath: "className", order: "ASCENDING" });

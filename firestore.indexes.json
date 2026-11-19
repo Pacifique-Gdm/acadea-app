@@ -210,32 +210,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "option", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
         { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "option", "order": "ASCENDING" },
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "sortName", "order": "ASCENDING" },
@@ -259,34 +234,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "option", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "section", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
         { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "section", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "option", "order": "ASCENDING" },
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "section", "order": "ASCENDING" },
@@ -400,34 +348,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "option", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
         { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "option", "order": "ASCENDING" },
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "searchArchived", "order": "ASCENDING" },
@@ -453,36 +374,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "option", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "section", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
         { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "section", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "option", "order": "ASCENDING" },
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "searchArchived", "order": "ASCENDING" },
@@ -1006,36 +898,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "option", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "sexe", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
         { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "sexe", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "option", "order": "ASCENDING" },
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "searchArchived", "order": "ASCENDING" },
@@ -1063,38 +926,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "option", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "sexe", "order": "ASCENDING" },
-        { "fieldPath": "section", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
         { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "schoolId", "order": "ASCENDING" },
-        { "fieldPath": "schoolYearId", "order": "ASCENDING" },
-        { "fieldPath": "searchArchived", "order": "ASCENDING" },
-        { "fieldPath": "sexe", "order": "ASCENDING" },
-        { "fieldPath": "section", "order": "ASCENDING" },
-        { "fieldPath": "sortName", "order": "ASCENDING" },
-        { "fieldPath": "__name__", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "students",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "searchPrefixes", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "className", "order": "ASCENDING" },
-        { "fieldPath": "option", "order": "ASCENDING" },
         { "fieldPath": "schoolId", "order": "ASCENDING" },
         { "fieldPath": "schoolYearId", "order": "ASCENDING" },
         { "fieldPath": "searchArchived", "order": "ASCENDING" },
