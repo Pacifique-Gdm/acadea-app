@@ -15,3 +15,4 @@ export { secretaryCorrespondenceFile } from "./audit/secretaryCorrespondenceFile
 export { messageAttachmentFile } from "./audit/messageAttachmentFile.js";
 export { onStudentAllocationForecastChanged, onFeeAllocationForecastChanged } from "./finance/forecastSignals.js";
 export { allocationMaintenanceEvery10Minutes, allocationNightlyCheck } from "./finance/allocationMaintenance.js";
+export { onSchoolSearchIndexChanged, schoolSearchUserCounts } from "./platform/schoolSearchIndex.js";

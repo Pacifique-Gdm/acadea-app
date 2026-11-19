@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   batchDelete: vi.fn(),
   batchCommit: vi.fn(),
   readPlatformStats: vi.fn(),
+  cachedSchoolSearchEntries: vi.fn(),
 }));
 
 vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
@@ -33,6 +34,7 @@ vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
 }));
 vi.mock("../../api/_lib/schoolDeletion.js", () => ({ deleteSchoolCompletely: mocks.deleteSchoolCompletely }));
 vi.mock("../../api/_lib/platformStats.js", () => ({ readPlatformStats: mocks.readPlatformStats }));
+vi.mock("../../api/_lib/schoolSearchIndex.js", async (importOriginal) => ({ ...(await importOriginal<Record<string, unknown>>()), cachedSchoolSearchEntries: mocks.cachedSchoolSearchEntries }));
 vi.mock("../../api/_lib/rateLimit.js", () => ({
   API_RATE_LIMITS: { SCHOOL_DELETE: {}, SCHOOL_ADMIN: {} },
   enforceApiRateLimit: vi.fn(),
@@ -364,6 +366,31 @@ describe("API SEC-004 manage-school", () => {
     const res = response(); await handler(request({ action: "platform-stats" }), res);
     expect(res.statusCode).toBe(403);
     expect(mocks.readPlatformStats).not.toHaveBeenCalled();
+  });
+
+  it("lot SA-2 : recherche des écoles faite par le serveur, sans école ciblée", async () => {
+    mocks.cachedSchoolSearchEntries.mockResolvedValue([
+      { id: "a", name: "C.S LUMBULA", acronym: "", status: "active", schoolType: "Primaire", createdAt: "", logoVersion: "", k: "c s lumbula | cslumbula", o: "c s lumbula" },
+      { id: "b", name: "Institut Mpangu", acronym: "", status: "active", schoolType: "Primaire", createdAt: "", logoVersion: "", k: "institut mpangu | institutmpangu", o: "institut mpangu" },
+    ]);
+    const res = response(); await handler(request({ action: "search-schools", query: "bula", status: "tout", sort: "az", page: 0 }), res);
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toMatchObject({ total: 1, page: 0, schools: [{ id: "a", name: "C.S LUMBULA" }] });
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
+  it("lot SA-2 : dit clairement quand la liste de recherche n'est pas encore prête", async () => {
+    mocks.cachedSchoolSearchEntries.mockResolvedValue(null);
+    const res = response(); await handler(request({ action: "search-schools", query: "x" }), res);
+    expect(res.statusCode).toBe(409);
+    expect(res.body.code).toBe("search-index-not-ready");
+  });
+
+  it("lot SA-2 : réserve la recherche des écoles au Super Administrateur", async () => {
+    mocks.verifyIdToken.mockResolvedValue({ uid: "admin", role: "school_admin", schoolId: "school-a" });
+    const res = response(); await handler(request({ action: "search-schools", query: "x" }), res);
+    expect(res.statusCode).toBe(403);
+    expect(mocks.cachedSchoolSearchEntries).not.toHaveBeenCalled();
   });
 
 });

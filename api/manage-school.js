@@ -8,6 +8,7 @@ import { CashBalanceError, resolveRecordedCurrency } from "./_lib/cashBalance.js
 import { canonicalSchoolOption, normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
 import { readPlatformStats } from "./_lib/platformStats.js";
+import { cachedSchoolSearchEntries, searchSchoolEntries } from "./_lib/schoolSearchIndex.js";
 
 export const maxDuration = 300;
 
@@ -150,6 +151,25 @@ export default async function handler(req, res) {
       // Lot SA-3 : chiffres du Dashboard calculés par le serveur (comptages gardés 10 minutes).
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "platform.stats", ...API_RATE_LIMITS.SCHOOL_ADMIN });
       sendJson(res, 200, { stats: await readPlatformStats(db, { force: body.force === true }) });
+      return;
+    }
+    if (requestedAction === "search-schools") {
+      // Lot SA-2 : recherche, filtres, tri et pages faits par le serveur sur la liste de recherche.
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "platform.school-search", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      // « fresh » : juste après une création, une modification ou une suppression d'école (relecture directe).
+      const entries = await cachedSchoolSearchEntries(db, body.fresh === true ? { maxAgeMs: 0 } : undefined);
+      if (!entries) {
+        sendJson(res, 409, { error: "Liste de recherche des écoles pas encore prête.", code: "search-index-not-ready" });
+        return;
+      }
+      const choice = (value, allowed) => (typeof value === "string" && allowed.includes(value) ? value : allowed[0]);
+      sendJson(res, 200, searchSchoolEntries(entries, {
+        query: typeof body.query === "string" ? body.query.slice(0, 120) : "",
+        status: choice(body.status, ["all", "active", "suspended", "pending", "inactive"]),
+        schoolType: typeof body.schoolType === "string" && body.schoolType.length <= 40 ? body.schoolType : "all",
+        sort: choice(body.sort, ["az", "recent", "users"]),
+        page: Number.isInteger(body.page) && body.page >= 0 && body.page < 10_000 ? body.page : 0,
+      }));
       return;
     }
     const action = ["update", "change-acronym", "change-currency", "rename-option", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
