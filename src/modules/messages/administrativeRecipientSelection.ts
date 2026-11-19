@@ -21,10 +21,12 @@ const baseSchoolMessageRecipientCategories: Array<{ value: SchoolMessageRecipien
   { value: "teachers", label: "Enseignants" },
 ];
 
-export function schoolMessageRecipientCategories(recipients: SchoolMessageRecipient[], includeCoordinationCategories: boolean) {
+/** `coordinationKnown` : l'école est rattachée à une Coordination ; « Coordinateur » s'affiche tout de suite,
+ * sans attendre que la liste des destinataires arrive du serveur. */
+export function schoolMessageRecipientCategories(recipients: SchoolMessageRecipient[], includeCoordinationCategories: boolean, coordinationKnown = false, listLoaded = true) {
   const categories = [...baseSchoolMessageRecipientCategories];
   if (!includeCoordinationCategories) return categories;
-  if (recipients.some(({ role }) => role === "coordination_admin")) categories.push({ value: "coordination", label: "Coordinateur" });
+  if (recipients.some(({ role }) => role === "coordination_admin") || (coordinationKnown && !listLoaded)) categories.push({ value: "coordination", label: "Coordinateur" });
   if (recipients.some(({ role }) => role === "sub_coordination_admin")) categories.push({ value: "subCoordination", label: "Sous-coordinateur" });
   return categories;
 }

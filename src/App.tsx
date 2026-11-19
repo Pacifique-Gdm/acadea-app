@@ -1,4 +1,5 @@
-﻿import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+﻿import { usePrefetchSchoolMessageRecipients } from "./hooks/useSchoolMessageRecipients";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePrefetchAllocation } from "./services/feeAllocationStore";
 import { PushNotificationSettings } from "./components/notifications/PushNotificationPrompt";
 import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
@@ -498,6 +499,8 @@ export default function App() {
   const school = data.schools.find((item) => item.id === user?.schoolId);
   // Lot « répartition rapide » : « Répartition des frais » préparée dès la connexion (Administrateur, Caissier).
   usePrefetchAllocation(user, school?.id ? [school.id] : []);
+  // Correction « Messages » : la liste des destinataires de l'Administrateur est préparée discrètement après la connexion.
+  usePrefetchSchoolMessageRecipients(user, school?.id, selectedYearId);
   const schoolYears = useMemo(() => (school ? orderSchoolYears(data.schoolYears.filter((year) => year.schoolId === school.id), school.activeSchoolYearId) : []), [data.schoolYears, school]);
   const selectedYear = schoolYears.find((year) => year.id === selectedYearId);
   useEffect(() => {
@@ -1324,7 +1327,8 @@ export default function App() {
           />
         )}
         DisciplineBottomNavigationComponent={DisciplineBottomNavigation}
-        MessagesModuleComponent={(props) => <MessagesModule {...props} createId={uid} />}
+        // Correction « Messages » : composant stable (une fonction recréée à chaque rendu faisait remonter tout l'écran).
+        MessagesModuleComponent={MessagesModule}
         createId={uid}
         selectAttendanceSettingsForYear={selectAttendanceSettingsForYear}
         maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES}

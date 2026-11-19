@@ -80,14 +80,15 @@ describe("messagerie des modules administratifs", () => {
 
   it("ajoute Coordinateur et Sous-coordinateur via l'annuaire sécurisé temps réel", () => {
     expect(source).toContain("useSchoolMessageRecipients(user, school, year.id)");
-    expect(source).toContain("schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin)");
+    expect(source).toContain("schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin, hasCoordination, !isLoadingAdministrativeRecipients)");
     expect(source).toContain("recipientCategories.map");
     expect(source).toContain('recipientCategory === "coordination"');
     expect(source).toContain('recipientCategory === "subCoordination"');
     expect(directoryHook).toContain('collection(db, "subCoordinationSchools")');
     expect(directoryHook).toContain('doc(db, "coordinations", coordinationId)');
-    expect(directoryHook).toContain('doc(db, "users", id)');
+    expect(directoryHook).toContain('doc(db!, "users", id)');
     expect(directoryHook).toContain("loadSchoolMessageRecipients");
-    expect(directoryHook).not.toContain("setTimeout");
+    // Aucune relecture répétée : une seule préparation différée à la connexion, jamais de minuterie qui recharge.
+    expect(directoryHook).not.toContain("setInterval");
   });
 });
