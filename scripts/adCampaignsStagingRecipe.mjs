@@ -26,7 +26,8 @@ const projectId = "acadea-staging";
 const output = "diagnostics/ad-campaigns-staging";
 const manifestPath = `${output}/manifest.json`;
 const port = 5199;
-const origin = `http://127.0.0.1:${port}`;
+const origin = process.env.ACADEA_AD_ORIGIN || `http://127.0.0.1:${port}`;
+const localServer = !process.env.ACADEA_AD_ORIGIN;
 const step = (process.argv.find((item) => item.startsWith("--step=")) ?? "--step=all").slice(7);
 const results = [];
 const record = (name, result, detail) => { results.push({ name, result, ...(detail ? { detail } : {}) }); console.log(`${result === "PASS" ? "OK " : "ÉCHEC"} : ${name}${detail ? ` — ${detail}` : ""}`); };
@@ -176,8 +177,13 @@ async function run() {
     if (step === "retire") { await retire(s); return; }
     const { m, password } = await prepare(s);
     record("École, comptes et deux fausses campagnes créés (visibles de l'école fictive seulement)", "PASS");
-    server = spawn(process.platform === "win32" ? "npx.cmd" : "npx", ["vite", "--mode", "staging", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], { shell: process.platform === "win32", stdio: "ignore", windowsHide: true });
+    if (localServer) server = spawn(process.platform === "win32" ? "npx.cmd" : "npx", ["vite", "--mode", "staging", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], { shell: process.platform === "win32", stdio: "ignore", windowsHide: true });
     await waitForServer();
+    if (process.env.ACADEA_EXPECTED_SHA) {
+      const served = await (await fetch(`${origin}/version.json`)).json();
+      assert.equal(served.version, process.env.ACADEA_EXPECTED_SHA, "Le staging ne sert pas la version attendue.");
+      record(`Le staging sert bien la version ${served.version.slice(0, 7)}`, "PASS");
+    }
     browser = await chromium.launch();
     const admin = m.users.find((user) => user.key === "admin");
     const platform = m.users.find((user) => user.key === "platform");
@@ -193,18 +199,21 @@ async function run() {
     });
     await checked("Les deux campagnes tournent toutes les 10 s, la A deux fois plus souvent (fondu doux)", async () => {
       const seen = [];
-      const deadline = Date.now() + 75000;
+      const time = { A: 0, B: 0 };
+      const deadline = Date.now() + 90000;
       while (Date.now() < deadline) {
         const alt = await bannerLink.locator("img").getAttribute("alt").catch(() => "");
-        if (alt && seen[seen.length - 1] !== alt) seen.push(alt);
+        const letter = alt.includes("Campagne A") ? "A" : alt.includes("Campagne B") ? "B" : "";
+        if (letter) time[letter] += 1;
+        if (letter && seen[seen.length - 1] !== letter) seen.push(letter);
         await page.waitForTimeout(500);
       }
-      const a = seen.filter((alt) => alt.includes("Campagne A")).length;
-      const b = seen.filter((alt) => alt.includes("Campagne B")).length;
-      assert.ok(b >= 2 && a >= 2 * b - 1, `ordre vu : ${seen.map((alt) => (alt.includes("Campagne A") ? "A" : "B")).join(" ")}`);
+      const ratio = time.B ? time.A / time.B : 0;
+      assert.ok(seen.filter((letter) => letter === "B").length >= 2 && ratio >= 1.4 && ratio <= 2.8,
+        `ordre vu : ${seen.join(" ")} ; temps A/B = ${ratio.toFixed(2)}`);
       const style = await bannerLink.getAttribute("style");
       assert.match(style ?? "", /opacity 450ms/);
-      return `ordre vu : ${seen.map((alt) => (alt.includes("Campagne A") ? "A" : "B")).join(" ")}`;
+      return `ordre vu : ${seen.join(" ")} ; temps d'affichage A/B = ${ratio.toFixed(2)} (attendu ≈ 2)`;
     });
     await checked("Aucune publicité sur le Contrôle (paiements, reçus)", async () => {
       await page.getByRole("button", { name: "Contrôle", exact: true }).last().click();

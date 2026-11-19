@@ -132,16 +132,22 @@ export function useHeaderAd(params: { role: string | undefined; schoolId?: strin
   const rotationMs = (settings?.rotationSeconds ?? 30) * 1000;
   useEffect(() => {
     if (rotation.length < 2 || !visible || suppressed) return undefined;
+    // Même campagne au tour suivant (part d'affichage > 1) : elle reste, sans fondu inutile.
+    const sameNext = rotation[(step + 1) % rotation.length] === rotation[step % rotation.length];
     let fadeTimer = 0;
-    const timer = window.setInterval(() => {
+    const timer = window.setTimeout(() => {
+      if (sameNext) {
+        setStep((value) => value + 1);
+        return;
+      }
       setFading(true);
       fadeTimer = window.setTimeout(() => {
         setStep((value) => value + 1);
         setFading(false);
       }, AD_FADE_MS);
     }, rotationMs);
-    return () => { window.clearInterval(timer); window.clearTimeout(fadeTimer); };
-  }, [rotation.length, rotationMs, suppressed, visible]);
+    return () => { window.clearTimeout(timer); window.clearTimeout(fadeTimer); };
+  }, [rotation, rotationMs, step, suppressed, visible]);
 
   const imageUrl = current ? images[imageKey(current)] ?? "" : "";
   const shown = Boolean(enabled && current && imageUrl && online && !suppressed);
