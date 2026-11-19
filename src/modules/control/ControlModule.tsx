@@ -1,3 +1,4 @@
+import { useAdSuppression } from "../../services/adSuppression";
 import { supportBalance } from "../../../api/_lib/socialSupportMath.js";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
@@ -74,6 +75,8 @@ export function ControlModule({
   refreshing = false,
   refreshError = "",
 }: ControlModuleProps) {
+  // Écran financier : jamais de publicité dans l'en-tête.
+  useAdSuppression();
   const [studentId, setStudentId] = useState("");
   const [paymentStudentQuery, setPaymentStudentQuery] = useState("");
   const [feeTypeId, setFeeTypeId] = useState("");

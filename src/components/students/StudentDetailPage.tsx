@@ -1,3 +1,4 @@
+import { useAdSuppression } from "../../services/adSuppression";
 import { useMemo, useState, type ReactNode } from "react";
 import { Download, Plus, Search, UserMinus } from "lucide-react";
 import { ActionSnackbar, AdminDrawer, FormPanel, Metric } from "../ui";
@@ -59,6 +60,8 @@ export function StudentDetailPage({
   parentLoading?: boolean;
   parentError?: string;
 }) {
+  // Écran financier : jamais de publicité dans l'en-tête.
+  useAdSuppression();
   const [parentLinkOpen, setParentLinkOpen] = useState(false);
   const [parentLinkSearch, setParentLinkSearch] = useState("");
   const [parentLinkTarget, setParentLinkTarget] = useState<ParentProfile | null>(null);

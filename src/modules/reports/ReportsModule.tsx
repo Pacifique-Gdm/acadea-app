@@ -1,3 +1,4 @@
+import { useAdSuppression } from "../../services/adSuppression";
 import { useEffect, useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { useResolvedExpenseCurrencies } from "../../hooks/useResolvedExpenseCurrencies";
@@ -34,6 +35,8 @@ type ReportsModuleProps = {
 };
 
 export function ReportsModule({ yearData, school, year, refreshing = false, refreshError = "" }: ReportsModuleProps) {
+  // Écran financier : jamais de publicité dans l'en-tête.
+  useAdSuppression();
   const resolvedExpenses = useResolvedExpenseCurrencies(yearData.expenses);
   const today = new Date().toISOString().slice(0, 10);
   const [startDate, setStartDate] = useState(today);
