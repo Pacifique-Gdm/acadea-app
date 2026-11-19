@@ -673,6 +673,13 @@ service cloud.firestore {
     // Logo de l'école rangé à part : mêmes lecteurs que l'école. Écriture par le
     // Super Administrateur ou l'administrateur de l'école, avec le même repère
     // logoVersion que l'école après l'enregistrement (écriture groupée).
+    // Compteur de changements de la Répartition des frais (1.15.2) : tenu par le serveur seul,
+    // lu par les comptes de l’école (et les coordinations) pour recharger le drawer seulement quand il bouge.
+    match /feeAllocationChangeCounters/{counterId} {
+      allow read: if schoolReadable(counterId.split('__')[0]);
+      allow write: if false;
+    }
+
     match /schoolLogos/{schoolId} {
       allow read: if schoolReadable(schoolId);
       allow create, update: if (superAdmin() || (schoolAdmin() && schoolId == tenantSchoolId()))

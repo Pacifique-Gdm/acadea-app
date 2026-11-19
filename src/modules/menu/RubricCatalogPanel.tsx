@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteRubric, loadRubricCatalog, renameRubric, type AllocationCatalogRubric, type AllocationShares } from "../../services/feeAllocation";
-import { BUTTON_ROW, ShareRubricButton } from "./FeeAllocationSharing";
+import { BUTTON_ROW, HandTypedPhraseField, RENAME_PHRASE, ShareRubricButton } from "./FeeAllocationSharing";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : "Rubriques indisponibles.";
 
@@ -15,6 +15,8 @@ export function RubricCatalogPanel({ schoolId, onChanged, order = [], shares, on
   const [rubrics, setRubrics] = useState<AllocationCatalogRubric[] | null>(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState("");
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
+  // Version 1.15.2 : « RENOMMER CETTE RUBRIQUE » tapée à la main ; bouton bloqué tant que la phrase n'est pas exacte.
+  const [renameTyped, setRenameTyped] = useState("");
   const refresh = useCallback(async () => {
     try { setRubrics((await loadRubricCatalog(schoolId)).rubrics); setError(""); } catch (cause) { setError(message(cause)); }
   }, [schoolId]);
@@ -35,17 +37,18 @@ export function RubricCatalogPanel({ schoolId, onChanged, order = [], shares, on
   };
   return <details className="rounded border p-3 text-sm">
     <summary className="cursor-pointer font-semibold">Rubriques de l'année</summary>
-    <p className="mt-2 text-xs text-slate-600">Une rubrique réutilisée sur plusieurs frais additionne ses montants. Une nouvelle rubrique se crée par « + Ajouter », puis « + Nouvelle rubrique… ». « Partager » la montre, en lecture seule, au personnel choisi.</p>
+    <p className="mt-2 text-justify text-xs text-slate-600">Une rubrique réutilisée sur plusieurs frais additionne ses montants. Une nouvelle rubrique se crée par « + Ajouter », puis « + Nouvelle rubrique… ». « Partager » la montre, en lecture seule, au personnel choisi.</p>
     {error && <p role="alert" className="mt-2 text-red-700">{error}</p>}
     {!rubrics && !error && <div aria-hidden className="mt-2 h-16 animate-pulse rounded bg-slate-100" />}
     <ul className="mt-2 grid gap-2">{sorted.map((rubric) => <li key={rubric.id} className="grid gap-2 rounded border p-2">
       {editing?.id === rubric.id
         ? <span className="grid gap-2"><input className="input w-full" aria-label="Nouveau nom" maxLength={80} value={editing.name} onChange={(event) => setEditing({ id: rubric.id, name: event.target.value })}/>
+          <HandTypedPhraseField phrase={RENAME_PHRASE} value={renameTyped} onChange={setRenameTyped} />
           <span className={BUTTON_ROW}><button type="button" className="secondary-button w-full justify-center" onClick={() => setEditing(null)}>Annuler</button>
-          <button type="button" className="primary-button w-full justify-center" disabled={!!busy || !editing.name.trim()} onClick={() => void run(`rename-${rubric.id}`, async () => { await renameRubric(schoolId, rubric.id, editing.name); setEditing(null); })}>Enregistrer</button></span></span>
+          <button type="button" className="primary-button w-full justify-center" disabled={!!busy || !editing.name.trim() || renameTyped !== RENAME_PHRASE} onClick={() => { if (renameTyped !== RENAME_PHRASE) return; void run(`rename-${rubric.id}`, async () => { await renameRubric(schoolId, rubric.id, editing.name); setEditing(null); }); }}>Enregistrer</button></span></span>
         : <><span className="font-semibold">{rubric.name}{shareLabel(rubric.id) && <span className="ml-2 rounded bg-emerald-50 px-2 py-0.5 text-xs font-normal text-emerald-800">{shareLabel(rubric.id)}</span>}</span>
           <span className={BUTTON_ROW}>
-            <button type="button" className="secondary-button w-full justify-center" disabled={!!busy} onClick={() => setEditing({ id: rubric.id, name: rubric.name })}>Renommer</button>
+            <button type="button" className="secondary-button w-full justify-center" disabled={!!busy} onClick={() => { setEditing({ id: rubric.id, name: rubric.name }); setRenameTyped(""); }}>Renommer</button>
             {shares && onSharesChanged && <ShareRubricButton schoolId={schoolId} rubric={rubric} shares={shares} onChanged={onSharesChanged} />}
             {rubric.used === false && <button type="button" className="secondary-button w-full justify-center" disabled={!!busy} onClick={() => void run(`delete-${rubric.id}`, () => deleteRubric(schoolId, rubric.id))}>Supprimer</button>}
           </span></>}

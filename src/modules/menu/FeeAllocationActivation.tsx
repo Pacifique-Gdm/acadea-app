@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { RefreshCw } from "lucide-react";
 import { AllocationApiError, allocationRequest, loadAllocationActivation, type AllocationActivationView, type AllocationWorkspace, type AllocationEvidence, type AllocationProof } from "../../services/feeAllocation";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
@@ -9,6 +10,9 @@ const parseAmount = (value: string) => {
   if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim())) throw new Error("Indiquez un montant positif avec deux décimales au maximum.");
   return toMoneyMinor(Number(value.replace(",", ".")));
 };
+
+/** Version 1.15.2 : phrase montrée à la place de « Préparer la nouvelle version » quand le frais est déjà réparti. */
+export const DRAFT_LOCKED_TEXT = "Ce frais est déjà réparti pour cette année : sa répartition ne change plus. « Préparer la nouvelle version » sert seulement à un frais pas encore réparti, par exemple un frais ou une classe ajouté en cours d’année.";
 
 /** The UI never invents an opening allocation or treats an uncertain reply as success. */
 /** Texte des étapes validé par l’utilisateur le 19/11. */
@@ -52,12 +56,15 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const [proofs, setProofs] = useState<AllocationProof[]>([]), [proofSelected, setProofSelected] = useState('');
   const [proofReason, setProofReason] = useState(''), [proofCursor, setProofCursor] = useState<string | null>(null);
   const schoolId = workspace.school.id;
+  // Version 1.15.2 : le premier chargement finit toujours, par l'état ou par une erreur claire avec « Réessayer ».
+  const [initialRound, setInitialRound] = useState(0);
   useEffect(() => {
     let disposed = false; stopScan.current = false;
+    setActionBusy('initial'); setError('');
     void loadAllocationActivation(schoolId).then(v => { if (!disposed) setView(v); })
       .catch(e => { if (!disposed) setError(errorText(e)); }).finally(() => { if (!disposed) setActionBusy(''); });
     return () => { disposed = true; stopScan.current = true; };
-  }, [schoolId]);
+  }, [schoolId, initialRound]);
   async function refresh(page = 0, onlyBlocked = false, key = 'refresh') {
     if (locked.current || uncertain) return;
     locked.current = true; setBusy(true); setActionBusy(key); setError('');
@@ -141,17 +148,23 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const label = (row: AllocationEvidence) => row.nature + (row.receiptNumber ? ' · reçu ' + row.receiptNumber : '') + ' · ' + readableDate(row.createdAt) + ' · ' + (row.amountMinor === null ? 'Montant non justifié' : row.currency ? formatCurrencyMoney(row.amountMinor / 100, row.currency) : (row.amountMinor / 100).toLocaleString('fr-FR') + ' (devise non justifiée)');
   const payrollOnly = run?.blockedCount === 1 && view?.singleBlocker?.nature === 'Paiement de personnel';
   const missing = !workspace.configs.length ? 'Configurer une répartition.' : prepared || draft ? 'Préparer et publier la répartition.' : !run || run.stale || run.status === 'RUNNING' ? 'Terminer la vérification du solde de départ.' : run.blockedCount ? 'Justifier les écritures signalées, puis vérifier à nouveau le solde.' : !opening || opening.stale ? 'Préparer le solde de départ.' : opening.status === 'proposed' ? 'Approuver le solde de départ.' : !opening.approvedByCurrentUser ? 'La confirmation doit être faite par l’administrateur qui a approuvé.' : 'Saisir la confirmation pour activer la répartition.';
+  // Version 1.15.2 : « Actualiser » devient un bouton icône, à droite de l'action principale, sur la même ligne.
+  const refreshButton = <button type="button" className="secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center p-0" disabled={fieldsLocked} aria-busy={busy && actionBusy === 'refresh'} title="Actualiser" onClick={() => void refresh()}><RefreshCw aria-hidden className={`h-5 w-5 ${busy && actionBusy === 'refresh' ? 'animate-spin' : ''}`} /><span className="sr-only">Actualiser</span></button>;
+  const actionRow = (node: ReactNode) => <div className="flex min-w-0 flex-wrap items-center gap-2" data-allocation-action-row>{node}{refreshButton}</div>;
+  // Version 1.15.2 : un frais déjà réparti (version en service) ne peut pas recevoir de nouvelle version : le serveur refuse.
+  const draftLocked = !!draft && view?.status !== 'EN_PREPARATION' && workspace.configs.some(c => c.feeTypeId === draft.feeTypeId && c.currentVersionId);
   const primary = (key: string, text: string, click: () => void, disabled = false) => <Action busy={busy && actionBusy === key} disabled={fieldsLocked || disabled} className="primary-button justify-self-start" onClick={click}>{text}</Action>;
   return <section className="grid min-w-0 gap-3 rounded border p-3" aria-label="Activation par établissement">
-    <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold">{view ? view.status === 'ACTIVE' ? 'Active' : view.status === 'PAUSED' ? 'Active' : 'En préparation' : 'État à vérifier'}</h3><Action busy={busy && actionBusy === 'refresh'} disabled={fieldsLocked} onClick={() => void refresh()}>Actualiser</Action></div>
+    <h3 className="font-bold">{view ? view.status === 'ACTIVE' ? 'Active' : view.status === 'PAUSED' ? 'Active' : 'En préparation' : actionBusy === 'initial' ? 'État de la répartition' : 'État à vérifier'}</h3>
     {!view && actionBusy === 'initial' && <p role="status">Chargement...</p>}
+    {!view && actionBusy !== 'initial' && <div role="alert" className="grid gap-2 rounded border border-red-200 p-3 text-justify text-sm"><p>L'état de la répartition n'a pas pu être chargé.{error ? ` ${error}` : ''}</p><button type="button" className="secondary-button justify-self-start" onClick={() => setInitialRound(n => n + 1)}>Réessayer</button></div>}
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}
     {uncertain && <div role="status"><p>Réponse incertaine : vérifiez la même demande, sans recréer l’opération.</p><Action busy={busy && actionBusy === 'retry'} disabled={busy} onClick={() => { if (pending.current) void mutate(pending.current.action, pending.current.body); }}>Vérifier la même demande</Action></div>}
     {view && <>
       {run && <p role="status" className="text-sm">{run.scanned} écritures examinées · {run.blockedCount ? payrollOnly ? '1 paiement de personnel à vérifier' : run.blockedCount + ' écriture(s) à vérifier' : 'aucune écriture signalée'}. {run.stale ? 'Les écritures ont changé : vérification à actualiser.' : run.status === 'COMPLETE' ? 'Vérification terminée.' : run.status === 'RUNNING' ? 'Vérification en cours.' : run.reason}</p>}
       {view.status === 'EN_PREPARATION' ? <>
-        {!workspace.configs.length ? <p className="text-sm">Utilisez « + Ajouter » pour préparer la première répartition.</p>
+        {actionRow(!workspace.configs.length ? <p className="text-sm">Utilisez « + Ajouter » pour préparer la première répartition.</p>
           : prepared ? primary('publish-configuration', 'Publier la répartition', () => void mutate('publish-configuration', { versionId: prepared.id }))
           : draft ? primary('prepare-version', 'Préparer une version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision }))
           : !run || run.stale ? primary('start-reconciliation', 'Vérifier le solde de départ', () => void mutate('start-reconciliation', {}))
@@ -161,7 +174,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
           : (!opening || opening.stale) && !openingForm ? <button className="primary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setOpeningForm(true)}>Préparer le solde de départ</button>
           : (!opening || opening.stale) ? primary('prepare-opening', 'Confirmer le solde de départ', () => void submitOpening(), confirmation !== phrase || !view.rubrics.length)
           : opening.status === 'proposed' ? primary('approve-opening', 'Approuver le solde de départ', () => void mutate('approve-opening', { openingId: opening.id, confirmation }), confirmation !== phrase)
-          : primary('activate', 'Activer la répartition', () => void mutate('activate', { openingId: opening.id, confirmation }), confirmation !== phrase || !opening.approvedByCurrentUser)}
+          : primary('activate', 'Activer la répartition', () => void mutate('activate', { openingId: opening.id, confirmation }), confirmation !== phrase || !opening.approvedByCurrentUser))}
         {scanning && <button className="secondary-button justify-self-start" type="button" onClick={() => { stopScan.current = true; }}>Suspendre la vérification après cette étape</button>}
         <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ActivationSteps /><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde approuvé n’est pas une activation.</p></details>
         {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
@@ -187,9 +200,10 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
           {opening?.status === 'approved' && !opening.approvedByCurrentUser && <p role="alert">Seul l’administrateur qui a approuvé peut confirmer l’activation.</p>}
         </fieldset>}
       </> : <>
-        {prepared ? primary('publish-configuration', 'Publier le nouveau frais', () => void mutate('publish-configuration', { versionId: prepared.id }))
-          : draft ? primary('prepare-version', 'Préparer la nouvelle version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision })) : null}
-        {(prepared || draft) && <p className="text-sm">La publication explicite concernera uniquement les nouveaux encaissements confirmés ensuite. Les anciens paiements et le solde de départ restent inchangés.</p>}
+        {actionRow(prepared ? primary('publish-configuration', 'Publier le nouveau frais', () => void mutate('publish-configuration', { versionId: prepared.id }))
+          : draft && !draftLocked ? primary('prepare-version', 'Préparer la nouvelle version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision })) : null)}
+        {draftLocked && !prepared && <p className="text-justify text-sm" data-draft-locked>{DRAFT_LOCKED_TEXT}</p>}
+        {(prepared || (draft && !draftLocked)) && <p className="text-justify text-sm">La publication explicite concernera uniquement les nouveaux encaissements confirmés ensuite. Les anciens paiements et le solde de départ restent inchangés.</p>}
         {view.status === 'PAUSED' && <><button className="secondary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setPauseForm(v => !v)}>Reprendre la répartition</button>{pauseForm && <fieldset className="grid gap-2" disabled={fieldsLocked}><label>Motif audité<textarea className="input" value={reason} maxLength={500} onChange={e => setReason(e.target.value)}/></label><Action busy={busy && actionBusy === 'resume'} disabled={reason.trim().length < 5} onClick={() => void mutate('resume', { reason })}>Confirmer la reprise</Action></fieldset>}</>}
       </>}
     </>}

@@ -16,9 +16,12 @@ import { toMoneyMinor } from "../../utils/money";
 import { renderAcadPdfPreview } from "../../utils/pdf";
 import { feeAllocationPdfSections } from "../../utils/feeAllocationPdf";
 import { FeeAllocationActivation } from "./FeeAllocationActivation";
+import { useAllocationChangeCounters } from "../../services/feeAllocationChangeCounter";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
 import { SocialPartEditor } from "./FeeAllocationSocialPart";
 
+/** Version 1.15.2 : description sous le bouton du Menu, comme les autres entrées. */
+export const FEE_ALLOCATION_MENU_DESCRIPTION = "Parts des frais par rubrique, encaissements et dépenses.";
 const roles = new Set(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"]);
 /** Lot « Deux onglets » : le personnel voit le drawer seulement si une rubrique lui est partagée. */
 const staffRoles = new Set(["discipline_director", "study_director", "secretary", "teacher"]);
@@ -46,8 +49,8 @@ export function FeeAllocationEntry({ user, schools, selectedSchoolId = "", onSch
   if (!roles.has(user.role) && !shared) return null;
   const selected = schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId);
   return <>
-    <button type="button" className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-mint" onClick={() => setOpen(true)}>
-      <span className="flex items-center gap-3 font-bold text-ink"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><ChartPie className="h-5 w-5" /></span>Répartition des frais</span>
+    <button type="button" aria-label="Répartition des frais" aria-describedby="menu-repartition-description" className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm hover:border-mint" onClick={() => setOpen(true)}>
+      <span className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><ChartPie className="h-5 w-5" /></span><span className="min-w-0"><span className="block break-words font-bold text-ink">Répartition des frais</span><span id="menu-repartition-description" className="mt-1 block break-words text-sm text-slate-500">{FEE_ALLOCATION_MENU_DESCRIPTION}</span></span></span>
     </button>
     {open && <AdminDrawer title="Répartition des frais" closeLabel="Fermer Répartition des frais" width="wide" onClose={() => setOpen(false)}
       toolbar={onSchoolChange && <label className="grid gap-1 text-sm">Établissement<select className="input" value={selectedSchoolId} onChange={(event) => onSchoolChange(event.target.value)}><option value="">Toutes les écoles autorisées</option>{schools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>}>
@@ -111,14 +114,20 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   useEffect(() => {
     // Un changement fait sur cet appareil (paiement, dépense…) : rechargement immédiat en arrière-plan.
     const changed = () => void refresh("reload");
-    const check = () => { if (!busy.current && document.visibilityState !== "hidden" && navigator.onLine) void refresh("verify"); };
-    window.addEventListener('acadea:financial-projection-changed', changed);
-    window.addEventListener('online', check);
-    document.addEventListener('visibilitychange', check);
-    // Changements faits ailleurs : une petite vérification par minute tant que le drawer est ouvert.
-    const timer = window.setInterval(check, Math.max(60_000, schoolIds.length * 4000));
-    return () => { window.removeEventListener('acadea:financial-projection-changed', changed); window.removeEventListener('online', check); document.removeEventListener('visibilitychange', check); window.clearInterval(timer); };
-  }, [refresh, schoolIds.length]);
+    window.addEventListener("acadea:financial-projection-changed", changed);
+    return () => window.removeEventListener("acadea:financial-projection-changed", changed);
+  }, [refresh]);
+  // Version 1.15.2 : plus de vérification en boucle (minuterie, retour en ligne, retour sur l'onglet).
+  // Le serveur tient un compteur de changements par école et par année ; on recharge seulement quand il bouge.
+  const counterScopes = useMemo(() => workspaces.map((w) => ({ schoolId: w.school.id, schoolYearId: w.year.id })), [workspaces]);
+  useAllocationChangeCounters(counterScopes, () => void refresh("reload"));
+  // Aucun message pour une mise à jour normale : il n'apparaît que si elle dure plus de 2 secondes.
+  const [slowCheck, setSlowCheck] = useState(false);
+  useEffect(() => {
+    if (!checking) { setSlowCheck(false); return; }
+    const timer = window.setTimeout(() => setSlowCheck(true), 2000);
+    return () => window.clearTimeout(timer);
+  }, [checking]);
   // Lot 27b : les noms viennent du catalogue des rubriques (un renommage s'applique partout).
   const named = useMemo(() => workspaces.map((w) => {
     const names = new Map((w.rubricCatalog ?? []).map((r) => [r.id, r.name]));
@@ -185,7 +194,8 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       setVersions(await loadAllocationVersions(config));
     } catch (cause) { setError(message(cause)); } finally { detailLock.current = false; setDetailBusy(false); setDetailAction(""); }
   }
-  return <div className="grid min-w-0 gap-4" aria-label="Configuration préparatoire des répartitions">
+  // Version 1.15.2 : tous les textes du drawer et de ses formulaires sont justifiés.
+  return <div className="grid min-w-0 gap-4 text-justify" aria-label="Configuration préparatoire des répartitions" data-justified>
     {configurable && <div role="tablist" aria-label="Onglets de la répartition" className="sticky top-0 z-20 -mt-1 grid grid-cols-2 border-b border-slate-200 bg-white pt-1">
       {([["annual", "Répartition annuelle"], ["sharing", "Partage répartition"]] as const).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={tab === key}
         className={`min-w-0 px-2 py-2 text-center text-sm ${tab === key ? "border-b-2 border-ink font-semibold text-ink" : "text-slate-600"}`} onClick={() => setTab(key)}>{label}</button>)}
@@ -193,22 +203,23 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     {configurable && tab === "sharing" && <SharingTab schoolId={workspaces[0].school.id} shares={sharing.shares} error={sharing.error} names={rubricNames} onChanged={sharing.setShares} />}
     {!(configurable && tab === "sharing") && <>
     {ready && user.role !== 'school_admin' && <p className="text-sm" role="status">{workspaces.map(w => `${multipleSchools ? w.school.name + ' : ' : ''}${w.ledger?.status === 'ACTIVE' ? 'Active' : 'En préparation'}`).join(' · ')}</p>}
-    {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => void refresh("reload")}/>}
+    {/* Version 1.15.2 : l'état d'activation reste affiché pendant une mise à jour ou après une erreur passagère (plus de rechargement sans fin). */}
+    {user.role === "school_admin" && workspaces.length === 1 && !loading && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => void refresh("reload")}/>}
     {configurable && <RubricCatalogPanel schoolId={workspaces[0].school.id} onChanged={() => void refresh("reload")} order={rubricOrder} shares={sharing.shares} onSharesChanged={sharing.setShares} />}
     <div className="min-w-0 max-w-full pb-1" role="region" aria-label="Commandes de répartition">
-      {/* Sur téléphone : deux colonnes, rien ne dépasse le bord droit ; sur ordinateur : une seule ligne. */}
-      <div className={`grid min-w-0 grid-cols-2 items-center gap-2 ${configurable ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
-        {configurable && <button type="button" className="primary-button min-h-11 min-w-0 justify-center whitespace-nowrap" disabled={!current} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
-        <label className="min-w-0"><span className="sr-only">Filtre</span><select aria-label="Filtre" className="input h-11 w-full min-w-0" value={filter.kind} onChange={event => setFilter({ kind: event.target.value as AllocationFilter["kind"], value: event.target.value === "period" ? "year" : "", from: "", to: "" })}><option value="fee">Frais</option><option value="class">Classe</option><option value="period">Période</option></select></label>
-        <label className="min-w-0"><span className="sr-only">Valeur du filtre</span><select aria-label="Valeur correspondante" className="input h-11 w-full min-w-0 truncate" value={filter.value} onChange={event => setFilter({ ...filter, value: event.target.value })}>{filter.kind === "period" ? periods.map(([value, label]) => <option key={value} value={value}>{label}</option>) : <><option value="">{filter.kind === "fee" ? "Tous les frais" : "Toutes les classes"}</option>{choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</>}</select></label>
-        <Action busy={pdfBusy} disabled={!current || !hasConfiguration} className="secondary-button w-full min-w-0 justify-items-center" onClick={() => void exportPdf()}>PDF</Action>
+      {/* Version 1.15.2 : une seule ligne à parts égales, sur téléphone comme sur ordinateur ; rien ne dépasse le bord droit. */}
+      <div className={`grid min-w-0 items-center gap-1 sm:gap-2 ${configurable ? 'grid-cols-4' : 'grid-cols-3'}`} data-allocation-commands>
+        {configurable && <button type="button" className="primary-button min-h-11 min-w-0 justify-center whitespace-nowrap px-1 text-xs sm:px-3 sm:text-sm" disabled={!current} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
+        <label className="min-w-0"><span className="sr-only">Filtre</span><select aria-label="Filtre" className="input h-11 w-full min-w-0 px-1 text-xs sm:px-3 sm:text-sm" value={filter.kind} onChange={event => setFilter({ kind: event.target.value as AllocationFilter["kind"], value: event.target.value === "period" ? "year" : "", from: "", to: "" })}><option value="fee">Frais</option><option value="class">Classe</option><option value="period">Période</option></select></label>
+        <label className="min-w-0"><span className="sr-only">Valeur du filtre</span><select aria-label="Valeur correspondante" className="input h-11 w-full min-w-0 truncate px-1 text-xs sm:px-3 sm:text-sm" value={filter.value} onChange={event => setFilter({ ...filter, value: event.target.value })}>{filter.kind === "period" ? periods.map(([value, label]) => <option key={value} value={value}>{label}</option>) : <><option value="">{filter.kind === "fee" ? "Tous les frais" : "Toutes les classes"}</option>{choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</>}</select></label>
+        <Action busy={pdfBusy} disabled={!current || !hasConfiguration} className="secondary-button w-full min-w-0 justify-items-center px-1 text-xs sm:px-3 sm:text-sm" onClick={() => void exportPdf()}>PDF</Action>
       </div>
     </div>
     {filter.kind === "period" && <p className="text-xs text-slate-600">Prévu total de l’année active, indépendamment des dates sélectionnées. Encaissé sur la période : dates de comptabilisation. Le disponible cumule toutes les écritures jusqu’à sa fin, ouverture incluse.</p>}
     {filter.kind === "period" && filter.value === "custom" && <div className="flex flex-wrap gap-2"><label className="grid gap-1 text-sm">Du<input className="input" type="date" value={filter.from} onChange={(event) => setFilter({ ...filter, from: event.target.value })}/></label><label className="grid gap-1 text-sm">Au<input className="input" type="date" value={filter.to} onChange={(event) => setFilter({ ...filter, to: event.target.value })}/></label></div>}
     {ready && hasConfiguration && <details className="text-sm"><summary className="cursor-pointer">Comprendre les montants</summary><p>Le prévu total de l’année additionne les frais nets des élèves actifs concernés, réductions et exonérations comprises, même sans paiement. Chaque paiement d'un ancien élève y est ajouté du même montant qu'à l'encaissé. Les filtres Frais et Classe réduisent ce périmètre ; les dates filtrent uniquement les encaissements. Une prise en charge non réglée n’est pas un encaissement.</p><p>La situation globale reste commune à la rubrique, jamais propre à une classe ou à un frais. Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. Les dépenses nettes incluent les corrections et annulations compensatoires.</p></details>}
     {loading && <p role="status">Chargement...</p>}
-    {checking && !loading && <p role="status" className="text-xs text-slate-600">Mise à jour… Les montants affichés sont en cours de vérification ; l'export attend la confirmation.</p>}
+    {slowCheck && checking && !loading && <p role="status" className="text-xs text-slate-600">Mise à jour… Les montants affichés sont en cours de vérification ; l'export attend la confirmation.</p>}
     {(error || projection.error) && <div role="alert" className="rounded border border-red-200 p-3 text-sm"><p>{error || projection.error}</p>{workspaces.length > 0 && <p>Les données conservées ne sont pas revérifiées. L'export et les modifications sont bloqués.</p>}<Action busy={loading} className="secondary-button mt-2" onClick={() => void refresh("reload")}>Réessayer la consultation</Action></div>}
     {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}
     {/* Lot 27a : un paiement n'est jamais bloqué ; s'il n'a pas pu être réparti tout de suite, il attend ici. */}
@@ -220,13 +231,13 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     {ready && !workspaces.some(w => w.configs.length) && <p role="status">Aucune répartition configurée.{configurable ? ' Utilisez « + Ajouter » pour commencer.' : ''} Les opérations habituelles de l’établissement restent disponibles.</p>}
     {ready && hasConfiguration && !projection.rows.length && <p role="status">Aucun résultat pour ce filtre. Les autres répartitions sont conservées.</p>}
     </>}
-    {detail && <AdminDrawer title={detail.rubricName} closeLabel="Fermer le détail de rubrique" onClose={() => setDetail(null)}>
+    {detail && <AdminDrawer title={detail.rubricName} closeLabel="Fermer le détail de rubrique" onClose={() => setDetail(null)}><div className="text-justify" data-justified>
       {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
       <dl className="grid gap-2 text-sm">{[["Établissement", detail.schoolName], ["Périmètre du prévu", filterLabel], ["Année", detail.yearName], ["Prévu total de l’année", formatCurrencyMoney(detail.amountMinor / 100, detail.currency)], ["Statut", detail.financial ? "Registre rapproché" : "Préparatoire — non actif"]].map(([label, value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
       <p className="my-3 text-sm">{detail.financial ? "Les montants proviennent du registre rapproché. Le disponible est commun à cette rubrique dans l'établissement ; aucune attribution artificielle à un frais ou à une classe." : "Aucun mouvement financier ni historique d'encaissement n'est créé par ce brouillon. Les références d'origine restent conservées pour les phases suivantes."}</p>
       {detailConfigs.map(config => <section key={config.id} className="my-3 rounded border p-3"><h3 className="mb-2 text-sm font-semibold">{detailWorkspace?.fees.find(f => f.id === config.feeTypeId)?.name ?? 'Frais'} · {allocationClassLabel(config.classOptionKey || config.className)}</h3><div className="flex flex-wrap gap-2"><Action busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(config)}>Consulter les versions</Action>{config.currentVersionId && <button type="button" className="secondary-button" onClick={() => setSocialPart(config)}>Partie 2 — cas sociaux{config.socialVersionId ? " (publiée)" : ""}</button>}{configurable && !config.currentVersionId && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy} onClick={() => void showVersions(config, true)}>Préparer une version</Action></>}</div></section>)}
       {detailBusy && <p role="status">Vérification serveur…</p>}{versions && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded border p-2 text-sm">Version {version.version} · {version.status} · {version.createdAt.slice(0, 10)} · {version.currency}<ul>{version.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, version.currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></li>)}{!versions.length && <li>Aucune version préparée.</li>}</ul>}
-    </AdminDrawer>}
+    </div></AdminDrawer>}
     {socialPart && <SocialPartEditor config={socialPart} feeName={detailWorkspace?.fees.find(f => f.id === socialPart.feeTypeId)?.name ?? 'Frais'}
       classLabel={allocationClassLabel(socialPart.classOptionKey || socialPart.className)} currency={socialPart.currency}
       canPublish={configurable && current} onClose={() => setSocialPart(null)} onPublished={() => void refresh("reload")} />}
@@ -307,7 +318,7 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
     catch (cause) { const pending = !(cause instanceof AllocationApiError && cause.confirmedRejection); setUncertain(pending); if (!pending) request.current = null; setError(message(cause)); }
     finally { locked.current = false; setBusy(false); setCreating(false); }
   }, [preview, workspace, feeId, selected, onSaved]);
-  return <AdminDrawer title={config ? "Reprendre le brouillon" : "Ajouter une répartition"} closeLabel="Fermer la configuration" width="wide" onClose={() => { if (!busy) onClose(); }}>
+  return <AdminDrawer title={config ? "Reprendre le brouillon" : "Ajouter une répartition"} closeLabel="Fermer la configuration" width="wide" onClose={() => { if (!busy) onClose(); }}><div className="text-justify" data-justified>
     <p className="mb-3 text-sm">{workspace.school.name} · {workspace.year.name} · {workspace.currency}. Enregistrement préparatoire uniquement.</p>
     <fieldset disabled={busy || uncertain} className="grid gap-3">
       <label className="grid gap-1 text-sm">Frais existant<select aria-label="Frais existant" className="input" value={feeId} onChange={(event) => { setFeeId(event.target.value); setSelected(event.target.value ? [event.target.value] : []); }}><option value="">Choisir un frais exact</option>{eligibleFees.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} · {allocationClassLabel(fee.classOptionKey || fee.className)} · {formatCurrencyMoney(fee.amount, workspace.currency)}</option>)}</select></label>
@@ -323,6 +334,7 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
     <h3 className="mt-4 font-bold">Aperçu par classe</h3>{preview.error && <p role="status" className="text-sm text-amber-800">{preview.error}</p>}
     {preview.rows.map((row) => <section key={row.fee.id} className="my-2 rounded border p-3 text-sm"><h4 className="font-semibold">{allocationClassLabel(row.fee.classOptionKey || row.fee.className)} · {formatCurrencyMoney(row.fee.amount, workspace.currency)}</h4><ul>{row.shares.map((share) => <li key={share.rubricId}>{row.rubrics.find((rubric) => rubric.id === share.rubricId)?.name ?? "Non affecté"} : {formatCurrencyMoney(share.amountMinor / 100, workspace.currency)} · {(share.amountMinor / toMoneyMinor(row.fee.amount) * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %</li>)}</ul></section>)}
     {error && <p role="alert" className="my-3 text-sm text-red-700">{error}</p>}{uncertain && <p className="my-2 text-sm">L'enregistrement a peut-être abouti. La vérification renvoie exactement la même demande, sans nouvelle répartition.</p>}
-    <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={busy} onClick={onClose}>Annuler</button><Action className="primary-button" busy={busy} disabled={!uncertain && !!preview.error} onClick={() => void save()}>{uncertain ? "Vérifier la même demande" : "Enregistrer la répartition"}</Action></div>
-  </AdminDrawer>;
+    {/* Version 1.15.2 : les deux boutons se partagent toute la largeur, moitié-moitié. */}
+    <div className="mt-4 grid w-full grid-cols-2 gap-2" data-editor-actions><button type="button" className="secondary-button w-full justify-center" disabled={busy} onClick={onClose}>Annuler</button><Action className="primary-button w-full justify-items-center" busy={busy} disabled={!uncertain && !!preview.error} onClick={() => void save()}>{uncertain ? "Vérifier la même demande" : "Enregistrer la répartition"}</Action></div>
+  </div></AdminDrawer>;
 }

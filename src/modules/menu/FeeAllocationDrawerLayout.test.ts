@@ -18,9 +18,9 @@ describe("drawer « Répartition des frais » (lot du 19/11)", () => {
   it("onglets fixes en haut, chacun à la moitié de la largeur", () => {
     expect(drawer).toMatch(/role="tablist"[^>]*className="sticky top-0 [^"]*grid-cols-2/);
   });
-  it("sur téléphone, les filtres tiennent sur deux colonnes, sans défilement horizontal", () => {
+  it("sur téléphone, les commandes tiennent sur une ligne, sans défilement horizontal (1.15.2)", () => {
     expect(drawer).not.toContain("min-w-[640px]");
-    expect(drawer).toContain("grid min-w-0 grid-cols-2 items-center gap-2");
+    expect(drawer).toContain("configurable ? 'grid-cols-4' : 'grid-cols-3'");
   });
   it("phrases exactes pour partager et retirer ; bouton désactivé sinon", () => {
     expect(SHARE_PHRASE).toBe("PARTAGER AVEC CE PERSONNEL");

@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.15.2] — 2026-11-19 — Correction
+- Répartition des frais : mise à jour seulement quand quelque chose change (compteur tenu par le serveur, plus de vérification en boucle), état d'activation qui finit toujours de charger, description dans le Menu, commandes sur une ligne au téléphone, renommage par phrase tapée à la main, partage dans un drawer à part, « Préparer la nouvelle version » seulement quand c'est possible, textes justifiés, bouton Actualiser en icône, boutons moitié-moitié (répartition et archivage d'un élève)
+
 ## [1.15.1] — 2026-11-19 — Correction
 - Recherche des élèves plus légère : le matricule se trouve par son début ou sa fin, l'option est filtrée après une recherche, 12 index inutiles retirés
 

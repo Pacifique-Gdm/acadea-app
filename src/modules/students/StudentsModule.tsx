@@ -828,11 +828,12 @@ export function StudentsModule({
                 />
               </label>
             )}
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button type="button" onClick={closeArchiveStudentDialog} className="secondary-button justify-center">
+            {/* Version 1.15.2 : « Annuler » et « OK » se partagent toute la largeur, moitié-moitié. */}
+            <div className="grid w-full grid-cols-2 gap-2" data-archive-actions>
+              <button type="button" onClick={closeArchiveStudentDialog} className="secondary-button w-full justify-center">
                 Annuler
               </button>
-              <button type="button" onClick={confirmArchiveStudent} disabled={!archiveReason || !finalArchiveReason} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
+              <button type="button" onClick={confirmArchiveStudent} disabled={!archiveReason || !finalArchiveReason} className="primary-button w-full justify-center disabled:cursor-not-allowed disabled:opacity-50">
                 OK
               </button>
             </div>
