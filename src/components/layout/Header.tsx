@@ -10,6 +10,8 @@ import type { AppData, AppNotification, AppUser, Message, School, SchoolYear } f
 import { OfflineQueuePanel } from "../offline/OfflineQueuePanel";
 import { offlineAccessEligible } from "../../services/offlineAccess";
 import { useSchoolLogo } from "../../hooks/useSchoolLogo";
+import { HeaderAdBanner } from "../ads/HeaderAd";
+import { useHeaderAd } from "../../hooks/useHeaderAd";
 
 type HeaderYearData = Pick<AppData, "auditLogs" | "messages" | "notifications" | "parents" | "students" | "users">;
 
@@ -61,6 +63,9 @@ export function Header({
   const schoolLogoUrl = useSchoolLogo(school).trim();
   const userDisplayName = user.name.trim();
   const schoolMotto = school.motto?.trim();
+  // Publicité : pendant une campagne qui vise cet utilisateur, une ligne fine
+  // (petit logo + nom de l'école) et la bannière remplacent le grand bloc.
+  const headerAd = useHeaderAd({ role: user.role, schoolId: school.id, coordinationId: school.activeCoordinationId ?? "", enabled: school.status === "active" });
   // L'icône qui tourne suffit pendant l'actualisation : aucun texte temporaire qui
   // élargit l'en-tête. Seule une vraie erreur est écrite.
   const refreshStatus = refreshError;
@@ -147,9 +152,55 @@ export function Header({
     </div>
   );
 
+  const headerTools = (compact: boolean) => (
+    <div className={`flex items-center justify-end ${compact ? "gap-2" : "gap-3"}`}>
+      <span className={`rounded bg-slate-100 font-semibold text-slate-600 ${compact ? "hidden px-2 py-1 text-xs sm:inline" : "px-3 py-2 text-sm"}`}>{compact ? year.name : `Année scolaire : ${year.name}`}</span>
+      {offlineAccessEligible(user)
+        && <OfflineQueuePanel scope={{ userId: user.id, schoolId: school.id, schoolYearId: year.id }} role={user.role} autoSync={year.status === "active" && school.status === "active"} />}
+      <button
+        onClick={() => void refreshHeaderData()}
+        disabled={isRefreshing || manualRefreshing}
+        className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
+        title="Actualiser"
+        aria-label="Actualiser"
+      >
+        <RefreshCw className={`h-4 w-4 ${isRefreshing || manualRefreshing ? "animate-spin" : ""}`} />
+        {isRefreshing && <span className="sr-only">Actualisation en cours</span>}
+      </button>
+      {refreshStatus && (
+        <span className={`text-xs font-semibold ${refreshError ? "text-red-600" : "text-slate-500"}`}>
+          {refreshStatus}
+        </span>
+      )}
+      {messagingEnabled && <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
+        <Bell className="h-4 w-4" />
+        {displayedUnreadNotifications > 0 && (
+          <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">
+            {displayedUnreadNotifications}
+          </span>
+        )}
+      </button>}
+    </div>
+  );
+
   return (
     <>
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white">
+      {headerAd ? (
+        <div className="mx-auto flex max-w-7xl flex-col gap-1.5 px-4 pb-2 pt-1.5 sm:px-6 lg:px-8" data-testid="header-ad-mode">
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded bg-ink text-[11px] font-bold text-white">
+                {schoolLogoUrl ? <img src={schoolLogoUrl} alt="" className="h-full w-full object-cover" /> : "A"}
+              </div>
+              <p className="truncate text-sm font-bold text-ink">{school.name}</p>
+              <p className="hidden truncate text-xs text-slate-500 md:block">· {userDisplayName ? `${userDisplayName}, ` : ""}{roleLabels[user.role]}</p>
+            </div>
+            {headerTools(true)}
+          </div>
+          <HeaderAdBanner ad={headerAd} />
+        </div>
+      ) : (
       <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 lg:px-8">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
@@ -169,37 +220,11 @@ export function Header({
             </div>
           </div>
           <div className="relative flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="flex items-center justify-end gap-3">
-            <span className="rounded bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">Année scolaire : {year.name}</span>
-            {offlineAccessEligible(user)
-              && <OfflineQueuePanel scope={{ userId: user.id, schoolId: school.id, schoolYearId: year.id }} role={user.role} autoSync={year.status === "active" && school.status === "active"} />}
-            <button
-              onClick={() => void refreshHeaderData()}
-              disabled={isRefreshing || manualRefreshing}
-              className="inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink disabled:cursor-not-allowed disabled:opacity-50"
-              title="Actualiser"
-              aria-label="Actualiser"
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing || manualRefreshing ? "animate-spin" : ""}`} />
-              {isRefreshing && <span className="sr-only">Actualisation en cours</span>}
-            </button>
-            {refreshStatus && (
-              <span className={`text-xs font-semibold ${refreshError ? "text-red-600" : "text-slate-500"}`}>
-                {refreshStatus}
-              </span>
-            )}
-            {messagingEnabled && <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
-              <Bell className="h-4 w-4" />
-              {displayedUnreadNotifications > 0 && (
-                <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">
-                  {displayedUnreadNotifications}
-                </span>
-              )}
-            </button>}
-            </div>
+            {headerTools(false)}
           </div>
         </div>
       </div>
+      )}
       {messagingEnabled && notificationsOpen && (
         <MessagingDrawerShell onClose={onCloseNotifications ?? onToggleNotifications}>
           <MessageDrawerContent

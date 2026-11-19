@@ -3,8 +3,8 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
-## [1.14.1] — 2026-11-19 — Correction
-- Recherche des élèves plus légère : le matricule se trouve par son début ou sa fin, l'option est filtrée après une recherche, 12 index inutiles retirés
+## [1.15.0] — 2026-11-19 — Fonctionnalité
+- Campagnes publicitaires dans l'en-tête : bannière « Publicité » tournante (30 s par défaut, part d'affichage), gérée par le Super administrateur, jamais sur les reçus, rapports, PDF ni écrans de paiement, statistiques groupées sans donnée personnelle
 
 ## [1.14.0] — 2026-11-19 — Fonctionnalité
 - Répartition des frais : rubrique d'imputation au-dessus du solde avec les montants de la rubrique, blocage au-delà de son disponible, précision obligatoire pour la nature « Autre », texte des étapes d'activation mis à jour, boutons « Partager » et « PDF », onglets fixes, filtres adaptés au téléphone, phrases de confirmation pour partager et retirer

@@ -8,6 +8,7 @@ import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent
 import { db } from "../../firebase";
 import { markConversationUnreadCountRead } from "../../services/conversations";
 import { canUseFirestoreData } from "../../services/firestoreData";
+import { useAdSuppression } from "../../services/adSuppression";
 import { loadStudentArrears, type HistoricalDebt } from "../../services/financialTransactions";
 import { markNotificationsReadTargeted } from "../../services/notificationsPagination";
 import { fetchParentMessageQuota, sendParentMessageWithQuota } from "../../services/parentMessaging";
@@ -109,6 +110,8 @@ export function ParentPortal({
   const [messageBody, setMessageBody] = useState("");
   const [messageFeedback, setMessageFeedback] = useState("");
   const [selectedParentChildId, setSelectedParentChildId] = useState<string | null>(null);
+  // Historique des paiements d'un enfant : jamais de publicité.
+  useAdSuppression(Boolean(selectedParentChildId));
   const [childArrears, setChildArrears] = useState<HistoricalDebt[]>([]);
   const [childArrearsLoading, setChildArrearsLoading] = useState(false);
   const [childArrearsError, setChildArrearsError] = useState("");

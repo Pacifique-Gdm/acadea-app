@@ -23,6 +23,9 @@ import { subscribeCoordinationDashboardUpdates } from "../../services/coordinati
 import { KeptTab } from "../../components/layout/KeptTab";
 import { usePrefetchAllocation } from "../../services/feeAllocationStore";
 import { useFrozenWhileHidden, useVisitedTabs } from "../../components/layout/keptTabState";
+import { HeaderAdBanner } from "../../components/ads/HeaderAd";
+import { useHeaderAd } from "../../hooks/useHeaderAd";
+import { useAdSuppression } from "../../services/adSuppression";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
@@ -34,6 +37,9 @@ function activeYearsBySchool(schools: readonly { id: string; activeSchoolYearId?
 
 export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout: () => void }) {
   const [tab, setTab] = useState<CoordinationTab>("dashboard");
+  // Publicité seulement si une campagne vise la Coordination ; jamais sur le Contrôle (paiements).
+  useAdSuppression(tab === "control");
+  const headerAd = useHeaderAd({ role: user.role, coordinationId: user.coordinationId ?? "" });
   const [coordination, setCoordination] = useState<Coordination | null>(null);
   const [subCoordination, setSubCoordination] = useState<SubCoordination | null>(null);
   const [relations, setRelations] = useState<Array<CoordinationSchool | SubCoordinationSchool>>([]);
@@ -208,20 +214,20 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     : coordination?.name ?? "Coordination";
 
   return <main className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-[#F5F7FB] pb-24 text-ink">
-    <header data-testid="coordination-institution-band" className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white py-4 shadow-sm">
+    <header data-testid="coordination-institution-band" className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white py-4 shadow-sm" style={headerAd ? { paddingTop: 6, paddingBottom: 8 } : undefined}>
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4">
-        <div className="flex min-w-0 flex-1 items-start gap-3">
-          <div data-testid="coordination-institution-logo" className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100">{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
+        <div className={`flex min-w-0 flex-1 gap-3 ${headerAd ? "items-center" : "items-start"}`}>
+          <div data-testid="coordination-institution-logo" className={`flex ${headerAd ? "h-6 w-6" : "h-12 w-12"} shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100`}>{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
           <div className="min-w-0 flex-1">
             <h1 className="break-words text-base font-bold leading-tight sm:text-lg">{institutionName}</h1>
-            {isSubCoordinator && coordination?.name && <p className="break-words text-xs font-semibold text-slate-600">Coordination : {coordination.name}</p>}
+            {!headerAd && <>{isSubCoordinator && coordination?.name && <p className="break-words text-xs font-semibold text-slate-600">Coordination : {coordination.name}</p>}
             {coordination?.code && <p className="break-words text-xs text-slate-600">Code Coordination : {coordination.code}</p>}
             {(coordination?.address || coordination?.phone || coordination?.email) && <p className="flex flex-wrap gap-x-3 text-xs text-slate-600">
               {coordination.address && <span className="min-w-0 break-words">Coordination : {coordination.address}</span>}
               {coordination.phone && <span className="min-w-0 break-all">{coordination.phone}</span>}
               {coordination.email && <span className="min-w-0 break-all">{coordination.email}</span>}
             </p>}
-            <p className="break-words text-xs font-medium text-slate-700">{user.name} · {isSubCoordinator ? "Sous-coordinateur" : "Coordinateur principal"}</p>
+            <p className="break-words text-xs font-medium text-slate-700">{user.name} · {isSubCoordinator ? "Sous-coordinateur" : "Coordinateur principal"}</p></>}
           </div>
         </div>
         <div data-testid="coordination-institution-actions" className="flex shrink-0 items-center gap-2">
@@ -229,6 +235,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
           <button type="button" onClick={openNotifications} disabled={activeSchools.length === 0} className="relative inline-flex h-9 w-9 items-center justify-center rounded text-slate-500 transition hover:bg-slate-100 hover:text-ink disabled:cursor-not-allowed disabled:opacity-50" aria-label="Boîte à Messagerie" title="Boîte à Messagerie"><Bell className="h-4 w-4"/>{inbox.unreadCount > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{inbox.unreadCount}</span>}</button>
         </div>
       </div>
+      {headerAd && <div className="mx-auto mt-1.5 max-w-6xl px-4"><HeaderAdBanner ad={headerAd}/></div>}
       {(refreshError || inbox.error) && <p role="alert" className="mx-auto mt-2 max-w-6xl px-4 text-xs font-semibold text-red-600">{refreshError || inbox.error}</p>}
     </header>
     <PushNotificationPrompt user={user} />

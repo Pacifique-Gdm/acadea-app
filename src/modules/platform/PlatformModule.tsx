@@ -7,8 +7,9 @@ import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerS
 import { syncAppBadge } from "../../utils/appBadge";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
 import type { ReactNode } from "react";
-import { ArrowUpDown, Bell, BookOpen, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, MessageSquare, RefreshCw, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
+import { ArrowUpDown, Bell, BookOpen, Megaphone, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, MessageSquare, RefreshCw, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
+import { AdCampaignsDrawer } from "../../components/platform/AdCampaignsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
 import { PlatformStatusDistributionCard } from "../../components/platform/PlatformStatusDistributionCard";
 import { AdminDrawer, Field, ImageUploadField, LogoutButton, PasswordField } from "../../components/ui";
@@ -126,7 +127,7 @@ export function PlatformModule({
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
   const [drawerYearId, setDrawerYearId] = useState("");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
-  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "create-coordination" | "logo" | "billing-controls" | null>(null);
+  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "create-coordination" | "logo" | "billing-controls" | "ad-campaigns" | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | School["status"]>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
@@ -1374,6 +1375,19 @@ export function PlatformModule({
                   </span>
                   <ShieldCheck className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
                 </button>
+                {user.role === "super_admin" && (
+                  <button
+                    onClick={() => setPlatformMenuDrawer("ad-campaigns")}
+                    className="group flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40"
+                    type="button"
+                  >
+                    <span className="min-w-0">
+                      <span className="block break-words font-bold text-ink">Campagnes publicitaires</span>
+                      <span className="mt-1 block break-words text-sm text-slate-500">Bannières dans l'en-tête des écoles, dates, ciblage et statistiques.</span>
+                    </span>
+                    <Megaphone className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
+                  </button>
+                )}
               </div>
 
               <div className="mt-2 border-t border-slate-200 pt-4" aria-label="Session Super Administrateur">
@@ -1394,6 +1408,11 @@ export function PlatformModule({
       {platformMenuDrawer === "logo" && (
         <AdminDrawer title="Logo de l'application" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer la gestion du logo">
           {renderPlatformLogoForm()}
+        </AdminDrawer>
+      )}
+      {platformMenuDrawer === "ad-campaigns" && user.role === "super_admin" && (
+        <AdminDrawer title="Campagnes publicitaires" width="wide" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer les campagnes publicitaires">
+          <AdCampaignsDrawer schools={visibleSchools} coordinations={coordinations} userId={user.id} />
         </AdminDrawer>
       )}
       {platformMenuDrawer === "billing-controls" && (
