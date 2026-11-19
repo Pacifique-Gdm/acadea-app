@@ -9,6 +9,7 @@ import { AgeHomogeneityDrawer, ArchivedStudentsImportDrawer } from "../../compon
 import { AdminDrawer, SectionTitle } from "../../components/ui";
 import { ServicePersonnelForm } from "../../components/personnel/ServicePersonnelForm";
 import { OwnPayrollEntry } from "../../components/personnel/OwnPayrollEntry";
+import { FeeAllocationEntry } from "../menu/FeeAllocationDrawer";
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
@@ -107,7 +108,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
     </label>
     {year.status === "archived" && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Vous consultez une année scolaire archivée en lecture seule.</p>}
     <div className="grid gap-3">
-      <OwnPayrollEntry user={user} school={school} />
+      <OwnPayrollEntry user={user} school={school} /><FeeAllocationEntry user={user} schools={[school]} />
       {renderPublishedTimetable?.()}
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
       <button type="button" onClick={() => setLibraryOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Bibliothèque</span></button>

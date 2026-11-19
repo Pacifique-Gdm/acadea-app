@@ -23,45 +23,13 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
   if (body.action === 'get-forecast-revision') {
     fields(body, ['action', 'schoolId']);
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
-    const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
-    // Lot « répartition rapide » : une empreinte de tout ce qui peut changer le drawer, en quelques
-    // petites lectures (jamais les élèves ni le registre) : élèves et frais (signal), paiements,
-    // dépenses et corrections (caisse), répartition (preuves, état), rubriques, répartitions en attente.
-    const [signal, cashUsd, cashCdf, evidence, state, catalog, pending] = await Promise.all([
-      db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`).get(),
-      cashRevisionRef(db, schoolId, yearId, 'USD').get(), cashRevisionRef(db, schoolId, yearId, 'CDF').get(),
-      evidenceRevisionRef(db, schoolId, yearId).get(), db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`).get(),
-      db.doc(`feeAllocationRubricCatalogs/${rubricCatalogId(schoolId, yearId)}`).get(),
-      db.collection('feeAllocationPending').where('schoolId', '==', schoolId).where('status', '==', 'pending').limit(50).get(),
-    ]);
-    const stamp = (snapshot) => snapshot.exists ? snapshot.data()?.revision ?? snapshot.data()?.updatedAt ?? hash(snapshot.data() ?? null) : null;
-    const token = hash([yearId, currency, stamp(signal), stamp(cashUsd), stamp(cashCdf), stamp(evidence), state.exists ? hash(state.data()) : null, stamp(catalog), pending.docs.map((d) => d.id).sort()]);
-    return { schoolId, yearId, revision: signal.data()?.revision ?? null, token, operational: false };
+    return readAllocationToken({ db, school, schoolId });
   }
   if (body.action === "get-workspace") {
     fields(body, ["action", "schoolId", "ledgerPage", "ledgerFingerprint", "ledgerCursor", "fresh"]);
     if (body.fresh !== undefined && body.fresh !== true) fail(400, "invalid-argument", "Option de relecture invalide.");
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
-    const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
-    // Lot 27a : reprise des encaissements en attente de répartition (jamais bloquante pour la lecture).
-    let pending = { processed: 0, remaining: 0 };
-    if ((body.ledgerPage ?? 0) === 0) pending = await retryPendingFeeAllocations({ db, caller, schoolId }).catch(() => ({ processed: 0, remaining: -1 }));
-    // Subsequent ledger pages need only their verified scope and cursor. The
-    // first page already carries configuration metadata, immutable while active.
-    const { fees, configs, forecast } = (body.ledgerPage ?? 0) > 0 ? { fees: { docs: [] }, configs: { docs: [] }, forecast: undefined }
-      : await readAllocationForecast({ db, schoolId, yearId, currency, fresh: body.fresh === true });
-    return {
-      school: { id: schoolId, name: school.name, activeSchoolYearId: yearId },
-      year: { id: yearId, schoolId, name: year.name, status: year.status, startsAt: year.startsAt ?? null, endsAt: year.endsAt ?? null },
-      currency, canConfigure: isAdmin(caller.role) && year.status === "active", operational: false, pendingAllocations: pending.remaining,
-      fees: fees.docs.map((row) => { const fee = row.data(); return { id: row.id, name: fee.name,
-        className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
-      configs: configs.docs.map((row) => row.data()),
-      ...(forecast ? { forecast } : {}),
-      // Lot 27b : noms à jour (un renommage s'affiche partout) ; masquées incluses pour l'historique.
-      ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (await readRubricCatalog(db, schoolId, yearId)).rubrics.map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true })) } : {}),
-      ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }),
-    };
+    return buildAllocationWorkspace({ db, caller, school, schoolId, body, retryPending: true });
   }
   if (body.action !== "save-drafts") fail(400, "invalid-argument", "Action préparatoire inconnue.");
   fields(body, ["action", "schoolYearId", "baseFeeTypeId", "targets", "rubrics", "requestId"]);
@@ -154,4 +122,46 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     transaction.create(receiptRef, { schoolId, schoolYearId: body.schoolYearId, userId: caller.uid, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });
+}
+
+/** Lecture du drawer, partagée par l'Administrateur, le Caissier, la Coordination et (filtrée) le personnel. */
+export async function buildAllocationWorkspace({ db, caller, school, schoolId, body, retryPending }) {
+  const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
+  // Lot 27a : reprise des encaissements en attente de répartition (jamais bloquante pour la lecture).
+  let pending = { processed: 0, remaining: 0 };
+  if (retryPending && (body.ledgerPage ?? 0) === 0) pending = await retryPendingFeeAllocations({ db, caller, schoolId }).catch(() => ({ processed: 0, remaining: -1 }));
+  // Subsequent ledger pages need only their verified scope and cursor. The
+  // first page already carries configuration metadata, immutable while active.
+  const { fees, configs, forecast } = (body.ledgerPage ?? 0) > 0 ? { fees: { docs: [] }, configs: { docs: [] }, forecast: undefined }
+    : await readAllocationForecast({ db, schoolId, yearId, currency, fresh: body.fresh === true });
+  return {
+    school: { id: schoolId, name: school.name, activeSchoolYearId: yearId },
+    year: { id: yearId, schoolId, name: year.name, status: year.status, startsAt: year.startsAt ?? null, endsAt: year.endsAt ?? null },
+    currency, canConfigure: isAdmin(caller.role) && year.status === "active", operational: false, pendingAllocations: pending.remaining,
+    fees: fees.docs.map((row) => { const fee = row.data(); return { id: row.id, name: fee.name,
+      className: fee.className, classOptionKey: fee.classOptionKey ?? null, amount: fee.amount }; }),
+    configs: configs.docs.map((row) => row.data()),
+    ...(forecast ? { forecast } : {}),
+    // Lot 27b : noms à jour (un renommage s'affiche partout) ; masquées incluses pour l'historique.
+    ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (await readRubricCatalog(db, schoolId, yearId)).rubrics.map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true })) } : {}),
+    ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }),
+  };
+}
+
+/** Empreinte de tout ce qui peut changer le drawer (voir « répartition rapide »). */
+export async function readAllocationToken({ db, school, schoolId, extra = [] }) {
+  const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
+  // Lot « répartition rapide » : une empreinte de tout ce qui peut changer le drawer, en quelques
+  // petites lectures (jamais les élèves ni le registre) : élèves et frais (signal), paiements,
+  // dépenses et corrections (caisse), répartition (preuves, état), rubriques, répartitions en attente.
+  const [signal, cashUsd, cashCdf, evidence, state, catalog, pending] = await Promise.all([
+    db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`).get(),
+    cashRevisionRef(db, schoolId, yearId, 'USD').get(), cashRevisionRef(db, schoolId, yearId, 'CDF').get(),
+    evidenceRevisionRef(db, schoolId, yearId).get(), db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`).get(),
+    db.doc(`feeAllocationRubricCatalogs/${rubricCatalogId(schoolId, yearId)}`).get(),
+    db.collection('feeAllocationPending').where('schoolId', '==', schoolId).where('status', '==', 'pending').limit(50).get(),
+  ]);
+  const stamp = (snapshot) => snapshot.exists ? snapshot.data()?.revision ?? snapshot.data()?.updatedAt ?? hash(snapshot.data() ?? null) : null;
+  const token = hash([...extra, yearId, currency, stamp(signal), stamp(cashUsd), stamp(cashCdf), stamp(evidence), state.exists ? hash(state.data()) : null, stamp(catalog), pending.docs.map((d) => d.id).sort()]);
+  return { schoolId, yearId, revision: signal.data()?.revision ?? null, token, operational: false };
 }

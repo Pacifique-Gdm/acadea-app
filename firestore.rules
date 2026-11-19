@@ -1066,6 +1066,8 @@ service cloud.firestore {
     match /feeAllocationVersions/{id} { allow read, write: if false; }
     // Lot 27c-4 : partie 2 (cas sociaux), écrite uniquement par le serveur.
     match /feeAllocationSocialVersions/{id} { allow read, write: if false; }
+    // Lot « Deux onglets » : partage des rubriques avec le personnel, lu et écrit uniquement par le serveur.
+    match /feeAllocationShares/{id} { allow read, write: if false; }
     match /feeAllocationFeeGuards/{id} { allow read, write: if false; }
     match /feeAllocationRequests/{id} { allow read, write: if false; }
     match /feeAllocationOpeningAudits/{id} { allow read, write: if false; }

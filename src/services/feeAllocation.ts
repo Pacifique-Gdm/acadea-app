@@ -6,7 +6,9 @@ export type AllocationFee = { id: string; name: string; className: string; class
 export type AllocationWorkspace = {
   school: { id: string; name: string; activeSchoolYearId: string };
   year: { id: string; schoolId: string; name: string; status: string; startsAt: string | null; endsAt: string | null };
-  currency: "USD" | "CDF"; canConfigure: boolean; operational: false; pendingAllocations?: number; rubricCatalog?: { id: string; name: string; hidden: boolean }[];
+  currency: "USD" | "CDF"; canConfigure: boolean; operational: false; pendingAllocations?: number;
+  /** Lot « Deux onglets » : présent seulement dans la vue du personnel (rubriques partagées avec lui). */
+  sharedRubricIds?: string[]; rubricCatalog?: { id: string; name: string; hidden: boolean }[];
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   forecast?: { status: 'complete'; revision: string | null; calculatedAt: string; studentCount: number;
     rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; arrearsYearName?: string; studentsCount: number;
@@ -62,8 +64,9 @@ export async function allocationRequest<T>(action: string, body: object, signal?
   return payload;
 }
 /** `fresh` : relecture complète côté serveur (sans le prévu gardé), utilisée avant un export PDF. */
-export async function loadAllocationWorkspace(schoolId: string, signal?: AbortSignal, options: { fresh?: boolean } = {}) {
-  const result = await allocationRequest<AllocationWorkspace>("get-workspace", { schoolId, ...(options.fresh ? { fresh: true } : {}) }, signal);
+export async function loadAllocationWorkspace(schoolId: string, signal?: AbortSignal, options: { fresh?: boolean; shared?: boolean } = {}) {
+  // Lot « Deux onglets » : le personnel lit une vue réduite aux rubriques partagées avec lui.
+  const result = await allocationRequest<AllocationWorkspace>(options.shared ? "get-shared-workspace" : "get-workspace", { schoolId, ...(options.fresh ? { fresh: true } : {}) }, signal);
   if (result.school?.id !== schoolId || !result.year?.id || !["USD", "CDF"].includes(result.currency)
     || !Array.isArray(result.fees) || !Array.isArray(result.configs)) throw new AllocationApiError("Contexte de répartition incomplet.");
   if (result.forecast?.status !== 'complete' || !Array.isArray(result.forecast.rows)
@@ -116,7 +119,7 @@ export async function loadAllocationVersions(config: FeeAllocationConfig) {
 }
 
 /** Lot 27b : catalogue des rubriques de l'école et de l'année. */
-export type AllocationCatalogRubric = { id: string; name: string; hidden: boolean };
+export type AllocationCatalogRubric = { id: string; name: string; hidden: boolean; used?: boolean };
 export async function loadRubricCatalog(schoolId: string, signal?: AbortSignal) {
   const result = await allocationRequest<{ enabled: boolean; rubrics: AllocationCatalogRubric[]; schoolYearId: string }>("list-rubrics", { schoolId }, signal);
   if (!Array.isArray(result.rubrics)) throw new AllocationApiError("Liste des rubriques incomplète.");
@@ -140,4 +143,21 @@ export async function publishSocialPart(request: PublishSocialPart) {
   const result = await allocationRequest<{ social: FeeAllocationSocialVersion }>("publish-social-part", request);
   if (!result.social || result.social.feeTypeId !== request.feeTypeId || result.social.partOneVersionId !== request.expectedPartOneVersionId) throw new AllocationApiError("Publication non confirmée. Vérifiez la même demande avant de recommencer.");
   return result.social;
+}
+
+/** Lot « Deux onglets et partage des rubriques ». */
+export type ShareRule = { all: boolean; userIds?: string[]; exceptUserIds?: string[] };
+export type ShareStaff = { id: string; name: string; role: "discipline_director" | "study_director" | "secretary" | "teacher" };
+export type AllocationShares = { schoolId: string; schoolYearId: string; revision: string | null; rubrics: Record<string, ShareRule>; staff: ShareStaff[] };
+const shareRequestId = () => crypto.randomUUID().replaceAll("-", "");
+export const loadAllocationShares = (schoolId: string) => allocationRequest<AllocationShares>("get-shares", { schoolId });
+export const setRubricShare = (schoolId: string, expectedRevision: string | null, rubricId: string, all: boolean, userIds: string[]) =>
+  allocationRequest<{ revision: string; rubrics: Record<string, ShareRule> }>("set-rubric-share", { schoolId, requestId: shareRequestId(), expectedRevision, rubricId, all, userIds });
+export const revokeShare = (schoolId: string, expectedRevision: string | null, target: string, rubricIds: string[] | null) =>
+  allocationRequest<{ revision: string; rubrics: Record<string, ShareRule> }>("revoke-share", { schoolId, requestId: shareRequestId(), expectedRevision, target, rubricIds });
+export const loadMySharedRubrics = () => allocationRequest<{ schoolId: string; rubricIds: string[] }>("get-my-shares", {});
+export const staffRoleLabel = (role: ShareStaff["role"]) => ({ discipline_director: "Directeur de discipline", study_director: "Directeur des études", secretary: "Secrétaire", teacher: "Enseignant" })[role] ?? "Personnel";
+/** Ce que voit une personne : rubriques partagées avec elle (tout le personnel sauf exception, ou choisie). */
+export function rubricsSharedWith(rubrics: Record<string, ShareRule>, userId: string) {
+  return Object.entries(rubrics).filter(([, rule]) => rule.all ? !(rule.exceptUserIds ?? []).includes(userId) : (rule.userIds ?? []).includes(userId)).map(([id]) => id);
 }

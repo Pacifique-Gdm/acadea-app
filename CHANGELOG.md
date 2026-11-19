@@ -3,6 +3,15 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.13.0] — 2026-11-18 — Fonctionnalité
+- Répartition des frais : deux onglets et partage des rubriques avec le personnel
+  - Onglets « Répartition annuelle » et « Partage répartition » (Administrateur seulement)
+  - « Afficher » partage une rubrique avec tout le personnel (y compris celui ajouté plus tard) ou des personnes choisies, avec un espace Acadéa
+  - Le personnel voit un seul drawer, en lecture seule : la ligne d'ensemble des rubriques partagées, PDF compris ; aucun élève ni autre rubrique
+  - Retrait à une personne ou à tout le personnel, pour tout le drawer ou des rubriques au choix
+  - « Rubriques de l'année » : plus de « Ajouter une rubrique » ni « Masquer » ; « Supprimer » seulement pour une rubrique jamais utilisée
+  - Une rubrique créée par « + Nouvelle rubrique… » n'est enregistrée qu'avec la répartition
+
 ## [1.12.0] — 2026-11-18 — Fonctionnalité
 - Dashboard Super administrateur : chiffres calculés par le serveur (écoles et administrateurs recomptés à chaque ouverture, élèves et parents gardés 10 minutes avec l'heure du calcul), « — » pendant le chargement au lieu de 0, écoles supprimées exclues de la carte « Écoles » (lot SA-3).
 
