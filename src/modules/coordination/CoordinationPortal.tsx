@@ -214,7 +214,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     : coordination?.name ?? "Coordination";
 
   return <main className="h-screen min-w-0 max-w-full overflow-x-hidden overflow-y-auto bg-[#F5F7FB] pb-24 text-ink">
-    <header data-testid="coordination-institution-band" className={`sticky top-0 z-20 w-full border-b border-slate-200 bg-white shadow-sm ${headerAd ? "py-1.5" : "py-4"}`}>
+    <header data-testid="coordination-institution-band" className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white py-4 shadow-sm" style={headerAd ? { paddingTop: 6, paddingBottom: 8 } : undefined}>
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4">
         <div className={`flex min-w-0 flex-1 gap-3 ${headerAd ? "items-center" : "items-start"}`}>
           <div data-testid="coordination-institution-logo" className={`flex ${headerAd ? "h-6 w-6" : "h-12 w-12"} shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100`}>{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
