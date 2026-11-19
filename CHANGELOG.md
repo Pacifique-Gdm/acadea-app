@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.14.0] — 2026-11-19 — Fonctionnalité
+- Répartition des frais : rubrique d'imputation au-dessus du solde avec les montants de la rubrique, blocage au-delà de son disponible, précision obligatoire pour la nature « Autre », texte des étapes d'activation mis à jour, boutons « Partager » et « PDF », onglets fixes, filtres adaptés au téléphone, phrases de confirmation pour partager et retirer
+
 ## [1.13.4] — 2026-11-19 — Correction
 - Dashboard Coordination et Sous-coordination : les écoles exclues sont nommées avec leur année active et la façon de corriger ; aucun chiffre à 0 n'est affiché ni exporté quand aucune école n'est comptée
 
