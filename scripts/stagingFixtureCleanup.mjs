@@ -33,10 +33,22 @@ try {
     } else {
       if (!existsSync(listPath)) throw new Error('Lancez d\'abord l\'essai à blanc.');
       let done = 0;
+      const failed = [];
       for (const [tag] of groups) {
-        const report = await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId: process.env.GOOGLE_CLOUD_PROJECT, tag, settleMs: 0 });
-        done += 1; console.log(`${done}/${groups.size} ${tag} : ${report.schools} école(s), ${report.documents} document(s), ${report.accounts} compte(s)`);
+        done += 1;
+        // Connexion instable : jusqu'à 3 essais par recette (l'effacement reprend là où il s'est arrêté).
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          try {
+            const report = await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId: process.env.GOOGLE_CLOUD_PROJECT, tag, settleMs: 0 });
+            console.log(`${done}/${groups.size} ${tag} : ${report.schools} école(s), ${report.documents} document(s), ${report.accounts} compte(s)`);
+            break;
+          } catch (error) {
+            console.log(`${done}/${groups.size} ${tag} : essai ${attempt} interrompu (${String(error?.message ?? error).slice(0, 120)})`);
+            if (attempt === 3) failed.push(tag); else await new Promise((resolve) => setTimeout(resolve, 10_000 * attempt));
+          }
+        }
       }
+      if (failed.length) console.log(`Recettes à reprendre : ${failed.length} (relancez la même commande).`);
       // Un seul délai pour tous les déclencheurs, puis dernier passage sur chaque recette.
       console.log('Attente des déclencheurs (60 s)…');
       await new Promise((resolve) => setTimeout(resolve, 60_000));
