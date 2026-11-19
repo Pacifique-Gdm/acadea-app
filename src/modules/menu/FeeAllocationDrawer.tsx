@@ -186,22 +186,22 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     } catch (cause) { setError(message(cause)); } finally { detailLock.current = false; setDetailBusy(false); setDetailAction(""); }
   }
   return <div className="grid min-w-0 gap-4" aria-label="Configuration préparatoire des répartitions">
-    <p className="text-sm text-slate-600" aria-label="Contexte de répartition">{workspaces.map(w => `${w.school.name} · ${w.year.name} · ${w.currency}`).join(" ; ")}</p>
-    {configurable && <div role="tablist" aria-label="Onglets de la répartition" className="flex gap-1 border-b border-slate-200">
+    {configurable && <div role="tablist" aria-label="Onglets de la répartition" className="sticky top-0 z-20 -mt-1 grid grid-cols-2 border-b border-slate-200 bg-white pt-1">
       {([["annual", "Répartition annuelle"], ["sharing", "Partage répartition"]] as const).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={tab === key}
-        className={`px-4 py-2 text-sm ${tab === key ? "border-b-2 border-ink font-semibold text-ink" : "text-slate-600"}`} onClick={() => setTab(key)}>{label}</button>)}
+        className={`min-w-0 px-2 py-2 text-center text-sm ${tab === key ? "border-b-2 border-ink font-semibold text-ink" : "text-slate-600"}`} onClick={() => setTab(key)}>{label}</button>)}
     </div>}
     {configurable && tab === "sharing" && <SharingTab schoolId={workspaces[0].school.id} shares={sharing.shares} error={sharing.error} names={rubricNames} onChanged={sharing.setShares} />}
     {!(configurable && tab === "sharing") && <>
     {ready && user.role !== 'school_admin' && <p className="text-sm" role="status">{workspaces.map(w => `${multipleSchools ? w.school.name + ' : ' : ''}${w.ledger?.status === 'ACTIVE' ? 'Active' : 'En préparation'}`).join(' · ')}</p>}
     {user.role === "school_admin" && workspaces.length === 1 && ready && workspaces[0].canConfigure && <FeeAllocationActivation workspace={workspaces[0]} onChanged={() => void refresh("reload")}/>}
     {configurable && <RubricCatalogPanel schoolId={workspaces[0].school.id} onChanged={() => void refresh("reload")} order={rubricOrder} shares={sharing.shares} onSharesChanged={sharing.setShares} />}
-    <div className="min-w-0 max-w-full overflow-x-auto pb-1" role="region" aria-label="Commandes de répartition" tabIndex={0}>
-      <div className={`grid min-w-[640px] items-center gap-2 ${configurable ? 'grid-cols-4' : 'grid-cols-3'}`}>
-        {configurable && <button type="button" className="primary-button min-h-11 shrink-0 whitespace-nowrap" disabled={!current} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
+    <div className="min-w-0 max-w-full pb-1" role="region" aria-label="Commandes de répartition">
+      {/* Sur téléphone : deux colonnes, rien ne dépasse le bord droit ; sur ordinateur : une seule ligne. */}
+      <div className={`grid min-w-0 grid-cols-2 items-center gap-2 ${configurable ? 'sm:grid-cols-4' : 'sm:grid-cols-3'}`}>
+        {configurable && <button type="button" className="primary-button min-h-11 min-w-0 justify-center whitespace-nowrap" disabled={!current} onClick={() => setEditor({ workspace: workspaces[0] })}>+ Ajouter</button>}
         <label className="min-w-0"><span className="sr-only">Filtre</span><select aria-label="Filtre" className="input h-11 w-full min-w-0" value={filter.kind} onChange={event => setFilter({ kind: event.target.value as AllocationFilter["kind"], value: event.target.value === "period" ? "year" : "", from: "", to: "" })}><option value="fee">Frais</option><option value="class">Classe</option><option value="period">Période</option></select></label>
         <label className="min-w-0"><span className="sr-only">Valeur du filtre</span><select aria-label="Valeur correspondante" className="input h-11 w-full min-w-0 truncate" value={filter.value} onChange={event => setFilter({ ...filter, value: event.target.value })}>{filter.kind === "period" ? periods.map(([value, label]) => <option key={value} value={value}>{label}</option>) : <><option value="">{filter.kind === "fee" ? "Tous les frais" : "Toutes les classes"}</option>{choices.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</>}</select></label>
-        <Action busy={pdfBusy} disabled={!current || !hasConfiguration} onClick={() => void exportPdf()}>Exporter PDF</Action>
+        <Action busy={pdfBusy} disabled={!current || !hasConfiguration} className="secondary-button w-full min-w-0 justify-items-center" onClick={() => void exportPdf()}>PDF</Action>
       </div>
     </div>
     {filter.kind === "period" && <p className="text-xs text-slate-600">Prévu total de l’année active, indépendamment des dates sélectionnées. Encaissé sur la période : dates de comptabilisation. Le disponible cumule toutes les écritures jusqu’à sa fin, ouverture incluse.</p>}

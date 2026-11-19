@@ -13,7 +13,7 @@ const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const FORMER_SEARCH_KEYS = ["action", "schoolYearId", "query"];
 const FORMER_DEBTS_KEYS = ["action", "schoolYearId", "formerStudentId"];
 const FORMER_LIST_KEYS = ["action", "schoolYearId"];
-const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId", "allocationRubricId"];
+const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId", "allocationRubricId", "categoryDetail"];
 const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "categoryDetail", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
@@ -667,9 +667,18 @@ async function createExpense(transaction, db, caller, body, hash, now) {
   if (!EXPENSE_CATEGORIES.has(category) || !description || !beneficiary || !paymentMethod) {
     throw new FinancialApiError(400, "invalid-argument", "Catégorie, description, bénéficiaire et mode de paiement sont requis.");
   }
+  // Nature « Autre » : une précision obligatoire (au moins 3 caractères), refusée pour les autres natures.
+  const otherCategory = category === "Autre" || category === "Autres";
+  const categoryDetail = text(body.categoryDetail, 200);
+  if (otherCategory && categoryDetail.length < 3) {
+    throw new FinancialApiError(400, "invalid-argument", "Précisez la nature de la dépense (au moins 3 caractères).");
+  }
+  if (!otherCategory && body.categoryDetail !== undefined) {
+    throw new FinancialApiError(400, "invalid-argument", "Une précision n'est acceptée que pour la nature Autre.");
+  }
   const expenseId = `expense_${hash.slice(0, 24)}`;
   const expense = {
-    id: expenseId, schoolId: caller.schoolId, schoolYearId, currency, amount, category, description, beneficiary, paymentMethod,
+    id: expenseId, schoolId: caller.schoolId, schoolYearId, currency, amount, category, ...(otherCategory ? { categoryDetail } : {}), description, beneficiary, paymentMethod,
     ...(body.allocationRubricId !== undefined ? { allocationRubricId: body.allocationRubricId } : {}),
     ...(reference ? { reference } : {}), spentAt: now.slice(0, 10), createdAt: now, updatedAt: now,
     createdBy: caller.uid, updatedBy: caller.uid, cashierName: actorName, provenance: "financial-api", clientRequestIdHash: hash,

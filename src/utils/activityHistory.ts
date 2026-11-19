@@ -184,7 +184,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           title: "Dépense",
           actorName: expense.cashierName || "Caissier",
           details:
-            `Motif : ${expenseCategoryLabel(expense.category)} · Description : ${expense.description || "-"} · Montant : ${money(expense.amount)} · Date : ${expense.spentAt} · Heure : ${formatActivityTime(expense.createdAt)} · Enregistrée par : ${expense.cashierName || "-"} · Référence : ${expense.reference ?? expense.id}`,
+            `Motif : ${expenseCategoryLabel(expense.category, expense.categoryDetail)} · Description : ${expense.description || "-"} · Montant : ${money(expense.amount)} · Date : ${expense.spentAt} · Heure : ${formatActivityTime(expense.createdAt)} · Enregistrée par : ${expense.cashierName || "-"} · Référence : ${expense.reference ?? expense.id}`,
           createdAt: normalizeActivityTimestamp(expense.createdAt ?? expense.spentAt),
         }))
       : [];

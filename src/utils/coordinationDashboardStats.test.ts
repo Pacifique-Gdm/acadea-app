@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AppUser, Expense, FeeType, Payment, School, SchoolYear, Student } from "../types";
-import { buildCoordinationDashboardStats } from "./coordinationDashboardStats";
+import { buildCoordinationDashboardStats, coordinationYearExclusions } from "./coordinationDashboardStats";
 
 const schools: School[] = [
   { id: "school-a", name: "École A", address: "", phone: "", email: "", currency: "USD", activeSchoolYearId: "year-a", status: "active", subscriptionPlan: "Standard", subscriptionAmount: 0 },
@@ -96,5 +96,30 @@ describe("agrégations du Dashboard Coordination", () => {
     expect(result.payments).toEqual([]);
     expect(result.expenses).toEqual([]);
     expect(model.payments).toHaveLength(3);
+  });
+});
+
+describe("écoles exclues du Dashboard Coordination : jamais de faux 0", () => {
+  // Cas réel du 19/11 (LUMBULA) : année active « …__2027-2028 » nommée « 2026-2027 », ancien doublon « …__2026-2027 » vide.
+  const lumbula: School[] = [
+    { ...schools[0], id: "s1", name: "C.S LUMBULA", activeSchoolYearId: "s1__2027-2028" },
+    { ...schools[1], id: "s2", name: "Collège Les deux Amis", activeSchoolYearId: "s2__2027-2028" },
+  ];
+  const years: SchoolYear[] = [
+    { id: "s1__2027-2028", schoolId: "s1", name: "2026-2027", startsAt: "2026-09-01", endsAt: "2027-07-31", status: "active" },
+    { id: "s1__2026-2027", schoolId: "s1", name: "Doublon vide 2026-2027 (ne pas utiliser)", startsAt: "2026-09-01", endsAt: "2027-07-31", status: "archived" },
+    { id: "s2__2027-2028", schoolId: "s2", name: "2026-2027", startsAt: "2026-09-01", endsAt: "2027-07-31", status: "active" },
+  ];
+  it("l'identifiant de l'année ne compte pas, seul son nom compte : les 2 écoles sont alignées", () => {
+    expect(coordinationYearExclusions(lumbula, years, "2026-2027")).toEqual([]);
+    const stats = buildCoordinationDashboardStats(lumbula, { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: years }, { referenceSchoolYear: "2026-2027" });
+    expect(stats.excludedSchoolIds).toEqual([]);
+  });
+  it("nomme chaque école exclue, avec son année active ou une année illisible", () => {
+    expect(coordinationYearExclusions(lumbula, years, "2027-2028")).toEqual([
+      { schoolId: "s1", schoolName: "C.S LUMBULA", activeYearName: "2026-2027", reason: "not-aligned" },
+      { schoolId: "s2", schoolName: "Collège Les deux Amis", activeYearName: "2026-2027", reason: "not-aligned" },
+    ]);
+    expect(coordinationYearExclusions(lumbula, [], "2026-2027").map((item) => item.reason)).toEqual(["year-unreadable", "year-unreadable"]);
   });
 });

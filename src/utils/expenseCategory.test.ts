@@ -7,3 +7,12 @@ describe("libellé de dépense historique", () => {
     expect(expenseCategoryLabel("Transport")).toBe("Transport");
   });
 });
+
+describe("nature « Autre » précisée", () => {
+  it("ajoute la précision seulement pour Autre / Autres", () => {
+    expect(expenseCategoryLabel("Autre", " Réparation du portail ")).toBe("Autre — Réparation du portail");
+    expect(expenseCategoryLabel("Autres", "Fête de fin d'année")).toBe("Autres — Fête de fin d'année");
+    expect(expenseCategoryLabel("Autre")).toBe("Autre");
+    expect(expenseCategoryLabel("Transport", "ignorée")).toBe("Transport");
+  });
+});
