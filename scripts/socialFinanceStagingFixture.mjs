@@ -5,6 +5,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { Firestore } from '@google-cloud/firestore';
 import { GoogleAuth, OAuth2Client } from 'google-auth-library';
 import { stagingOAuthProvider } from './stagingOAuth.mjs';
+import { fixtureLeftovers, purgeStagingFixture, stagingRestBucket } from './stagingFixturePurge.mjs';
 
 export const projectId = 'acadea-staging';
 export const manifestPath = 'diagnostics/social-finance-staging/manifest.json';
@@ -33,7 +34,9 @@ export function services() {
   const authClient = new OAuth2Client({ quotaProjectId: projectId, eagerRefreshThresholdMillis: 30000 });
   authClient.refreshHandler = getToken;
   const db = new Firestore({ projectId, preferRest: true, auth: new GoogleAuth({ projectId, authClient }) });
-  return { db, auth: getAuth(app), close: async () => { await db.terminate(); await deleteApp(app); } };
+  // Fichiers des écoles d'essai (effacement complet à la clôture), même identité OAuth.
+  const bucket = stagingRestBucket(`${projectId}.firebasestorage.app`, getToken);
+  return { db, auth: getAuth(app), bucket, close: async () => { await db.terminate(); await deleteApp(app); } };
 }
 export function saveManifest(m) {
   mkdirSync('diagnostics/social-finance-staging', { recursive: true });
@@ -109,14 +112,9 @@ export async function retire(s) {
   for (const u of m.users) {
     try { const a = await s.auth.getUser(u.uid); if (a.email !== u.email) throw Error('Compte étranger.'); accounts.push(a); } catch(e) { if(e.code !== 'auth/user-not-found') throw e; }
   }
-  for (const d of docs) await d.ref.update({ active: false, status: 'inactive', fixtureLifecycle: 'retired' }, { lastUpdateTime: d.updateTime });
-  for (const a of accounts) {
-    await s.auth.updateUser(a.uid, { disabled: true });
-    await s.auth.setCustomUserClaims(a.uid, {});
-    await s.auth.revokeRefreshTokens(a.uid);
-    const check = await s.auth.getUser(a.uid);
-    if (!check.disabled || Object.keys(check.customClaims || {}).length) throw Error('Clôture Auth non confirmée.');
-  }
-  for (const d of docs) if ((await d.ref.get()).data().active !== false) throw Error('Clôture Firestore non confirmée.');
-  m.retired = true; m.retained = true; m.deleted = false; m.closedAt = new Date().toISOString(); saveManifest(m);
+  // Clôture : effacement complet de tout ce que la recette a créé (plus d'école d'essai gardée).
+  await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId, tag: m.tag, extraUids: m.users.map(u => u.uid) });
+  const leftovers = await fixtureLeftovers(s.db, m.tag, m.schools);
+  if (leftovers.length) throw Error('Effacement incomplet : ' + leftovers.join(', '));
+  m.retired = true; m.retained = false; m.deleted = true; m.closedAt = new Date().toISOString(); saveManifest(m);
 }

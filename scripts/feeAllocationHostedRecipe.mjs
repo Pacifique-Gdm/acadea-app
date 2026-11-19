@@ -8,6 +8,7 @@ import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { createWorker } from 'tesseract.js';
 import { fileURLToPath } from 'node:url';
+import { deleteOrphanSubdocuments, fixtureLeftovers, purgeStagingFixture } from './stagingFixturePurge.mjs';
 import { services } from './socialFinanceStagingFixture.mjs';
 import { feeAllocationAnchorId } from '../api/_lib/feeAllocationReceipts.js';
 import { validateFeeAllocationRubrics } from '../api/_lib/feeAllocationMath.js';
@@ -144,50 +145,29 @@ async function retire() {
     record('Clôture locale : précontrôle interrompu avant tout provisionnement, aucune ressource créée');
     return;
   }
+  // Propriété vérifiée avant tout effacement : comptes et documents de CETTE recette uniquement.
   for (const u of users) {
     let account; try { account = await s.auth.getUser(u.uid); } catch (e) { if (e.code === 'auth/user-not-found') continue; throw e; }
     assert.equal(account.email, u.email);
-    await s.auth.updateUser(u.uid, { disabled: true }); await s.auth.setCustomUserClaims(u.uid, {}); await s.auth.revokeRefreshTokens(u.uid);
-    const check = await s.auth.getUser(u.uid); assert.equal(check.disabled, true); assert.equal(Object.keys(check.customClaims ?? {}).length, 0);
   }
   for (const path of manifest.paths.filter(p => /^(schools|users|coordinations|subCoordinations|coordinationSchools|subCoordinationSchools|feeAllocationTestScopes)\//.test(p))) {
-    const ref = s.db.doc(path), snap = await ref.get(); if (!snap.exists) continue;
+    const snap = await s.db.doc(path).get(); if (!snap.exists) continue;
     assert.equal(snap.data().fixtureId, tag); assert.equal(snap.data().id, snap.id);
-    await ref.update({ active: false, status: 'inactive', fixtureLifecycle: 'retired' }, { lastUpdateTime: snap.updateTime });
-    assert.equal((await ref.get()).data().active, false);
   }
+  // Clôture : effacement complet (écoles, documents, sous-documents, signaux, comptes), aucun reste.
+  const report = await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId: 'acadea-staging', tag, extraUids: users.map(u => u.uid) });
+  report.documents += await deleteOrphanSubdocuments(s.db, manifest.schools);
+  assert.deepEqual(await fixtureLeftovers(s.db, tag, manifest.schools), []);
   for (const u of users.slice(0, 4)) {
     const tokenKey = u.key ?? u.role;
     if (!tokens.has(tokenKey)) continue;
     const response = await fetch(`${origin}/api/manage-financial-transaction`, { method: 'POST', headers: {
       Authorization: tokens.get(tokenKey), 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'fee-allocation.get-workspace', schoolId: u.schoolId ?? school }), signal: AbortSignal.timeout(30000) });
-    assert.ok([401, 403].includes(response.status), 'Compte fictif encore autorisé après neutralisation');
+    assert.ok([401, 403].includes(response.status), 'Compte fictif encore autorisé après effacement');
   }
-  const retained = { feeAllocationForecastSignals: [] };
-  for (const sid of manifest.schools) retained.feeAllocationForecastSignals.push(...(await s.db.collection('feeAllocationForecastSignals').where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
-  for (const collection of ['payments', 'expenses', 'personnelPayments', 'feeAllocationStates', 'feeAllocationConfigs', 'feeAllocationVersions', 'feeAllocationOpeningAudits', 'feeAllocationBalances', 'feeAllocationMovements', 'feeAllocationRequests', 'feeAllocationAnchors', 'financialIdempotency', 'financialCounters', 'financialCashLocks', 'auditLogs', 'socialSupportDecisions', 'socialSupportRequests', 'socialSupportAudit', 'socialSupportFeeLocks', 'feeAllocationReconciliationRuns', 'feeAllocationHistoricalProofs', 'feeAllocationHistoricalDecisions', 'feeAllocationEvidenceClaims', 'feeAllocationEvidenceRevisions']) {
-    retained[collection] = [];
-    for (const sid of manifest.schools) retained[collection].push(...(await s.db.collection(collection).where('schoolId', '==', sid).get()).docs.map(d => ({ schoolId: sid, id: d.id })));
-  }
-  retained.openingEvidencePages = [];
-  retained.reconciliationDocuments = [];
-  for (const run of retained.feeAllocationReconciliationRuns) for (const collection of ['pages', 'versions']) {
-    const docs = await s.db.collection(`feeAllocationReconciliationRuns/${run.id}/${collection}`).get();
-    for (const doc of docs.docs) {
-      assert.ok(manifest.schools.includes(doc.data().schoolId));
-      retained.reconciliationDocuments.push({ schoolId: doc.data().schoolId, path: doc.ref.path });
-    }
-  }
-  for (const audit of retained.feeAllocationOpeningAudits) {
-    const pages = await s.db.collection(`feeAllocationOpeningAudits/${audit.id}/evidencePages`).get();
-    for (const doc of pages.docs) {
-      assert.ok(manifest.schools.includes(doc.data().schoolId));
-      retained.openingEvidencePages.push({ schoolId: doc.data().schoolId, path: doc.ref.path });
-    }
-  }
-  manifest.retired = true; manifest.deleted = false; manifest.retained = retained; manifest.closedAt = new Date().toISOString(); save();
-  record('Clôture : comptes désactivés, sessions révoquées, écoles neutralisées, registre fictif inventorié sans suppression');
+  manifest.retired = true; manifest.deleted = true; manifest.retained = {}; manifest.cleanup = report; manifest.closedAt = new Date().toISOString(); save();
+  record('Clôture : écoles, documents, comptes et signaux d\x27essai effacés, aucun reste ; anciens jetons refusés');
 }
 try {
   // Verify the actual browser transport before provisioning any remote fixture.

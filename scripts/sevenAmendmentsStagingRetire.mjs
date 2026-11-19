@@ -4,5 +4,5 @@ guard();
 const s = services();
 try {
   await retire(s);
-  console.log('Clôture PR48 vérifiée : comptes désactivés, sessions révoquées, écoles inactives ; aucune suppression.');
+  console.log('Clôture PR48 vérifiée : écoles, documents et comptes d\x27essai effacés, aucun reste.');
 } finally { await s.close(); }

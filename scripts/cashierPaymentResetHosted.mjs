@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { chromium, expect as baseExpect } from '@playwright/test';
 import { services } from './socialFinanceStagingFixture.mjs';
+import { fixtureLeftovers, purgeStagingFixture } from './stagingFixturePurge.mjs';
 import { guardedRoute, redactRecipeError } from './hostedRecipeSafety.mjs';
 
 // Uses the normal hosted sign-in, UI and financial API. No response is mocked.
@@ -102,24 +103,18 @@ try {
   try {
     let account;
     try { account = await s.auth.getUser(uid); } catch (e) { if (e.code !== 'auth/user-not-found') throw e; }
-    if (account) {
-      assert.equal(account.email, email);
-      await s.auth.updateUser(uid, { disabled: true }); await s.auth.setCustomUserClaims(uid, {}); await s.auth.revokeRefreshTokens(uid);
-      const check = await s.auth.getUser(uid); assert.equal(check.disabled, true); assert.deepEqual(check.customClaims, {});
-    }
+    if (account) assert.equal(account.email, email);
     for (const docPath of [`schools/${school}`, `users/${uid}`]) {
-      const ref = s.db.doc(docPath), snap = await ref.get();
+      const snap = await s.db.doc(docPath).get();
       if (!snap.exists) continue;
       assert.equal(snap.data().fixtureId, tag);
-      await ref.update({ active: false, status: 'inactive', fixtureLifecycle: 'retired' }, { lastUpdateTime: snap.updateTime });
-      assert.equal((await ref.get()).data().active, false);
     }
-    manifest.retained = {};
-    for (const collection of ['payments', 'financialIdempotency', 'auditLogs', 'financialCounters', 'financialCashLocks', 'cashBalances']) {
-      manifest.retained[collection] = (await s.db.collection(collection).where('schoolId', '==', school).get()).docs.map(d => d.id);
-    }
+    // Clôture : effacement complet de l'école d'essai, de ses écritures et du compte fictif.
+    await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId: 'acadea-staging', tag, extraUids: [uid] });
+    assert.deepEqual(await fixtureLeftovers(s.db, tag, [school]), []);
+    manifest.retained = {}; manifest.deleted = true;
     manifest.retired = true; manifest.closedAt = new Date().toISOString(); save();
-    record('Clôture : compte désactivé, sessions révoquées, école neutralisée, écritures fictives inventoriées');
+    record('Clôture : école d\'essai, écritures et compte fictif effacés, aucun reste');
   } catch { results.push({ name: 'Clôture', result: 'FAIL' }); process.exitCode = 1; }
   writeFileSync(`${output}/results.json`, JSON.stringify({ sha, projectId: 'acadea-staging', results }, null, 2));
   await s.close();

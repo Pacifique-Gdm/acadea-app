@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { guard as baseGuard, services as baseServices } from './socialFinanceStagingFixture.mjs';
+import { fixtureLeftovers, purgeStagingFixture } from './stagingFixturePurge.mjs';
 
 export const projectId = 'acadea-staging';
 export const manifestPath = 'diagnostics/seven-amendments-staging/manifest.json';
@@ -170,14 +171,9 @@ export async function retire(s) {
     try { const account = await s.auth.getUser(u.uid); if (account.email !== u.email) throw Error('Compte étranger.'); accounts.push(account); }
     catch (e) { if (e.code !== 'auth/user-not-found') throw e; }
   }
-  for (const snapshot of snapshots) await snapshot.ref.update({ active: false, status: 'inactive', fixtureLifecycle: 'retired' }, { lastUpdateTime: snapshot.updateTime });
-  for (const account of accounts) {
-    await s.auth.updateUser(account.uid, { disabled: true });
-    await s.auth.setCustomUserClaims(account.uid, {});
-    await s.auth.revokeRefreshTokens(account.uid);
-    const check = await s.auth.getUser(account.uid);
-    if (!check.disabled || Object.keys(check.customClaims ?? {}).length) throw Error('Clôture Auth non confirmée.');
-  }
-  for (const snapshot of snapshots) if ((await snapshot.ref.get()).data().active !== false) throw Error('Clôture Firestore non confirmée.');
-  m.retired = true; m.retained = true; m.deleted = false; m.closedAt = new Date().toISOString(); saveManifest(m);
+  // Clôture : effacement complet de tout ce que la recette a créé (plus d'école d'essai gardée).
+  await purgeStagingFixture({ db: s.db, auth: s.auth, bucket: s.bucket, projectId, tag: m.tag, extraUids: m.users.map(u => u.uid) });
+  const leftovers = await fixtureLeftovers(s.db, m.tag, m.schools);
+  if (leftovers.length) throw Error('Effacement incomplet : ' + leftovers.join(', '));
+  m.retired = true; m.retained = false; m.deleted = true; m.closedAt = new Date().toISOString(); saveManifest(m);
 }
