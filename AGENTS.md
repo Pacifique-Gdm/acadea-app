@@ -31,6 +31,13 @@ Ces règles s'appliquent à **tout agent** qui travaille sur Acadéa. Claude Cod
 
   Elle s'arrête au moindre échec. Ne jamais mettre en ligne autrement.
 - Un lot peut aller en production dès qu'il est prêt, à n'importe quelle heure, à condition que toutes ces sécurités soient respectées.
+- **Une seule mise en ligne à la fois**, toujours.
+- **Règle des 15 minutes (19/11) :** une session qui attend le message d'une autre depuis plus de 15 minutes n'attend plus. Elle vérifie elle-même :
+  - qu'aucune mise en ligne ne tourne ;
+  - que `main` n'a pas bougé.
+
+  Puis elle avance sans attendre.
+- Si `ship-lot.sh` s'arrête après la fusion (coupure réseau, par exemple), la mise en ligne n'est pas faite. On la reprend à l'étape 4 du script : construction, 9 vérifications, mise en ligne, 9 vérifications.
 
 ## Sécurité et données
 - Ne jamais ouvrir `.env*` ni `service-account.json`.

@@ -11,7 +11,7 @@ import { buildDashboardTransactionDayRows } from "../../utils/dashboardStats";
 import { formatChartDate, getTransactionPeriodDates } from "../../utils/dashboardDates";
 import { buildDashboardCollectedArrears } from "../../utils/dashboardCollectedArrears";
 import { collectedArrearsBandHeight } from "../../utils/collectedArrearsBand";
-import { buildCoordinationDashboardStats, type DashboardCurrency } from "../../utils/coordinationDashboardStats";
+import { buildCoordinationDashboardStats, type DashboardCurrency, coordinationYearExclusions } from "../../utils/coordinationDashboardStats";
 import { formatCurrencyMoney, resolveSchoolCurrency } from "../../utils/currency";
 import { expenseCategoryLabel } from "../../utils/expenseCategory";
 import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
@@ -98,6 +98,11 @@ export function CoordinationDashboard({
     referenceSchoolYear: coordination.referenceSchoolYear,
     section: sectionFilter,
   }), [coordination.referenceSchoolYear, financialModel, scopedSchools, sectionFilter]);
+  // Écoles exclues : nommées une à une, avec la raison et la façon de corriger. Si aucune école
+  // n'est comptée, aucun chiffre n'est affiché (des 0 ne sont jamais présentés comme de vrais chiffres).
+  const exclusions = useMemo(() => coordinationYearExclusions(scopedSchools, model.schoolYears, coordination.referenceSchoolYear), [coordination.referenceSchoolYear, model.schoolYears, scopedSchools]);
+  const exclusionsKnown = !firstLoad && !loadError && !loading;
+  const noCountedSchool = exclusionsKnown && scopedSchools.length > 0 && exclusions.length === scopedSchools.length;
   const dashboardArrears = useDashboardArrears(stats.students, model.payments, true);
   const arrearsCurrencies = resolveApplicableArrearsCurrencies({
     schools: scopedSchools,
@@ -113,7 +118,7 @@ export function CoordinationDashboard({
       && payment.currency !== "CDF" && payment.currency !== "USD");
   const financialExportBlocked = !financialVerificationReady || hasUnknownFinancialCurrency;
   const financialDisplayBlocked = !displayVerified || hasUnknownFinancialCurrency;
-  const pdfExportBlocked = financialExportBlocked || !dashboardArrears.totals || Boolean(dashboardArrears.error);
+  const pdfExportBlocked = financialExportBlocked || noCountedSchool || !dashboardArrears.totals || Boolean(dashboardArrears.error);
   const hasCrossCurrencyHistory = [...stats.payments, ...stats.expenses, ...stats.cashInflows].some((operation) => operation.currency
     && operation.currency !== resolveSchoolCurrency(schoolById.get(operation.schoolId) ?? {}));
   const studentsByKey = useMemo(() => new Map(transactionScope.students.map((student) => [`${student.schoolId}:${student.id}`, student])), [transactionScope.students]);
@@ -246,7 +251,8 @@ export function CoordinationDashboard({
     {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible : {expenseResolution.message}</p>}
     {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés ({dashboardArrears.error})</p>}
     {hasCrossCurrencyHistory && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Les graphiques par école sont masqués car des opérations portent une autre devise que la devise actuelle de leur école.</p>}
-    {!firstLoad && !loadError && stats.excludedSchoolIds.length > 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{formatCount(stats.excludedSchoolIds.length)} école(s) non alignée(s) sur l’année de référence sont exclues des statistiques.</p>}
+    {exclusionsKnown && exclusions.length > 0 && <YearExclusionNotice exclusions={exclusions} referenceYear={coordination.referenceSchoolYear} allExcluded={noCountedSchool} />}
+    {!noCountedSchool && <>
 
     <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3">{cards.map((card) => { const Icon = card.icon; return <article key={card.label} className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"><div className={`mb-4 flex h-10 w-10 items-center justify-center rounded ${card.tone}`}><Icon className="h-5 w-5" /></div><p className="text-sm text-slate-500">{card.label}</p><p className="mt-1 break-words text-2xl font-bold text-ink">{firstLoad ? <ValueSkeleton /> : typeof card.value === "number" ? formatCount(card.value) : card.value}</p></article>; })}</div>
     {loading ? arrearsCollections.length > 0 && <BlockSkeleton label="Arriérés encaissés" height={collectedArrearsBandHeight(arrearsCollections.length, 16)} />
@@ -271,5 +277,29 @@ export function CoordinationDashboard({
     <FormPanel title="Transactions du jour"><div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">{transactions.map((transaction) => <div key={transaction.id} className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3 text-sm"><div className="min-w-0"><p className="font-semibold text-ink">{transaction.type}</p><p className="break-words text-xs text-slate-500">{transaction.label} | {transaction.date.slice(0, 10)}</p></div><span className={transaction.amount >= 0 ? "shrink-0 font-bold text-mint" : "shrink-0 font-bold text-red-600"}>{transaction.currency ? `${transaction.amount >= 0 ? "+" : "-"}${formatCurrency(Math.abs(transaction.amount), transaction.currency)}` : currencyPending ? <span data-testid="value-skeleton" aria-hidden="true" className="inline-block h-5 w-20 animate-pulse rounded bg-slate-200 align-middle" /> : "Devise historique inconnue"}</span></div>)}{firstLoad && <BlockSkeleton className="h-12" label="Transactions" />}{!firstLoad && transactions.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucune transaction pour cette période.</p>}</div>{currencyPending ? <div className="mt-4 border-t border-slate-100 pt-4"><BlockSkeleton className="h-64" label="Mouvement des transactions par jour" /></div> : !financialDisplayBlocked && !hasCrossCurrencyHistory && <div className="mt-4 grid gap-4 border-t border-slate-100 pt-4">{chartGroups.map((group) => <div key={group.currency} className="grid gap-2">{chartGroups.length > 1 && <p className="text-sm font-bold text-slate-600">Devise : {group.currency}</p>}<TransactionComboChart rows={group.rows} period={transactionPeriod} onPeriodChange={setTransactionPeriod} currency={group.currency} formatAmount={(value) => formatCurrency(value, group.currency)} /></div>)}</div>}</FormPanel>
 
     <div className="min-w-0 rounded border border-slate-200 bg-white p-4 shadow-sm"><h2 className="font-bold text-ink">Élèves par classe</h2><div className="mt-3 overflow-x-auto"><table className={`w-full ${scopedSchools.length > 1 ? "min-w-[680px]" : "min-w-[520px]"} text-left text-sm`}><thead className="text-xs uppercase text-slate-500"><tr>{scopedSchools.length > 1 && <th className="py-2">École</th>}<th className="py-2">Classe</th><th className="py-2">Filles</th><th className="py-2">Garçons</th><th className="py-2">Total</th></tr></thead><tbody>{stats.classRows.map((row) => <tr key={`${row.schoolId}:${row.className}`} className="border-t border-slate-100">{scopedSchools.length > 1 && <td className="py-2 pr-3">{row.schoolName}</td>}<td className="py-2 font-semibold text-ink">{row.className}</td><td className="py-2">{formatCount(row.girls)}</td><td className="py-2">{formatCount(row.boys)}</td><td className="py-2">{formatCount(row.total)}</td></tr>)}<tr className="border-t border-slate-200 bg-slate-50 font-bold text-ink">{scopedSchools.length > 1 && <td className="py-2" />}<td className="py-2">Totaux</td><td className="py-2">{formatCount(stats.totalGirls)}</td><td className="py-2">{formatCount(stats.totalBoys)}</td><td className="py-2">{formatCount(stats.totalStudents)}</td></tr></tbody></table></div></div>
+    </>}
   </section>;
 }
+
+/** Explication des écoles exclues : qui, pourquoi, et comment corriger. */
+function YearExclusionNotice({ exclusions, referenceYear, allExcluded }: { exclusions: CoordinationYearExclusionView[]; referenceYear?: string; allExcluded: boolean }) {
+  const unreadable = exclusions.filter((item) => item.reason === "year-unreadable");
+  const misaligned = exclusions.filter((item) => item.reason === "not-aligned");
+  return <div role={allExcluded ? "alert" : "status"} data-testid="year-exclusion-notice" className="grid gap-2 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+    <p className="font-bold">{allExcluded
+      ? "Aucun chiffre n'est affiché : aucune école de ce périmètre n'est comptée dans les statistiques."
+      : `Les chiffres ci-dessous ne comptent pas ${exclusions.length === 1 ? "l'école suivante" : `les ${exclusions.length} écoles suivantes`}.`}</p>
+    {misaligned.length > 0 && <>
+      <p>Année de référence de la Coordination : <b>{referenceYear ?? "non définie"}</b>. Ces écoles sont sur une autre année active :</p>
+      <ul className="ml-5 list-disc">{misaligned.map((item) => <li key={item.schoolId}><b>{item.schoolName}</b> : année active « {item.activeYearName} »</li>)}</ul>
+      <p><b>Pour corriger :</b> ouvrez Menu › Année scolaire et vérifiez la colonne « Alignement ». L'Administrateur de chaque école concernée doit activer l'année « {referenceYear ?? "de référence"} » ; ou, si toutes les écoles ont changé d'année, la Coordination ouvre la nouvelle année scolaire dans ce même menu.</p>
+    </>}
+    {unreadable.length > 0 && <>
+      <p>L'année active de ces écoles n'a pas pu être lue :</p>
+      <ul className="ml-5 list-disc">{unreadable.map((item) => <li key={item.schoolId}><b>{item.schoolName}</b></li>)}</ul>
+      <p><b>Pour corriger :</b> actualisez la page. Si le message reste, vérifiez l'année active de l'école dans Menu › Année scolaire, ou signalez-le au support Acadéa.</p>
+    </>}
+  </div>;
+}
+
+type CoordinationYearExclusionView = ReturnType<typeof coordinationYearExclusions>[number];
