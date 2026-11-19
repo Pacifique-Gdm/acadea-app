@@ -172,7 +172,19 @@ export async function purgeStagingFixture({ db, auth, bucket, projectId, tag, ex
   report.documents += await sweep(db, tag, schoolIds);
   // Les déclencheurs écrivent après coup des « signaux » portant l'école : dernier passage.
   if (schoolIds.length && settleMs > 0) { await wait(settleMs); report.documents += await sweep(db, tag, schoolIds); }
+  // 1.15.2 : compteurs de changements de la répartition (`école__année`) recréés après coup par les fonctions.
+  report.documents += await deleteFixtureCounters(db, tag);
   return report;
+}
+
+/** Efface les compteurs `feeAllocationChangeCounters/{école d'essai}__…` de la recette `tag` (marque vérifiée). */
+export async function deleteFixtureCounters(db, tag) {
+  if (!FIXTURE_TAG.test(tag ?? '')) throw new Error('Refusé : marque de recette invalide.');
+  // Petite collection (un document par école et par année) : lue entière, filtrée sur l'identifiant préfixé par la marque.
+  const refs = (await db.collection('feeAllocationChangeCounters').get()).docs.filter((doc) => doc.id.startsWith(`${tag}-`)).map((doc) => doc.ref);
+  if (!refs.length) return 0;
+  const batch = db.batch(); refs.forEach((ref) => batch.delete(ref)); await batch.commit();
+  return refs.length;
 }
 
 /** Restes éventuels de la recette `tag` (lecture seule). */

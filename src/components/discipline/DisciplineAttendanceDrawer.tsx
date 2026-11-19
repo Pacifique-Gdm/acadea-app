@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search } from "lucide-react";
 import type { AttendanceRecord, AttendanceSettings, AttendanceStatus, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 import { canonicalOperationalClasses, studentBelongsToOperationalClass } from "../../services/schoolSubclasses";
@@ -77,6 +77,28 @@ function startOfWeek(date: Date) {
   return next;
 }
 
+/** Lot « Présence rapide » : comparateurs créés une seule fois (localeCompare avec une langue recrée un comparateur à chaque appel). */
+export const nameCollator = new Intl.Collator("fr");
+/** Nombre d'élèves dessinés au premier affichage, puis à chaque morceau suivant. */
+export const FIRST_STUDENTS = 40, NEXT_STUDENTS = 60;
+/** Une classe hors de l'écran n'est mise en page qu'au moment où l'on fait défiler jusqu'à elle. */
+export const OFFSCREEN_CLASS_STYLE = { contentVisibility: "auto", containIntrinsicSize: "auto 520px" } as const;
+/** Nombre de classes à dessiner pour atteindre au moins `target` élèves (toujours au moins une classe). */
+export function groupsForStudents(groups: { students: unknown[] }[], target: number) {
+  let total = 0, count = 0;
+  while (count < groups.length && (count === 0 || total < target)) { total += groups[count].students.length; count += 1; }
+  return count;
+}
+export function studentsIn(groups: { students: unknown[] }[], count: number) {
+  return groups.slice(0, count).reduce((sum, group) => sum + group.students.length, 0);
+}
+const classCollator = new Intl.Collator("fr", { numeric: true, sensitivity: "base" });
+const sortKeys = new WeakMap<Student, string>();
+function compareStudentNames(first: Student, second: Student) {
+  const key = (student: Student) => { let value = sortKeys.get(student); if (value === undefined) { value = studentFullName(student); sortKeys.set(student, value); } return value; };
+  return nameCollator.compare(key(first), key(second));
+}
+
 function studentFullName(student: Student) {
   return [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ").trim();
 }
@@ -130,13 +152,13 @@ function compareClassNames(first: string, second: string) {
   const secondRank = classSortRank(second);
   if (firstRank.section !== secondRank.section) return firstRank.section - secondRank.section;
   if (firstRank.level !== secondRank.level) return firstRank.level - secondRank.level;
-  return first.localeCompare(second, "fr", { numeric: true, sensitivity: "base" });
+  return classCollator.compare(first, second);
 }
 
 function compareAttendanceGroups(first: AttendanceGroup, second: AttendanceGroup) {
   const classOrder = compareClassNames(first.className, second.className);
   if (classOrder !== 0) return classOrder;
-  return first.option.localeCompare(second.option, "fr", { numeric: true, sensitivity: "base" });
+  return classCollator.compare(first.option, second.option);
 }
 
 function groupStudents(students: Student[]) {
@@ -155,13 +177,16 @@ function groupStudents(students: Student[]) {
   return Array.from(groups.values())
     .map((group) => ({
       ...group,
-      students: [...group.students].sort((first, second) => studentFullName(first).localeCompare(studentFullName(second), "fr")),
+      students: [...group.students].sort((first, second) => compareStudentNames(first, second)),
     }))
     .sort(compareAttendanceGroups);
 }
 
 const noClassRecords: SchoolClassRecord[] = [];
-export function DisciplineAttendanceDrawer({ students, attendance, classRecords = noClassRecords, allowedSections, classesError, settings, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
+/** Lot « Présence rapide » : redessiné seulement si ses données changent (pas à chaque changement d'onglet). */
+export const DisciplineAttendanceDrawer = memo(DisciplineAttendanceView);
+
+function DisciplineAttendanceView({ students, attendance, classRecords = noClassRecords, allowedSections, classesError, settings, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
   const [weekStart, setWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
   const [selectedSection, setSelectedSection] = useState<AttendanceSectionFilter>("all");
   const [selectedClass, setSelectedClass] = useState("");
@@ -211,7 +236,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
     const source = students
       .filter((student) => selectedSection === "all" || classSection(studentClassName(student)) === selectedSection)
       .filter((student) => !selectedClass || studentClassName(student) === selectedClass);
-    return Array.from(new Set(source.map((student) => student.option).filter((option): option is string => Boolean(option)))).sort((first, second) => first.localeCompare(second, "fr"));
+    return Array.from(new Set(source.map((student) => student.option).filter((option): option is string => Boolean(option)))).sort(nameCollator.compare);
   }, [selectedClass, selectedSection, students]);
   const showOptionFilter =
     (selectedSection === "all" || selectedSection === "Secondaire") &&
@@ -247,7 +272,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
           .toLocaleLowerCase("fr");
         return haystack.includes(normalizedSearch);
       })
-      .sort((first, second) => studentFullName(first).localeCompare(studentFullName(second), "fr"));
+      .sort((first, second) => compareStudentNames(first, second));
   }, [search, selectedClass, selectedOption, selectedSection, showOptionFilter, students]);
 
   const groupedStudents = useMemo(() => {
@@ -264,6 +289,15 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
     // Preserve historical pupils whose class reference cannot yet be resolved.
     return [...groups, ...groupStudents(filteredStudents.filter((pupil) => !assigned.has(pupil.id)))];
   }, [allowedSections, classRecords, filteredStudents, school.id, year.id, students, search, selectedClass, selectedOption, selectedSection]);
+  // Lot « Présence rapide » : les premières classes (≈ 40 élèves) s'affichent tout de suite, les suivantes juste après,
+  // par petits morceaux, sans bloquer l'écran ; rien ne change dans ce que l'on voit une fois tout dessiné.
+  const [shownGroups, setShownGroups] = useState(() => groupsForStudents(groupedStudents, FIRST_STUDENTS));
+  useEffect(() => { setShownGroups(groupsForStudents(groupedStudents, FIRST_STUDENTS)); }, [groupedStudents]);
+  useEffect(() => {
+    if (shownGroups >= groupedStudents.length) return undefined;
+    const timer = window.setTimeout(() => setShownGroups((count) => Math.max(count + 1, groupsForStudents(groupedStudents, studentsIn(groupedStudents, count) + NEXT_STUDENTS))), 0);
+    return () => window.clearTimeout(timer);
+  }, [shownGroups, groupedStudents]);
   const hasManualStudentSearch = normalizeSearch(manualStudentSearch).length > 0;
   const manualStudentResults = useMemo(() => {
     const normalizedSearch = normalizeSearch(manualStudentSearch);
@@ -288,7 +322,7 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
           .toLocaleLowerCase("fr");
         return haystack.includes(normalizedSearch);
       })
-      .sort((first, second) => studentFullName(first).localeCompare(studentFullName(second), "fr"));
+      .sort((first, second) => compareStudentNames(first, second));
   }, [manualStudentSearch, selectedClass, selectedOption, selectedSection, showOptionFilter, students]);
   const selectedManualStudents = useMemo(
     () => manualStudentIds.map((studentId) => students.find((student) => student.id === studentId)).filter((student): student is Student => Boolean(student)),
@@ -548,8 +582,8 @@ export function DisciplineAttendanceDrawer({ students, attendance, classRecords 
         {groupedStudents.length === 0 && (
           <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucun élève ne correspond à cette sélection.</p>
         )}
-        {groupedStudents.map((group) => (
-          <article key={group.key} className="min-w-0 overflow-hidden rounded border border-slate-200 bg-white shadow-sm">
+        {groupedStudents.slice(0, shownGroups).map((group) => (
+          <article key={group.key} className="min-w-0 overflow-hidden rounded border border-slate-200 bg-white shadow-sm" style={OFFSCREEN_CLASS_STYLE} data-attendance-class>
             <div className="border-b border-slate-200 p-4">
               <h2 className="break-words font-bold text-ink">{group.className}{group.option !== "—" ? ` - ${group.option}` : ""}</h2>
               <p className="mt-1 text-sm font-semibold text-slate-500">{group.students.length} élève(s)</p>

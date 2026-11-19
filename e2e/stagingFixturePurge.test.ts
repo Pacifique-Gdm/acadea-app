@@ -45,6 +45,14 @@ function fakeDb(collections: Record<string, Record<string, Row>>) {
 }
 
 describe("effacement des écoles d'essai du staging", () => {
+  it("efface aussi les compteurs de changements recréés après coup, et seulement ceux de la recette (1.15.2)", async () => {
+    const { deleteFixtureCounters } = await import("../scripts/stagingFixturePurge.mjs");
+    const db = fakeDb({ feeAllocationChangeCounters: { [`${tag}-a__${tag}-year`]: { schoolId: `${tag}-a` }, "school-210fc308__2026": { schoolId: "school-210fc308" } } });
+    expect(await deleteFixtureCounters(db as never, tag)).toBe(1);
+    expect(Object.keys(db.collections.feeAllocationChangeCounters)).toEqual(["school-210fc308__2026"]);
+    await expect(deleteFixtureCounters(db as never, "school-210fc308")).rejects.toThrow(/marque/);
+  });
+
   it("refuse tout autre projet que le staging et toute marque douteuse", () => {
     expect(() => assertStagingFixtureTag("acadea-production", tag)).toThrow(/Refusé/);
     expect(() => assertStagingFixtureTag("acadea-staging", "school-210fc308")).toThrow(/marque/);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changeCounterId, counterScopes } from './allocationChangeCounter.js';
+import { changeCounterId, counterScopes, needsSchoolCheck } from './allocationChangeCounter.js';
 
 describe('compteur de changements de la répartition', () => {
   it('une école et une année par document source', () => {
@@ -17,6 +17,10 @@ describe('compteur de changements de la répartition', () => {
     expect(counterScopes(a, undefined, 'x')).toHaveLength(1);
     expect(counterScopes(a, { ...a, revision: 2 }, 'x')).toHaveLength(1);
     expect(counterScopes(a, { schoolId: 'school-b', schoolYearId: 'year-b' }, 'x')).toHaveLength(2);
+  });
+  it('un effacement vérifie d’abord que l’école existe encore (pas de compteur orphelin)', () => {
+    expect(needsSchoolCheck(undefined)).toBe(true);
+    expect(needsSchoolCheck({ schoolId: 'school-a' })).toBe(false);
   });
   it('identifiants invalides ignorés', () => {
     expect(counterScopes(undefined, { schoolId: 'a/b', schoolYearId: 'year' }, 'x')).toEqual([]);
