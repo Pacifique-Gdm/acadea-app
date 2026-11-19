@@ -12,6 +12,12 @@ describe("onglet Présence rapide", () => {
     expect(portal).toContain('<div hidden={activeDisciplineTab !== "attendance"} data-attendance-tab');
     expect(portal).toContain('if (activeDisciplineTab === "attendance") attendanceVisited.current = true;');
   });
+  it("n'est pas redessiné à chaque changement d'onglet : composant mémorisé, valeurs stables", () => {
+    expect(drawer).toContain("export const DisciplineAttendanceDrawer = memo(DisciplineAttendanceView);");
+    expect(portal).toContain("allowedSections={attendanceSections}");
+    expect(portal).toContain("onSaveManualAttendance={stableSaveManualAttendance}");
+    expect(portal).not.toContain("allowedSections={userSectionIds(user)}");
+  });
   it("trie avec des comparateurs créés une seule fois", () => {
     expect(drawer).not.toContain(".localeCompare(");
     expect(["Élodie", "eric", "Ange", "Zoé"].sort(nameCollator.compare)).toEqual(["Ange", "Élodie", "eric", "Zoé"]);

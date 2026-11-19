@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search } from "lucide-react";
 import type { AttendanceRecord, AttendanceSettings, AttendanceStatus, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 import { canonicalOperationalClasses, studentBelongsToOperationalClass } from "../../services/schoolSubclasses";
@@ -170,7 +170,10 @@ function groupStudents(students: Student[]) {
 }
 
 const noClassRecords: SchoolClassRecord[] = [];
-export function DisciplineAttendanceDrawer({ students, attendance, classRecords = noClassRecords, allowedSections, classesError, settings, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
+/** Lot « Présence rapide » : redessiné seulement si ses données changent (pas à chaque changement d'onglet). */
+export const DisciplineAttendanceDrawer = memo(DisciplineAttendanceView);
+
+function DisciplineAttendanceView({ students, attendance, classRecords = noClassRecords, allowedSections, classesError, settings, school, year, onSaveManualAttendance }: DisciplineAttendanceDrawerProps) {
   const [weekStart, setWeekStart] = useState(() => formatDateKey(startOfWeek(new Date())));
   const [selectedSection, setSelectedSection] = useState<AttendanceSectionFilter>("all");
   const [selectedClass, setSelectedClass] = useState("");
