@@ -10,7 +10,7 @@ import { OfflineAccessScreen } from "./components/auth/OfflineAccessScreen";
 import { confirmLogoutWithDrafts } from "./components/auth/LogoutDraftsDialog";
 import { countUnsentOfflineOperations } from "./services/offlineQueue";
 import { cleanDeviceAfterSession, purgeExpiredOfflineData, shouldReloadAfterLogout } from "./services/deviceCleanup";
-import { afterSessionCleanup, classifyAuthTransition, cleanAfterAccountSwitch, cleanAfterSignedOut, decideSignedOutCleanup } from "./services/sessionTransition";
+import { afterSessionCleanup, classifyAuthTransition, cleanAfterAccountSwitch, cleanAfterSignedOut, decideSessionErrorCleanup, decideSignedOutCleanup } from "./services/sessionTransition";
 import { prepareOfflineContext } from "./services/offlineContext";
 import { prepareOfflineShell } from "./services/offlineShell";
 import { AccessDenied } from "./components/auth/AccessDenied";
@@ -653,6 +653,13 @@ export default function App() {
           });
           return;
         }
+        // P4, lot 3 (correction 4) : compte désactivé, profil introuvable ou droits retirés => nettoyage
+        // central, seulement en ligne et pour une erreur définitive (jamais pour un souci de réseau).
+        void cleanAfterSignedOut(decideSessionErrorCleanup({
+          error,
+          online: typeof navigator === "undefined" ? undefined : navigator.onLine,
+          logoutInProgress: logoutInProgressRef.current,
+        }));
         if (!logoutInProgressRef.current) {
           setAuthError(userFacingError(error, "Session Firebase invalide."));
         }

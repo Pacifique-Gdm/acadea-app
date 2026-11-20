@@ -4,6 +4,7 @@ import {
   classifyAuthTransition,
   cleanAfterAccountSwitch,
   cleanAfterSignedOut,
+  decideSessionErrorCleanup,
   decideSignedOutCleanup,
   resetSessionCleanupQueueForTests,
 } from "./sessionTransition";
@@ -98,5 +99,27 @@ describe("P4 lot 3 — ordre nettoyage / préparation du compte suivant", () => 
   it("un nettoyage en échec ne bloque pas la préparation suivante", async () => {
     await cleanAfterAccountSwitch({ clearAccess: async () => { throw new Error("x"); }, cleanDevice: async () => { throw new Error("y"); } });
     await expect(afterSessionCleanup(async () => "prêt")).resolves.toBe("prêt");
+  });
+});
+
+describe("P4 lot 3 — erreur de session (compte désactivé, droits retirés)", () => {
+  const online = { online: true, logoutInProgress: false };
+  it("droits refusés ou compte désactivé, en ligne : nettoyage", () => {
+    expect(decideSessionErrorCleanup({ ...online, error: Object.assign(new Error("x"), { code: "permission-denied" }) })).toBe("clean");
+    expect(decideSessionErrorCleanup({ ...online, error: { code: "auth/user-disabled" } })).toBe("clean");
+    expect(decideSessionErrorCleanup({ ...online, error: new Error("Votre compte n’est plus actif dans cet établissement.") })).toBe("clean");
+    expect(decideSessionErrorCleanup({ ...online, error: new Error("Aucun profil Acadéa n'est associé à ce compte.") })).toBe("clean");
+  });
+  it("souci de réseau ou minuterie de préparation : rien n'est effacé", () => {
+    expect(decideSessionErrorCleanup({ ...online, error: { code: "unavailable" } })).toBe("none");
+    expect(decideSessionErrorCleanup({ ...online, error: { code: "auth/network-request-failed" } })).toBe("none");
+    expect(decideSessionErrorCleanup({ ...online, error: new Error("La préparation de votre session a expiré. Vérifiez votre connexion puis réessayez.") })).toBe("none");
+    expect(decideSessionErrorCleanup({ ...online, error: "inconnue" })).toBe("none");
+  });
+  it("hors ligne ou pendant une déconnexion manuelle : rien n'est effacé", () => {
+    const error = { code: "permission-denied" };
+    expect(decideSessionErrorCleanup({ error, online: false, logoutInProgress: false })).toBe("none");
+    expect(decideSessionErrorCleanup({ error, online: undefined, logoutInProgress: false })).toBe("none");
+    expect(decideSessionErrorCleanup({ error, online: true, logoutInProgress: true })).toBe("none");
   });
 });

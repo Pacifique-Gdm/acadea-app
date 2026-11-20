@@ -30,6 +30,31 @@ export function decideSignedOutCleanup(input: { previousUserId: string; online: 
   return input.previousUserId ? "clean" : "clean-if-leftover";
 }
 
+// Erreurs qui prouvent que la session n'est plus valable (et non un simple souci de réseau).
+const DEFINITIVE_SESSION_ERROR_CODES = new Set([
+  "permission-denied",
+  "unauthenticated",
+  "auth/user-disabled",
+  "auth/user-token-expired",
+  "auth/invalid-user-token",
+  "auth/user-not-found",
+]);
+
+/**
+ * Erreur de session (compte désactivé, profil introuvable ou incomplet, droits retirés) :
+ * nettoyage seulement en ligne ET si l'erreur est définitive. Une erreur de réseau ou la minuterie
+ * « La préparation de votre session a expiré » ne touchent à rien (la reprise hors ligne doit rester possible).
+ */
+export function decideSessionErrorCleanup(input: { error: unknown; online: boolean | undefined; logoutInProgress: boolean }): SignedOutCleanup {
+  if (input.logoutInProgress || input.online !== true) return "none";
+  const code = typeof (input.error as { code?: unknown } | null)?.code === "string" ? String((input.error as { code: string }).code) : "";
+  if (code) return DEFINITIVE_SESSION_ERROR_CODES.has(code) ? "clean" : "none";
+  // Erreurs sans code levées par Acadéa lui-même après lecture du profil (refus explicites).
+  const message = input.error instanceof Error ? input.error.message : "";
+  if (!message || message.includes("session a expiré")) return "none";
+  return "clean";
+}
+
 type CleanupDeps = {
   clearAccess: () => Promise<void>;
   cleanDevice: () => Promise<unknown>;
