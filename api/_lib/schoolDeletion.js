@@ -163,7 +163,9 @@ export async function deleteSchoolCompletely({ db, auth, bucket, schoolId, schoo
     await auditRef.set({ ...report, eventType: "school.deletion.completed", actorId: actor.uid, actorRole: actor.role, source: "server", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     return report;
   } catch (error) {
-    if (!schoolDeleted) await schoolRef.set({ status: "deleting", deletion: { status: "failed", failedStep: error?.step ?? "unknown", startedAt, failedAt: new Date().toISOString(), startedBy: actor.uid } }, { merge: true }).catch(() => undefined);
+    // `update` (et non `set` + merge) : si l'école a déjà été effacée par le serveur mais que la réponse
+    // s'est perdue (coupure réseau), l'écriture échoue au lieu de recréer une école vide « deleting ».
+    if (!schoolDeleted) await schoolRef.update({ status: "deleting", deletion: { status: "failed", failedStep: error?.step ?? "unknown", startedAt, failedAt: new Date().toISOString(), startedBy: actor.uid } }).catch(() => undefined);
     await auditRef.set({ eventType: "school.deletion.failed", status: schoolDeleted ? "deleted-log-failed" : "failed", failedStep: error?.step ?? "unknown", failedAt: FieldValue.serverTimestamp() }, { merge: true }).catch(() => undefined);
     throw error;
   }

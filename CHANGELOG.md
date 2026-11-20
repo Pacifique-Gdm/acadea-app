@@ -3,6 +3,10 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.4] — 2026-11-20 — Correction
+- Effacement d'école : une coupure réseau ne recrée plus une école vide « en cours d'effacement »
+- Recette Publicité (staging) : ses écoles et comptes d'essai sont effacés au lieu d'être désactivés
+
 ## [1.16.3] — 2026-11-20 — Correction
 - Déconnexion : elle se termine toujours, même sans réseau (le compte précédent ne revient plus au rechargement)
 - Déconnexion : avertissement s'il reste des brouillons non envoyés (ils restent sur l'appareil, réservés au compte, et ne sont jamais supprimés)

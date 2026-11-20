@@ -112,6 +112,30 @@ describe("SEC-004 school deletion", () => {
     await expect(deleteSchoolCompletely({ db, auth, bucket, schoolId: "school-a", schoolData: { mainAdminId: "admin-a" }, actor: { uid: "super" } })).resolves.toMatchObject({ status: "complete" });
   });
 
+  it("ne recrée pas une école effacée quand la réponse du serveur se perd (coupure réseau)", async () => {
+    const db = new FakeDb(); const auth = new FakeAuth(); const bucket = new FakeBucket();
+    seedSchool(db, "school-a", "admin-a");
+    auth.users.set("admin-a", { customClaims: { role: "school_admin", schoolId: "school-a" } });
+    // L'effacement est fait par le serveur, mais la réponse n'arrive pas (ECONNRESET).
+    const originalDelete = FakeDoc.prototype.delete;
+    FakeDoc.prototype.delete = async function lostResponse(this: FakeDoc) {
+      await originalDelete.call(this);
+      if (this.path === "schools/school-a") throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+    };
+    try {
+      await expect(deleteSchoolCompletely({ db, auth, bucket, schoolId: "school-a", schoolData: { mainAdminId: "admin-a" }, actor: { uid: "super" } })).rejects.toThrow("ECONNRESET");
+    } finally { FakeDoc.prototype.delete = originalDelete; }
+    expect(db.documents.has("schools/school-a")).toBe(false);
+  });
+
+  it("garde la marque d'échec sur une école encore présente", async () => {
+    const db = new FakeDb(); const auth = new FakeAuth(); const bucket = new FakeBucket();
+    seedSchool(db, "school-a", "admin-a");
+    auth.users.set("admin-a", { customClaims: { role: "school_admin", schoolId: "school-a" } }); auth.failOnce.add("admin-a");
+    await expect(deleteSchoolCompletely({ db, auth, bucket, schoolId: "school-a", schoolData: { mainAdminId: "admin-a" }, actor: { uid: "super" } })).rejects.toThrow();
+    expect(db.documents.get("schools/school-a")).toMatchObject({ id: "school-a", status: "deleting", deletion: { status: "failed", failedStep: "auth" } });
+  });
+
   it("protège les super admins et les comptes d'une autre école", async () => {
     const auth = new FakeAuth();
     auth.users.set("super", { customClaims: { role: "super_admin" } }); auth.users.set("other", { customClaims: { role: "secretary", schoolId: "school-b" } });
