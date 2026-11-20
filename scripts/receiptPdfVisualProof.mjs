@@ -53,6 +53,8 @@ const longNote = ("Paiement de la deuxième tranche des frais scolaires, versé 
 const scenarios = [
   { name: "recu-sans-logo", note: "", logo: false },
   { name: "recu-sans-logo-sigle-long", note: "Tranche 1", logo: false, schoolName: "G.S AGAPÉ", acronym: "GSAGAPÉ" },
+  { name: "recu-sans-logo-nom-seul", note: "", logo: false, schoolName: "G.S AGAPÉ (essai reçu)" },
+  { name: "recu-sans-logo-staging", note: "", logo: false, schoolName: "G.S AGAPÉ (essai reçu)", acronym: "GSAGAPÉ" },
   { name: "recu-description-vide", note: "" },
   { name: "recu-description-courte", note: "Tranche 2 – septembre" },
   { name: "recu-description-longue", note: longNote },
@@ -70,9 +72,29 @@ async function pdfToImages(name, bytes) {
     const file = resolve(outputDir, `${name}-page${index}.png`);
     await writeFile(file, canvas.toBuffer("image/png"));
     files.push(file);
+    if (index === 1) logoInk.set(name, logoSquareInk(canvas));
   }
   return { pages: pdf.numPages, files };
 }
+
+/**
+ * Encre (pixels foncés) à l'intérieur du carré du logo, sur chacun des deux
+ * exemplaires d'un reçu A4 rendu à l'échelle 2. Sans image de logo, les lettres
+ * de secours doivent y être réellement dessinées (pas seulement dans la page :
+ * html2canvas a déjà rogné des lettres que le navigateur affichait bien).
+ */
+function logoSquareInk(canvas) {
+  const context = canvas.getContext("2d");
+  const { width, height } = canvas;
+  return [0.052, 0.503].map((top) => {
+    const x = Math.round(width * 0.09), y = Math.round(height * top), w = Math.round(width * 0.035), h = Math.round(height * 0.026);
+    const pixels = context.getImageData(x, y, w, h).data;
+    let ink = 0;
+    for (let offset = 0; offset < pixels.length; offset += 4) if (pixels[offset] < 160 && pixels[offset + 1] < 160) ink += 1;
+    return ink;
+  });
+}
+const logoInk = new Map();
 
 const browser = await chromium.launch({ headless: true });
 const failures = [];
@@ -121,6 +143,11 @@ try {
     const { pages, files } = await pdfToImages(scenario.name, bytes);
     console.log(`${scenario.name} : ${pages} page(s) -> ${files.join(", ")}`);
     if (pages !== 1) failures.push(`${scenario.name} : ${pages} pages au lieu d'une seule.`);
+    if (scenario.logo === false) {
+      const ink = logoInk.get(scenario.name);
+      console.log(`${scenario.name} : encre des lettres dans le carré du logo = ${ink.join(" / ")} pixels`);
+      if (ink.some((value) => value < 40)) failures.push(`${scenario.name} : lettres du logo de secours absentes ou rognées (${ink.join(" / ")}).`);
+    }
   }
   // Le logo de secours en lettres reste dans son carré, quel que soit le sigle.
   for (const [name, acronym] of [["G.S AGAPÉ", "GSAGAPÉ"], ["Complexe scolaire Élite", "CSÉLITEPLUS"], ["École", undefined], ["Institut", "IÉ"]]) {

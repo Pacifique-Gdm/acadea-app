@@ -684,7 +684,7 @@ export const PDF_BRAND_MARK_MAX_LETTERS = 8;
  */
 export function pdfFallbackBrandMark(school: Pick<School, "name"> & Partial<Pick<School, "acronym">>) {
   const acronym = (school.acronym ?? "").replace(/\s+/g, "").trim();
-  const initials = school.name.split(/[\s.\-_/]+/).filter(Boolean).map((word) => word[0]).join("");
+  const initials = school.name.split(/[\s.\-_/]+/).map((word) => Array.from(word).find((letter) => /[\p{L}\p{N}]/u.test(letter)) ?? "").join("");
   const raw = acronym || initials || school.name.trim().slice(0, 1);
   const letters = Array.from(raw.toLocaleUpperCase("fr")).slice(0, PDF_BRAND_MARK_MAX_LETTERS);
   if (!letters.length) return "";
@@ -908,11 +908,8 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     }
     .brand-mark { overflow: hidden; }
     .acadea-pdf .brand-mark .brand-mark-letters {
-      display: block;
-      max-width: 100%;
-      padding: 0 2px;
-      overflow: hidden;
-      line-height: 1;
+      display: inline-block;
+      line-height: 1.3;
       text-align: center;
       white-space: nowrap !important;
       overflow-wrap: normal !important;

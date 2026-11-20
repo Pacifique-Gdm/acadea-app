@@ -47,7 +47,7 @@ function guard() {
   if (process.env.ACADEA_RECU_STAGING !== 'YES' || process.env.GOOGLE_CLOUD_PROJECT !== projectId
     || process.env.GOOGLE_CLOUD_QUOTA_PROJECT !== projectId || process.env.ACADEA_STAGING_GCLOUD_AUTH !== 'YES'
     || process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_AUTH_EMULATOR_HOST
-    || (!retireOnly && !/^[a-f0-9]{40}$/.test(process.env.ACADEA_EXPECTED_SHA ?? ''))) {
+    || (!retireOnly && !/^([a-f0-9]{40}|dpl_[A-Za-z0-9]+)$/.test(process.env.ACADEA_EXPECTED_SHA ?? ''))) {
     throw Error('Recette du reçu réservée à acadea-staging, avec le SHA déployé explicite.');
   }
 }
