@@ -141,7 +141,7 @@ export function getValvePublicationErrorMessage(error: unknown, fallback: string
     return "Erreur Storage pendant l'envoi du fichier joint. Veuillez réessayer.";
   }
   if (normalized.includes("firestore") || normalized.includes("document") || normalized.includes("setdoc")) {
-    return "Erreur Firestore pendant l'enregistrement de la publication. Veuillez réessayer.";
+    return "Erreur pendant l'enregistrement de la publication. Veuillez réessayer.";
   }
   return fallback;
 }

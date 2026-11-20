@@ -5,6 +5,7 @@ import { loadPlatformRecipients, sendPlatformMessage, type PlatformRecipient } f
 import { administrativeSenderDetails } from "../../utils/administrativeSender";
 import { activityTimestamp } from "../../utils/activityHistory";
 import type { AppNotification, AppUser, Message, School } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
 
 const roleLabels: Record<PlatformRecipient["role"], string> = { coordination_admin: "Coordinations", sub_coordination_admin: "Sous-coordinations", school_admin: "Administrateurs d'école" };
 
@@ -42,7 +43,7 @@ export function PlatformMessages({ user, schools, section }: { user: AppUser; sc
   useEffect(() => {
     if (section !== "compose") return undefined;
     let active = true;
-    void loadPlatformRecipients().then((items) => { if (active) setRecipients(items); }).catch((cause) => { if (active) setStatus(cause instanceof Error ? cause.message : "Destinataires indisponibles."); });
+    void loadPlatformRecipients().then((items) => { if (active) setRecipients(items); }).catch((cause) => { if (active) setStatus(userFacingError(cause, "Destinataires indisponibles.")); });
     return () => { active = false; };
   }, [section]);
 
@@ -76,7 +77,7 @@ export function PlatformMessages({ user, schools, section }: { user: AppUser; sc
     try {
       await sendPlatformMessage({ recipientIds, subject: title.trim(), body: text.trim(), idempotencyKey: key });
       attempt.current = null; setStatus("Message envoyé."); setSubject(""); setBody(""); setSelectedIds([]);
-    } catch (cause) { setStatus(cause instanceof Error ? cause.message : "Message non envoyé."); }
+    } catch (cause) { setStatus(userFacingError(cause, "Message non envoyé.")); }
     finally { setSending(false); }
   }
 

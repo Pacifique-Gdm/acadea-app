@@ -5,6 +5,8 @@ import type { AppUser, SchoolYear } from "../../types";
 import { DAY_LABELS } from "./studySchedule";
 import { saveTeacherWeekAvailability } from "./studyService";
 import type { StudyDay, StudyTeacher, TeacherAvailability } from "./studyTypes";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 type Range = { startTime: string; endTime: string };
 type EditableStatus = "available" | "rest";
@@ -59,7 +61,7 @@ export function TeacherAvailabilityDrawer({ user, teacher, year, items, schoolDa
       });
       onClose();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
+      setError(userFacingError(cause, "Enregistrement impossible."));
     } finally {
       setBusy(false);
     }
@@ -93,7 +95,7 @@ export function TeacherAvailabilityDrawer({ user, teacher, year, items, schoolDa
         </fieldset>;
       })}
     </div>
-    {error && <p role="alert" className="text-red-700">{error}</p>}
+    <ErrorNotice error={error} onRetry={() => void save()} />
     <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={onClose}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void save()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
   </AdminDrawer>;
 }

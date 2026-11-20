@@ -4,8 +4,11 @@ import { AllocationApiError, allocationRequest, loadAllocationActivation, type A
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
-const errorText = (e: unknown) => e instanceof Error ? e.message : "Confirmation serveur indisponible.";
+const errorText = (e: unknown) => userFacingError(e, "Confirmation serveur indisponible.");
 const parseAmount = (value: string) => {
   if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim())) throw new Error("Indiquez un montant positif avec deux décimales au maximum.");
   return toMoneyMinor(Number(value.replace(",", ".")));
@@ -42,6 +45,7 @@ export function ActivationSteps() {
 export function FeeAllocationActivation({ workspace, onChanged }: { workspace: AllocationWorkspace; onChanged: () => void }) {
   const [view, setView] = useState<AllocationActivationView | null>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
+  const [errorLoad, setErrorLoad] = useState(""), errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [confirmation, setConfirmation] = useState(""), [cash, setCash] = useState("");
   const [amounts, setAmounts] = useState<Record<string, string>>({}), [reason, setReason] = useState("");
   const [uncertain, setUncertain] = useState(false);
@@ -60,11 +64,11 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const [initialRound, setInitialRound] = useState(0);
   useEffect(() => {
     let disposed = false; stopScan.current = false;
-    setActionBusy('initial'); setError('');
+    setActionBusy('initial'); setErrorLoad('');
     void loadAllocationActivation(schoolId).then(v => { if (!disposed) setView(v); })
-      .catch(e => { if (!disposed) setError(errorText(e)); }).finally(() => { if (!disposed) setActionBusy(''); });
+      .catch(e => { if (!disposed) setErrorLoad(errorText(e)); }).finally(() => { if (!disposed) setActionBusy(''); });
     return () => { disposed = true; stopScan.current = true; };
-  }, [schoolId, initialRound]);
+  }, [schoolId, initialRound, errorLoadRetry.token]);
   async function refresh(page = 0, onlyBlocked = false, key = 'refresh') {
     if (locked.current || uncertain) return;
     locked.current = true; setBusy(true); setActionBusy(key); setError('');
@@ -158,7 +162,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
     <h3 className="font-bold">{view ? view.status === 'ACTIVE' ? 'Active' : view.status === 'PAUSED' ? 'Active' : 'En préparation' : actionBusy === 'initial' ? 'État de la répartition' : 'État à vérifier'}</h3>
     {!view && actionBusy === 'initial' && <p role="status">Chargement...</p>}
     {!view && actionBusy !== 'initial' && <div role="alert" className="grid gap-2 rounded border border-red-200 p-3 text-justify text-sm"><p>L'état de la répartition n'a pas pu être chargé.{error ? ` ${error}` : ''}</p><button type="button" className="secondary-button justify-self-start" onClick={() => setInitialRound(n => n + 1)}>Réessayer</button></div>}
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     {notice && <p role="status" className="text-sm text-emerald-700">{notice}</p>}
     {uncertain && <div role="status"><p>Réponse incertaine : vérifiez la même demande, sans recréer l’opération.</p><Action busy={busy && actionBusy === 'retry'} disabled={busy} onClick={() => { if (pending.current) void mutate(pending.current.action, pending.current.body); }}>Vérifier la même demande</Action></div>}
     {view && <>

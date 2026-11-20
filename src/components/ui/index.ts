@@ -12,3 +12,5 @@ export { LogoutButton, logoutButtonClassName } from "./LogoutButton";
 export { PasswordField } from "./PasswordField";
 export { SectionTitle } from "./SectionTitle";
 export { BlockSkeleton, FinancialKpiSkeleton, ValueSkeleton } from "./Skeleton";
+export { ErrorNotice } from "./ErrorNotice";
+export { RECONNECT_EVENT, requestReconnect } from "./reconnect";

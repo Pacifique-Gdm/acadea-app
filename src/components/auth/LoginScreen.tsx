@@ -6,6 +6,7 @@ import { PlatformLogoSlot } from "../layout/PlatformLogoSlot";
 import { markAuthStep } from "../../utils/authPerformance";
 import { userFacingError } from "../../utils/userFacingError";
 import { ARCHIVED_TEACHER_LOGIN_MARKER } from "../../services/auth";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 export function LoginScreen({
   onLogin,
@@ -39,7 +40,8 @@ export function LoginScreen({
   }, [initialError]);
 
   function formatLoginError(loginError: unknown) {
-    const message = loginError instanceof Error ? loginError.message : String(loginError);
+    // Texte brut lu pour reconnaître le cas, jamais affiché tel quel.
+    const message = loginError instanceof Error ? String(loginError.message) : String(loginError);
     if (message.includes(ARCHIVED_TEACHER_LOGIN_MARKER)) return ARCHIVED_TEACHER_LOGIN_MARKER;
     if (message.includes("auth/user-disabled") || message.includes("n’est plus actif") || message.includes("n'est plus actif")) {
       return "Votre compte n’est plus actif dans cet établissement.";
@@ -129,7 +131,7 @@ export function LoginScreen({
             </span>
           </label>
 
-          {error && <p className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">{error}</p>}
+          <ErrorNotice error={error} />
 
           <button
             disabled={loading}

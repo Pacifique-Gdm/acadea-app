@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { defaultBillingControls, loadBillingControls, saveValvesUploadsEnabled } from "../services/billingControls";
 import type { BillingControls } from "../services/billingControls";
+import { userFacingError } from "../utils/userFacingError";
 
 export type UseBillingControlsResult = {
   controls: BillingControls;
@@ -22,7 +23,7 @@ export function useBillingControls(enabled = true): UseBillingControlsResult {
       const nextControls = await loadBillingControls();
       setControls(nextControls);
     } catch (refreshError) {
-      setError(refreshError instanceof Error ? refreshError.message : "Chargement du contrôle des pièces jointes impossible.");
+      setError(userFacingError(refreshError, "Chargement du contrôle des pièces jointes impossible."));
       setControls(defaultBillingControls);
     } finally {
       setLoading(false);
@@ -46,7 +47,7 @@ export function useBillingControls(enabled = true): UseBillingControlsResult {
       const nextControls = await saveValvesUploadsEnabled(enabled, updatedBy);
       setControls(nextControls);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Enregistrement du contrôle des pièces jointes impossible.");
+      setError(userFacingError(saveError, "Enregistrement du contrôle des pièces jointes impossible."));
       throw saveError;
     } finally {
       setLoading(false);

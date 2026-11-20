@@ -25,6 +25,8 @@ import { studentOptionFilterChoices } from "./studentOptionFilterChoices";
 import { failureKind, plainFailureMessage, publicServerMessage } from "../../services/requestFailure";
 import { discardUploadedPhotoIfUnused, findSavedStudent } from "../../services/studentSaveVerification";
 import { needsStorageUpload, uploadStudentPhoto } from "../../services/studentPhotoStorage";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 export interface StudentModuleCapabilities {
   canCreate: boolean;
@@ -141,7 +143,7 @@ export function StudentsModule({
 
   useEffect(() => {
     setStructuredClassesLoaded(false);
-    return subscribeToSchoolClasses(school.id, year.id, (items) => { setStructuredClasses(items); setStructuredClassesLoaded(true); }, (cause) => { setStructuredClassesLoaded(false); setSaveError(cause.message); });
+    return subscribeToSchoolClasses(school.id, year.id, (items) => { setStructuredClasses(items); setStructuredClassesLoaded(true); }, (cause) => { setStructuredClassesLoaded(false); setSaveError(userFacingError(cause, "Chargement impossible. Veuillez réessayer.")); });
   }, [school.id, year.id]);
   useEffect(() => {
     if (sectionFilter !== "all" && !studentSectionChoices.includes(sectionFilter)) {
@@ -219,7 +221,7 @@ export function StudentsModule({
         : `Élève réinscrit en 4ème Humanité pour l’année scolaire ${activeTargetYear?.name ?? "active"}.`);
       setTerminalStudent(undefined); setTerminalConfirmation(""); setTerminalExamConfirmed(false);
     } catch (cause) {
-      setTerminalError(cause instanceof Error ? cause.message : "Réinscription impossible.");
+      setTerminalError(userFacingError(cause, "Réinscription impossible."));
     } finally { setTerminalBusy(false); }
   }
 
@@ -336,7 +338,7 @@ export function StudentsModule({
           }, { persist: false });
           setForm(persistedStudent);
           setSaveError(error instanceof Error
-            ? `L’élève a été enregistré, mais le compte Parent n’a pas pu être créé : ${error.message}`
+            ? `L’élève a été enregistré, mais le compte Parent n’a pas pu être créé : ${userFacingError(error, "erreur inconnue")}`
             : "L’élève a été enregistré, mais le compte Parent n’a pas pu être créé. Vous pouvez reprendre la liaison depuis sa fiche.");
           return;
         }
@@ -357,7 +359,7 @@ export function StudentsModule({
           updateData({ students: nextStudents }, { persist: false });
           setForm(persistedStudent);
           setSaveError(error instanceof Error
-            ? `L’élève a été enregistré, mais la liaison au parent n’a pas pu être confirmée : ${error.message}`
+            ? `L’élève a été enregistré, mais la liaison au parent n’a pas pu être confirmée : ${userFacingError(error, "erreur inconnue")}`
             : "L’élève a été enregistré, mais la liaison au parent n’a pas pu être confirmée.");
           return;
         }
@@ -376,7 +378,7 @@ export function StudentsModule({
           updateData({ students: nextStudents }, { persist: false });
           setForm(persistedStudent);
           setSaveError(error instanceof Error
-            ? `Les modifications de l’élève ont été enregistrées, mais la déliaison du parent a échoué : ${error.message}`
+            ? `Les modifications de l’élève ont été enregistrées, mais la déliaison du parent a échoué : ${userFacingError(error, "erreur inconnue")}`
             : "Les modifications de l’élève ont été enregistrées, mais la déliaison du parent a échoué.");
           return;
         }
@@ -537,7 +539,7 @@ export function StudentsModule({
     const parentId = uid("parent");
     const resolvedEmail = parentEmailExists(quickParent.email, data.users, data.parents) ? nextParentEmail(school, data.users, data.parents) : quickParent.email.trim();
     if (!quickParent.password) {
-      setSaveError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
+      setSaveError("Mot de passe requis pour créer le compte de connexion du parent.");
       return;
     }
 
@@ -573,7 +575,7 @@ export function StudentsModule({
       setQuickParent(emptyQuickParent(nextParentEmail(school, [...data.users, provisioned.user], [...data.parents, provisioned.parent])));
       setQuickParentFeedback("Parent créé et sélectionné avec succès.");
     } catch (error) {
-      setSaveError(error instanceof Error ? `Création Firebase Auth parent impossible : ${error.message}` : "Création Firebase Auth parent impossible.");
+      setSaveError(error instanceof Error ? `Création du compte de connexion du parent impossible : ${userFacingError(error, "erreur inconnue")}` : "Création du compte de connexion du parent impossible.");
     }
   }
 
@@ -588,7 +590,7 @@ export function StudentsModule({
       setForm({ ...form, option: persisted.option, classOptionKey: selectedClass ? schoolClassOptionKey(selectedClass.id, persisted.option) : undefined, subClassId: undefined });
       return true;
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Impossible d'enregistrer cette option scolaire.");
+      setSaveError(userFacingError(error, "Impossible d'enregistrer cette option scolaire."));
       return false;
     }
   }
@@ -609,7 +611,7 @@ export function StudentsModule({
       const exportStudents = await loadAllStudentResults(studentFilters, yearData.students);
       await exportStudentsPdf(school, year, exportStudents, filters, structuredClasses);
     } catch (cause) {
-      setPdfError(cause instanceof Error ? cause.message : "Impossible de charger les élèves à exporter.");
+      setPdfError(userFacingError(cause, "Impossible de charger les élèves à exporter."));
     } finally {
       pdfExportLock.current = false;
       setIsExporting(false);
@@ -668,7 +670,7 @@ export function StudentsModule({
           </div>
         </div>
         {structuredClassesLoaded && filterOptionChoices.length === 0 && <p role="status" className="mb-3 text-sm text-slate-600">{classFilter ? "Aucune option disponible pour la classe sélectionnée." : sectionFilter !== "all" ? "Aucune option disponible pour cette section." : "Aucune option disponible pour les classes accessibles."}</p>}
-        {pdfError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{pdfError}</p>}
+        <ErrorNotice error={pdfError} onRetry={() => void printStudentsPdf()} />
         {missingSexNotice(statusCounts) && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{missingSexNotice(statusCounts)}</p>}
         {studentPage.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Impossible de charger les élèves : {studentPage.error}</p>}
         {studentPage.loading && <p className="rounded border border-slate-200 bg-white p-3 text-sm text-slate-500">Chargement des élèves…</p>}
@@ -796,7 +798,7 @@ export function StudentsModule({
               </p>
               <p className="mt-1">Motif obligatoire : choisissez un motif d'archivage dans la liste.</p>
             </div>
-            {archiveError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{archiveError}</p>}
+            <ErrorNotice error={archiveError} onRetry={() => void confirmArchiveStudent()} />
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Motif d'archivage
               <select
@@ -849,7 +851,7 @@ export function StudentsModule({
               </p>
               <p className="mt-1">La réactivation nécessite un motif obligatoire et sera enregistrée dans l'historique.</p>
             </div>
-            {reactivationError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{reactivationError}</p>}
+            <ErrorNotice error={reactivationError} onRetry={() => void reactivateStudent()} />
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
               Motif de réactivation
               <select
@@ -899,7 +901,7 @@ export function StudentsModule({
             <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               {terminalAction === "complete" ? "Confirmer la fin de scolarité de " : "Réinscrire "}<strong>{terminalStudent.nom} {terminalStudent.postnom} {terminalStudent.prenom}</strong> (année source {year.name}){terminalAction === "reenroll" ? ` en 4ème Humanité pour l’année scolaire ${activeTargetYear.name} ?` : " après réussite officielle à l’Examen d’État ?"}
             </p>
-            {terminalError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{terminalError}</p>}
+            <ErrorNotice error={terminalError} onRetry={() => void decideTerminal()} />
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={terminalExamConfirmed} disabled={terminalBusy} onChange={(event) => setTerminalExamConfirmed(event.target.checked)} /><span>Je confirme avoir vérifié {terminalAction === "complete" ? "la réussite" : "l’échec"} de cet élève à l’Examen d’État.</span></label>
             <label className="grid gap-1 text-sm font-semibold">Phrase de confirmation
               <input className="input" value={terminalConfirmation} disabled={terminalBusy} placeholder={terminalAction === "complete" ? "CONFIRMER LA FIN DE SCOLARITE" : "REINSCRIRE CET ELEVE"} onChange={(event) => setTerminalConfirmation(event.target.value)} />

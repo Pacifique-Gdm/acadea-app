@@ -6,6 +6,7 @@ import { SCHOOL_INFORMATION_CONFIRMATION, canSaveSchoolInformation, schoolInform
 import type { SchoolInformationDraft } from "./schoolInformation";
 import { SchoolTimeZonePicker } from "./SchoolTimeZonePicker";
 import { useSchoolLogo } from "../../hooks/useSchoolLogo";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 export function SchoolInformationEditDrawer({
   school,
@@ -85,7 +86,7 @@ export function SchoolInformationEditDrawer({
             Confirmation incorrecte. Saisissez exactement : {SCHOOL_INFORMATION_CONFIRMATION}
           </p>
         )}
-        {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+        <ErrorNotice error={error} />
       </div>
     </AdminDrawer>
   );

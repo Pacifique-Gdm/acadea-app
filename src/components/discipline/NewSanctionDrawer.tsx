@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { DisciplineSanction, Student } from "../../types";
 import { validateOtherSanctionDescriptions } from "../../utils/disciplineValidation";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type NewSanctionInput = {
   students: Student[];
@@ -299,7 +300,7 @@ export function NewSanctionDrawer({ students, sanctions, onCancel, onSave }: New
                 setChoiceError("");
               }} className="input bg-white" />
             </label>
-            {choiceError && <p className="text-sm font-semibold text-red-600">{choiceError}</p>}
+            <ErrorNotice error={choiceError} onRetry={() => void addChoice()} />
             <div className="grid gap-2 sm:grid-cols-2">
               <button onClick={closeChoicePanel} className="secondary-button justify-center" type="button">Annuler</button>
               <button onClick={addChoice} className="primary-button justify-center" type="button">Ajouter</button>

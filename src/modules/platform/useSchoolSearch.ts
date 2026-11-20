@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { School } from "../../types";
 import { schoolFromSearchRow, searchPlatformSchools, SchoolSearchUnavailableError, type SchoolSearchSort } from "../../services/schoolSearch";
+import { userFacingError } from "../../utils/userFacingError";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 /** Lot SA-2a : onglet « Écoles » branché sur la recherche faite par le serveur (pages de 25, « Voir plus »). */
 export type ServerSchoolSearch = {
@@ -12,6 +14,8 @@ export type ServerSchoolSearch = {
   hasMore: boolean;
   loadMore: () => void;
   refresh: () => void;
+  /** Relance la page en échec (bouton « Réessayer », retour du réseau). */
+  retry: () => void;
 };
 
 /** Délai avant d'envoyer la recherche pendant la frappe (une seule demande pour un mot tapé d'un trait). */
@@ -24,6 +28,7 @@ export function useServerSchoolSearch(filters: { query: string; status: string; 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [round, setRound] = useState(0);
+  const { token: loadRetryToken, retry } = useLoadRetry(Boolean(error));
   const fresh = useRef(false);
   const key = JSON.stringify(filters);
   // Nouveaux filtres : on repart de la première page.
@@ -45,16 +50,17 @@ export function useServerSchoolSearch(filters: { query: string; status: string; 
         .catch((cause: unknown) => {
           if (!active) return;
           if (cause instanceof SchoolSearchUnavailableError) { setSchools(null); return; }
-          setError(cause instanceof Error ? cause.message : "Recherche des écoles indisponible.");
+          setError(userFacingError(cause, "Recherche des écoles indisponible."));
         })
         .finally(() => { if (active) setLoading(false); });
     }, page === 0 ? SCHOOL_SEARCH_DELAY_MS : 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [key, page, round, enabled]);
+  }, [key, page, round, enabled, loadRetryToken]);
   return {
     schools, total, loading, error,
     hasMore: Boolean(schools && schools.length < total),
     loadMore: () => setPage((value) => value + 1),
+    retry,
     // Après une création, une modification ou une suppression : relecture directe de la liste.
     refresh: () => { fresh.current = true; setPage(0); setRound((value) => value + 1); },
   };

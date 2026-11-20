@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteRubric, loadRubricCatalog, renameRubric, type AllocationCatalogRubric, type AllocationShares } from "../../services/feeAllocation";
 import { BUTTON_ROW, HandTypedPhraseField, RENAME_PHRASE, ShareRubricButton } from "./FeeAllocationSharing";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
-const message = (cause: unknown) => cause instanceof Error ? cause.message : "Rubriques indisponibles.";
+const message = (cause: unknown) => userFacingError(cause, "Rubriques indisponibles.");
 
 /** Rubriques de l'école pour l'année active (Administrateur).
  * Lot « Deux onglets » (décision du 17/11) : plus de bouton « Ajouter une rubrique » ni « Masquer ».
@@ -38,7 +40,7 @@ export function RubricCatalogPanel({ schoolId, onChanged, order = [], shares, on
   return <details className="rounded border p-3 text-sm">
     <summary className="cursor-pointer font-semibold">Rubriques de l'année</summary>
     <p className="mt-2 text-justify text-xs text-slate-600">Une rubrique réutilisée sur plusieurs frais additionne ses montants. Une nouvelle rubrique se crée par « + Ajouter », puis « + Nouvelle rubrique… ». « Partager » la montre, en lecture seule, au personnel choisi.</p>
-    {error && <p role="alert" className="mt-2 text-red-700">{error}</p>}
+    <ErrorNotice error={error} onRetry={() => void refresh()} />
     {!rubrics && !error && <div aria-hidden className="mt-2 h-16 animate-pulse rounded bg-slate-100" />}
     <ul className="mt-2 grid gap-2">{sorted.map((rubric) => <li key={rubric.id} className="grid gap-2 rounded border p-2">
       {editing?.id === rubric.id

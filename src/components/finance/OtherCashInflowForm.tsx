@@ -4,6 +4,8 @@ import { createCashInflowTransaction } from "../../services/financialTransaction
 import { toMoneyMinor } from "../../utils/money";
 import { cashInflowCategoryLabel } from "../../utils/cashInflowCategory";
 import type { CashInflow, SchoolYear } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 const categories: CashInflow["category"][] = ["Subvention", "Don", "Autres"];
 
@@ -44,7 +46,7 @@ export function OtherCashInflowForm({ year, onRecorded }: { year: SchoolYear; on
       onRecorded(inflow);
       setAmount(""); setSource(""); setPaymentMethod(""); setDescription(""); setReference(""); setCategoryDetail("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Enregistrement impossible. Réessayez après vérification de la connexion.");
+      setError(userFacingError(cause, "Enregistrement impossible. Réessayez après vérification de la connexion."));
     } finally {
       submitting.current = false;
       setSaving(false);
@@ -79,7 +81,7 @@ export function OtherCashInflowForm({ year, onRecorded }: { year: SchoolYear; on
     <label className="grid gap-1 text-sm font-semibold">Référence de l'opération (facultative)
       <input aria-label="Référence de l'opération" className="input w-full" maxLength={160} value={reference} onChange={(event) => setReference(event.target.value)} disabled={saving} />
     </label>
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+    <ErrorNotice error={error} />
     <button type="submit" disabled={saving || year.status !== "active"} className="primary-button w-full justify-center disabled:opacity-50">{saving ? "Enregistrement…" : "Enregistrer cette entrée"}</button>
   </form>;
 }

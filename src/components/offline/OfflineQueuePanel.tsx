@@ -7,6 +7,8 @@ import { offlineRetryDelay, syncOfflineOperations } from "../../services/offline
 import type { OfflineAccess } from "../../services/offlineAccess";
 import { OfflineDraftForms } from "./OfflineDraftForms";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { userFacingError } from "../../utils/userFacingError";
 
 const kindLabel: Record<OfflineOperationKind, string> = {
   grade: "Cote", attendance: "Présence", student_enrollment: "Inscription d'élève",
@@ -125,8 +127,8 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
       aria-label="État des opérations hors connexion">
       <div className="flex items-center justify-between gap-3"><h2 className="font-semibold">Opérations locales</h2>{!initialOpen && <button type="button" className="text-sm underline" onClick={() => setOpen(false)}>Fermer</button>}</div>
       <p className="mt-1 text-xs text-slate-600">Seul un accusé serveur confirme une opération. Un paiement provisoire ne produit jamais de reçu local.</p>
-      {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
-      {action.error && <p role="alert" className="mt-2 text-sm text-red-700">{action.error}</p>}
+      <ErrorNotice error={error} />
+      <ErrorNotice error={action.error} />
       {authRequired && <p role="status" className="mt-2 text-sm text-amber-800">Votre session doit être rétablie pour synchroniser les opérations en attente. Aucune opération n'a été supprimée.</p>}
       {unreadableCount > 0 && <p role="alert" className="mt-2 text-sm text-red-700">{unreadableCount} opération(s) ancienne(s) ou illisible(s) sont conservées localement. Les autres opérations peuvent continuer ; contactez l'assistance avant toute manipulation du stockage.</p>}
       {loading && <p role="status">Lecture des opérations locales…</p>}
@@ -136,7 +138,7 @@ export function OfflineQueuePanel({ scope, autoSync, role, initialOpen = false }
           <div className="font-semibold">{kindLabel[operation.kind]}</div>
           <div>{statusLabel[operation.status]}</div>
           <div className="text-xs text-slate-500">Créée le {new Date(operation.createdAt).toLocaleString("fr-FR")}</div>
-          {operation.error && <p className="mt-1 text-xs text-amber-800">{operation.error}</p>}
+          {operation.error && <p className="mt-1 text-xs text-amber-800">{userFacingError(operation.error, operation.error)}</p>}
           {(operation.status === "CONFLICT" || operation.status === "REJECTED") && <div className="mt-2 grid gap-1">
             <p className="text-xs">Comparez ce brouillon avec les données serveur avant de ressaisir. Aucun écrasement automatique n'a lieu.</p>
             {abandonId === operation.id ? <>

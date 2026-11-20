@@ -4,12 +4,12 @@ import type { AppUser, SchoolYear } from "../../types";
 import { validateCalendarEvent, type CalendarPdfSource, type SchoolCalendar, type SchoolCalendarEvent } from "./schoolCalendar";
 
 function calendarRef(yearId: string) {
-  if (!db) throw new Error("Firestore indisponible.");
+  if (!db) throw new Error("Service indisponible. Veuillez réessayer.");
   return doc(db as unknown as Firestore, "schoolCalendars", yearId);
 }
 
 function calendarEventsRef(yearId: string) {
-  if (!db) throw new Error("Firestore indisponible.");
+  if (!db) throw new Error("Service indisponible. Veuillez réessayer.");
   return collection(db as unknown as Firestore, "schoolCalendars", yearId, "events");
 }
 
@@ -93,7 +93,7 @@ export async function saveSchoolCalendar(input: { user: AppUser; schoolId: strin
     if (error) throw new Error(error);
     if (event.origin === "pdf-import" && event.sourcePdfPath !== input.sourcePdf?.path) throw new Error("Source PDF de l'événement non liée au calendrier.");
   }
-  if (!db) throw new Error("Firestore indisponible.");
+  if (!db) throw new Error("Service indisponible. Veuillez réessayer.");
   const reference = calendarRef(input.year.id);
   await runTransaction(db as unknown as Firestore, async (transaction) => {
     const current = await transaction.get(reference);
