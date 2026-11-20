@@ -91,6 +91,14 @@ describe("jamais de relance automatique d'un enregistrement d'argent", () => {
     }
   });
 
+  it("les enregistrements d'argent gardent un bouton « Réessayer » (sur clic seulement)", () => {
+    const control = read("modules/control/ControlModule.tsx");
+    for (const [state, save] of [["paymentError", "savePayment"], ["expenseError", "saveExpense"], ["paymentEditError", "savePaymentCorrection"], ["expenseEditError", "updateExpense"]]) {
+      expect(control).toContain(`<ErrorNotice error={${state}} onRetry={() => void ${save}()} />`);
+    }
+    expect(read("components/finance/FormerStudentPaymentForm.tsx")).toContain("<ErrorNotice error={error} onRetry={() => void submit()} />");
+  });
+
   it("le composant d'erreur ne relance un formulaire que sur un clic", () => {
     const source = read("components/ui/ErrorNotice.tsx");
     expect(source).not.toMatch(/addEventListener|"online"|setTimeout|setInterval/);

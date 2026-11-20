@@ -125,6 +125,6 @@ export function FormerStudentPaymentForm({ school, year, students, payments, onR
       <span>Paiement enregistré : reçu {recorded.payment.receiptNumber}</span>
       <button type="button" className="secondary-button" onClick={() => receipt(recorded)}><Download className="h-4 w-4" /> Reçu PDF</button>
     </div>}
-    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} onRetry={() => void submit()} />
   </div>;
 }

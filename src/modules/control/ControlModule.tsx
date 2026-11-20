@@ -1549,7 +1549,7 @@ export function ControlModule({
               <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
               <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
             </div>
-            <ErrorNotice error={paymentError} />
+            <ErrorNotice error={paymentError} onRetry={() => void savePayment()} />
             <select aria-label="Type de frais" value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || (payableFeeTypes.length === 0 && paymentArrears.length === 0) || paymentSubmitting} className="input disabled:opacity-60">
               <optgroup label={`Année actuelle — ${year.name}`}>
                 {payableFeeTypes.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} — {year.name} — {formatMoney(fee.amount)}</option>)}
@@ -1652,7 +1652,7 @@ export function ControlModule({
               <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
                 <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
               </div>
-              <ErrorNotice error={paymentError} />
+              <ErrorNotice error={paymentError} onRetry={() => void savePayment()} />
               <select aria-label="Type de frais" value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || (payableFeeTypes.length === 0 && paymentArrears.length === 0) || paymentSubmitting} className="input disabled:opacity-60">
                 <optgroup label={`Année actuelle — ${year.name}`}>
                   {payableFeeTypes.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} — {year.name} — {formatMoney(fee.amount)}</option>)}
@@ -1741,7 +1741,7 @@ export function ControlModule({
                 className="input"
                 placeholder="Référence / pièce (facultatif)"
               />
-              <ErrorNotice error={expenseError} />
+              <ErrorNotice error={expenseError} onRetry={() => void saveExpense()} />
               <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseRubricBlocked || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
@@ -1803,7 +1803,7 @@ export function ControlModule({
               <label className="grid gap-1">Nouveau montant<MoneyInput value={paymentEditAmount} onChange={setPaymentEditAmount} /></label>
               <label className="grid gap-1">Raison obligatoire<textarea className="input" maxLength={500} value={paymentEditReason} onChange={(event) => setPaymentEditReason(event.target.value)} /></label>
               <label className="grid gap-1">Saisissez exactement MODIFIER CE PAIEMENT<input className="input" autoComplete="off" value={paymentEditConfirmation} onChange={(event) => setPaymentEditConfirmation(event.target.value)} /></label>
-              <ErrorNotice error={paymentEditError} />
+              <ErrorNotice error={paymentEditError} onRetry={() => void savePaymentCorrection()} />
               <div className="flex flex-wrap gap-2"><button type="button" className="primary-button justify-center" disabled={Boolean(financialMutationId) || !paymentEditReason.trim() || !(Number(paymentEditAmount) > 0) || paymentEditConfirmation !== "MODIFIER CE PAIEMENT"} onClick={() => void savePaymentCorrection()}>Enregistrer</button><button type="button" className="secondary-button justify-center" onClick={() => setPaymentEditTarget(null)}>Annuler</button></div>
             </div>}
             {renderPaymentHistoryPagination()}
@@ -1858,7 +1858,7 @@ export function ControlModule({
               placeholder="Description de la dépense"
             />
           </label>
-          <ErrorNotice error={expenseEditError} />
+          <ErrorNotice error={expenseEditError} onRetry={() => void updateExpense()} />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button onClick={closeEditExpense} className="secondary-button justify-center" type="button">Annuler</button>
             <button onClick={updateExpense} disabled={!canManageExpenses || financialMutationId === expenseEditTarget.id || expenseEditDeltaCents > 0 && (expenseCashLoading || !expenseCashBalance || expenseEditCashInsufficient)} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
