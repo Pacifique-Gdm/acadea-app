@@ -16,7 +16,9 @@ describe("écoles chargées à la demande", () => {
     expect(platform).toContain("void loadPlatformSchoolWithYears(schoolId).then(");
   });
   it("toutes les écoles seulement pour les écrans qui en ont encore besoin, une seule fois", () => {
-    expect(platform).toContain('const needsAllSchools = platformView === "coordinations" || platformView === "messages" || messagingOpen');
+    expect(platform).toMatch(/const needsAllSchools = platformView === "coordinations"\r?\n/);
+    // Lot SA-6 : Messages et la cloche cherchent leurs destinataires sur le serveur.
+    expect(platform).not.toContain('platformView === "messages" || messagingOpen');
     expect(platform).toContain("if (!needsAllSchools || allSchoolsRequested.current) return;");
   });
   it("lire une école ne relance pas la recherche (les pages affichées restent)", () => {
