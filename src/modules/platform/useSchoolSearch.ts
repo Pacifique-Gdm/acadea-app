@@ -25,11 +25,15 @@ export function useServerSchoolSearch(filters: { query: string; status: string; 
   const [error, setError] = useState("");
   const [round, setRound] = useState(0);
   const fresh = useRef(false);
+  // Version 1.16.5 : dernière recherche terminée ; au retour sur l'onglet, la même recherche n'est pas refaite.
+  const done = useRef("");
   const key = JSON.stringify(filters);
   // Nouveaux filtres : on repart de la première page.
   useEffect(() => { setPage(0); }, [key]);
   useEffect(() => {
-    if (!enabled) return undefined;
+    const signature = `${key}|${page}|${round}`;
+    // Onglet quitté pendant une recherche : l'indicateur ne doit pas rester affiché au retour.
+    if (!enabled || done.current === signature) { setLoading(false); return undefined; }
     let active = true;
     const timer = window.setTimeout(() => {
       setLoading(true); setError("");
@@ -38,6 +42,7 @@ export function useServerSchoolSearch(filters: { query: string; status: string; 
         .then((result) => {
           if (!active) return;
           fresh.current = false;
+          done.current = signature;
           const rows = result.schools.map(schoolFromSearchRow);
           setSchools((current) => (page === 0 || !current ? rows : [...current, ...rows.filter((row) => !current.some((item) => item.id === row.id))]));
           setTotal(result.total);
