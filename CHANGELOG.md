@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.5] — 2026-11-20 — Correction
+- Super administrateur, onglet Écoles : compteur « 29 écoles » sans « recherche… » bloqué, la recherche n'est plus relancée à l'ouverture d'une école, et les données d'une école déjà ouverte s'affichent tout de suite (relues seulement si l'école a changé ou avec « Actualiser »).
+
 ## [1.16.4] — 2026-11-20 — Correction
 - Effacement d'école : une coupure réseau ne recrée plus une école vide « en cours d'effacement »
 - Recette Publicité (staging) : ses écoles et comptes d'essai sont effacés au lieu d'être désactivés
