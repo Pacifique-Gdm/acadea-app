@@ -41,6 +41,11 @@ describe("composant d'erreur commun (ErrorNotice)", () => {
     expect(text(html(new Error("Firebase: Error (firestore/internal)."), retry))).toBe(`${ERROR_MESSAGES.other} Réessayer`);
   });
 
+  it("propose « Réessayer » sur un message métier quand l'écran fournit la relance", () => {
+    expect(text(html("Lecture refusée (test)", () => undefined))).toBe("Lecture refusée (test) Réessayer");
+    expect(text(html({ code: "permission-denied" }, () => undefined))).toBe(ERROR_MESSAGES.permission);
+  });
+
   it("affiche tel quel un message métier, et rien sans erreur", () => {
     expect(text(html("Le montant dépasse le reste à payer pour ce frais."))).toBe("Le montant dépasse le reste à payer pour ce frais.");
     expect(html("")).toBe("");

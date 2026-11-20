@@ -23,7 +23,10 @@ export function ErrorNotice({ error, onRetry, fallback = "", className = "" }: E
   const message = userFacingError(error, fallback || ERROR_MESSAGES.other);
   const kind = classifyError(message);
   const retry = onRetry ?? (form ? () => form.requestSubmit() : undefined);
-  const showRetry = Boolean(retry) && (kind === "network" || kind === "timeout" || kind === "other" || (kind === "business" && isRetryableBusinessText(message)));
+  // Relance fournie par l'écran : toujours proposée (sauf session expirée ou refus d'autorisation).
+  // Relance « formulaire » implicite : seulement pour un échec qui vaut la peine d'être renvoyé.
+  const showRetry = kind !== "session" && kind !== "permission" && (Boolean(onRetry)
+    || (Boolean(retry) && (kind !== "business" || isRetryableBusinessText(message))));
   return <div ref={attach} role="alert" aria-live="assertive" data-error-kind={kind} className={`flex flex-wrap items-center gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 ${className}`.trim()}>
     <p className="min-w-0 flex-1 font-semibold">{message}</p>
     {showRetry && <button type="button" className="secondary-button shrink-0 justify-center" onClick={retry}>Réessayer</button>}
