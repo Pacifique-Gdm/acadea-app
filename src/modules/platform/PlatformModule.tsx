@@ -18,7 +18,7 @@ import type { UseBillingControlsResult } from "../../hooks/useBillingControls";
 import { useRealtimeCoordinations } from "../../hooks/useRealtimeCoordinations";
 import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hooks/useRealtimeSchoolUsers";
 import { savePlatformSettings } from "../../services/firestoreData";
-import { loadSuperAdminSchoolData } from "../../services/superAdminData";
+import { loadAllPlatformSchools, loadPlatformSchoolWithYears, loadSuperAdminSchoolData } from "../../services/superAdminData";
 import { platformStatsTimeLabel, type PlatformStats } from "../../services/platformStats";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin, setSchoolAdminStatus } from "../../services/provisioning";
 import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, resetSchoolAiMonthlyUsage, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
@@ -318,14 +318,43 @@ export function PlatformModule({
   const serverSearch = useServerSchoolSearch({ query: search, status: statusFilter, schoolType: typeFilter, sort: sortBy }, platformView === "students");
   const listedSchools = serverSearch.schools?.map((row) => visibleSchools.find((school) => school.id === row.id) ?? row) ?? filteredSchools;
   const schoolsSignature = visibleSchools.map((school) => `${school.id}:${school.name}:${school.acronym ?? ""}:${school.status}:${school.schoolType ?? ""}`).join("|");
-  const firstSignature = useRef(true);
+  const knownSchools = useRef<Map<string, string> | null>(null);
   const refreshServerSearch = serverSearch.refresh;
   useEffect(() => {
-    // Une école créée, modifiée ou supprimée : relecture directe de la liste du serveur (pas au premier affichage).
-    if (firstSignature.current) { firstSignature.current = false; return; }
-    refreshServerSearch();
+    // Une école créée, modifiée ou supprimée : relecture directe de la liste du serveur. Une école seulement lue
+    // (drawer ouvert, lot SA-2b) ne relance pas la recherche : les pages déjà affichées restent.
+    const next = new Map(visibleSchools.map((school) => [school.id, `${school.name}:${school.acronym ?? ""}:${school.status}:${school.schoolType ?? ""}`] as const));
+    const previous = knownSchools.current; knownSchools.current = next;
+    if (!previous) return;
+    const recent = (school: School) => Date.now() - (Date.parse(school.createdAt ?? "") || 0) < 10 * 60_000;
+    const changed = [...previous].some(([id, value]) => next.has(id) ? next.get(id) !== value : true)
+      || visibleSchools.some((school) => !previous.has(school.id) && recent(school));
+    if (changed) refreshServerSearch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schoolsSignature]);
+
+  // Lot SA-2b : écoles connues = celles déjà lues (drawer ouvert, écran qui a besoin de toutes les écoles).
+  const [schoolDrawerLoadingId, setSchoolDrawerLoadingId] = useState("");
+  function mergeKnownSchools(schools: School[], schoolYears: SchoolYear[]) {
+    const ids = new Set(schools.map((item) => item.id)), yearIds = new Set(schoolYears.map((item) => item.id));
+    updateData({
+      schools: [...data.schools.filter((item) => !ids.has(item.id)), ...schools],
+      schoolYears: [...data.schoolYears.filter((item) => !yearIds.has(item.id)), ...schoolYears],
+    }, { persist: false });
+  }
+  // Écrans qui ont encore besoin de toutes les écoles (Coordinations, Messages, Publicité, Créer Coordination,
+  // recherche locale si la liste du serveur n'est pas prête) : chargement une seule fois, à leur ouverture.
+  const needsAllSchools = platformView === "coordinations" || platformView === "messages" || messagingOpen
+    || platformMenuDrawer === "ad-campaigns" || platformMenuDrawer === "create-coordination"
+    || (platformView === "students" && serverSearch.schools === null && !serverSearch.loading);
+  const allSchoolsRequested = useRef(false);
+  useEffect(() => {
+    if (!needsAllSchools || allSchoolsRequested.current) return;
+    allSchoolsRequested.current = true;
+    void loadAllPlatformSchools().then(({ schools, schoolYears }) => mergeKnownSchools(schools, schoolYears))
+      .catch((cause: unknown) => { allSchoolsRequested.current = false; setSchoolActionError(cause instanceof Error ? cause.message : "Écoles indisponibles."); });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsAllSchools]);
 
   function writeAudit(schoolId: string | undefined, action: string): AuditLog {
     return {
@@ -1075,6 +1104,18 @@ export function PlatformModule({
   }
 
   function openSchoolDrawer(schoolId: string) {
+    // Lot SA-2b : l'école et ses années ne sont pas chargées à l'ouverture : on les lit au clic, puis on ouvre.
+    if (!visibleSchools.some((item) => item.id === schoolId) || !data.schoolYears.some((year) => year.schoolId === schoolId)) {
+      setSchoolDrawerLoadingId(schoolId);
+      void loadPlatformSchoolWithYears(schoolId).then(({ school, schoolYears }) => {
+        if (school) mergeKnownSchools([school], schoolYears);
+        const yearId = schoolYears.find((year) => year.id === school?.activeSchoolYearId)?.id ?? schoolYears[0]?.id ?? "";
+        setDrawerYearId(yearId);
+        loadSchoolDrawerData(schoolId, yearId);
+      }).catch((cause: unknown) => setSchoolActionError(cause instanceof Error ? cause.message : "École indisponible."))
+        .finally(() => setSchoolDrawerLoadingId(""));
+      return;
+    }
     const school = visibleSchools.find((item) => item.id === schoolId);
     const yearId = data.schoolYears.find((year) => year.id === school?.activeSchoolYearId && year.schoolId === schoolId)?.id
       ?? data.schoolYears.find((year) => year.schoolId === schoolId)?.id
@@ -1320,6 +1361,7 @@ export function PlatformModule({
               </div>
 
               <div className="grid min-w-0 gap-3">
+                {schoolDrawerLoadingId && <p className="text-sm text-slate-600" role="status">Ouverture de l'école…</p>}
                 {serverSearch.schools && <p className="text-sm text-slate-600" role="status" data-school-search-total>{serverSearch.total} école(s){serverSearch.loading ? " · recherche…" : ""}</p>}
                 {serverSearch.error && <p role="alert" className="text-sm text-red-700">{serverSearch.error}</p>}
                 {listedSchools.length === 0 && !serverSearch.loading && (

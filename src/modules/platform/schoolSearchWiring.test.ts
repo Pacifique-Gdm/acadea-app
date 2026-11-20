@@ -18,7 +18,7 @@ describe("onglet Écoles sur la recherche du serveur", () => {
     expect(SCHOOL_SEARCH_DELAY_MS).toBe(300);
   });
   it("relit la liste après une création, une modification ou une suppression d'école", () => {
-    expect(platform).toContain("refreshServerSearch();");
+    expect(platform).toContain("if (changed) refreshServerSearch();");
     expect(hook).toContain("fresh: true");
   });
 });
