@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { chromium, expect } from "@playwright/test";
 import { createCanvas } from "@napi-rs/canvas";
 import { guard as baseGuard, services as baseServices } from "./socialFinanceStagingFixture.mjs";
+import { deleteSchoolCompletely } from "../api/_lib/schoolDeletion.js";
 
 const projectId = "acadea-staging";
 const output = "diagnostics/ad-campaigns-staging";
@@ -132,21 +133,33 @@ async function retire(s) {
   const activeRef = s.db.doc("platformSettings/adsActive");
   if (m.previousAdsActive) await activeRef.set(m.previousAdsActive);
   else await activeRef.delete();
+  // 20/11 : l'école d'essai et tout ce qu'elle a créé sont EFFACÉS (avant : désactivés et gardés sur le staging).
   for (const path of m.documents) {
     const snapshot = await s.db.doc(path).get();
-    if (!snapshot.exists) continue;
-    if (snapshot.data().fixtureId !== m.tag) throw Error("Document étranger : nettoyage refusé.");
-    await snapshot.ref.update({ active: false, status: "inactive", fixtureLifecycle: "retired" });
+    if (snapshot.exists && snapshot.data().fixtureId !== m.tag) throw Error("Document étranger : nettoyage refusé.");
+  }
+  const school = await s.db.doc(`schools/${m.schoolId}`).get();
+  if (school.exists) {
+    await deleteSchoolCompletely({ db: s.db, auth: s.auth, bucket: s.bucket, schoolId: m.schoolId, schoolData: school.data(),
+      actor: { uid: "recette-staging-nettoyage", role: "staging_fixture_cleanup" } });
+  }
+  for (const path of m.documents) {
+    const snapshot = await s.db.doc(path).get();
+    if (snapshot.exists) await snapshot.ref.delete();
   }
   for (const user of m.users) {
+    if (!user.uid.startsWith(m.tag)) throw Error("Compte étranger : nettoyage refusé.");
     try {
-      await s.auth.updateUser(user.uid, { disabled: true });
-      await s.auth.setCustomUserClaims(user.uid, {});
-      await s.auth.revokeRefreshTokens(user.uid);
+      const account = await s.auth.getUser(user.uid);
+      if (!String(account.email ?? "").endsWith("@example.invalid")) throw Error("Compte étranger : nettoyage refusé.");
+      await s.auth.deleteUser(user.uid);
     } catch (error) { if (error.code !== "auth/user-not-found") throw error; }
   }
+  const restes = [];
+  for (const path of [...m.documents, `schools/${m.schoolId}`]) if ((await s.db.doc(path).get()).exists) restes.push(path);
+  if (restes.length) throw Error(`Nettoyage incomplet : ${restes.join(", ")}`);
   writeFileSync(manifestPath, JSON.stringify({ ...m, retired: true, retiredAt: new Date().toISOString() }, null, 2), { mode: 0o600 });
-  console.log("Nettoyage terminé : campagnes, images et statistiques fictives supprimées, comptes désactivés.");
+  console.log("Nettoyage terminé : campagnes, images, statistiques, école, documents et comptes fictifs effacés.");
 }
 
 async function waitForServer() {
