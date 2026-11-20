@@ -24,7 +24,7 @@ export function ErrorNotice({ error, onRetry, fallback = "", className = "" }: E
   const kind = classifyError(message);
   const retry = onRetry ?? (form ? () => form.requestSubmit() : undefined);
   const showRetry = Boolean(retry) && (kind === "network" || kind === "timeout" || kind === "other" || (kind === "business" && isRetryableBusinessText(message)));
-  return <div ref={attach} role="alert" data-error-kind={kind} className={`flex flex-wrap items-center gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 ${className}`.trim()}>
+  return <div ref={attach} role="alert" aria-live="assertive" data-error-kind={kind} className={`flex flex-wrap items-center gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 ${className}`.trim()}>
     <p className="min-w-0 flex-1 font-semibold">{message}</p>
     {showRetry && <button type="button" className="secondary-button shrink-0 justify-center" onClick={retry}>Réessayer</button>}
     {kind === "session" && <button type="button" className="secondary-button shrink-0 justify-center" onClick={requestReconnect}>Se reconnecter</button>}
