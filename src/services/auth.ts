@@ -4,6 +4,7 @@ import { auth, db, firebaseConfig, firebaseReady } from "../firebase";
 import type { AppUser, Role } from "../types";
 import { markAuthStep, measureAuthStep } from "../utils/authPerformance";
 import { normalizeSectionIds } from "../utils/userSections";
+import { forgetTokenThenSignOut } from "./signOutSequence";
 
 interface FirebaseAuthModule {
   signInWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: FirebaseUser }>;
@@ -129,7 +130,6 @@ export async function signOutUser() {
   // Lot 24 : le jeton push de cet appareil est retiré avant la déconnexion.
   // P4, lot 1 : sans réseau ce retrait ne se termine jamais ; il est donc borné (3 s) et `signOut` est toujours appelé.
   const uid = (auth as { currentUser?: { uid?: string } } | undefined)?.currentUser?.uid;
-  const { forgetTokenThenSignOut } = await import("./signOutSequence");
   await forgetTokenThenSignOut({
     forget: uid ? () => import("./pushNotifications").then((module) => module.forgetDevicePushToken(uid)) : undefined,
     signOut: () => authModule.signOut(auth),
