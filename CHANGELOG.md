@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.1] — 2026-11-20 — Correction
+- Super administrateur : l'ouverture ne charge plus toutes les écoles ni toutes les années ; une école se lit à l'ouverture de son drawer, toutes les écoles seulement pour les écrans qui en ont encore besoin
+
 ## [1.16.0] — 2026-11-19 — Fonctionnalité
 - Super administrateur : la recherche des écoles est faite par le serveur (liste de recherche tenue à jour automatiquement), 25 écoles par page avec « Voir plus »
 

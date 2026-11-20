@@ -28,9 +28,11 @@ describe("chargement Super Admin", () => {
     }));
   });
 
-  it("livre les écoles sans compter côté navigateur", async () => {
+  it("lot SA-2b : l'ouverture ne charge plus aucune école ni aucune année (chargées à la demande)", async () => {
     const { data } = await loadSuperAdminInitialData(user.id, user);
-    expect(data.schools).toHaveLength(1);
+    expect(data.schools).toHaveLength(0);
+    expect(data.schoolYears).toHaveLength(0);
+    expect(data.users).toHaveLength(1);
   });
 
   it("lot SA-3 : les chiffres viennent du serveur, chargés à part des écoles, et leurs erreurs restent visibles", () => {
