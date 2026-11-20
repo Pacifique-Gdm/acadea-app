@@ -16,6 +16,7 @@ export type PdfTableColumn<T> = {
 export type PdfMetric = {
   label: string;
   value: string | number;
+  className?: string;
 };
 
 type AcadPdfOptions = {
@@ -72,7 +73,7 @@ export function pdfInfoGrid(rows: PdfMetric[], options: { className?: string; co
       ${rows
         .map(
           (row) => `
-            <div class="info-box">
+            <div class="info-box${row.className ? ` ${escapePdfHtml(row.className)}` : ""}">
               <span>${escapePdfHtml(row.label)}</span>
               <strong>${escapePdfHtml(row.value)}</strong>
             </div>
@@ -180,6 +181,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   element.style.pointerEvents = "none";
   document.body.appendChild(element);
   await waitForPdfFonts(element);
+  if (copyLabels) fitTwoCopyPdfContent(element);
   applyPdfPageBreakSpacers(element, layout.contentHeight, layout.windowWidth / layout.contentWidth);
   if (paginateConsolidatedGrades) paginateConsolidatedGradeTables(element, layout.contentHeight * layout.windowWidth / layout.contentWidth);
   const repeatedTableHeaders = !singlePageFit && !paginateConsolidatedGrades
@@ -209,6 +211,33 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
     if (throwOnError) throw error;
   } finally {
     element.remove();
+  }
+}
+
+/**
+ * Chaque exemplaire occupe une demi-page fixe : si un texte long (description
+ * du paiement) pousse la signature sous le pied de page, on réduit pas à pas
+ * la taille de ce texte pour que tout tienne sur l'unique page.
+ */
+export function fitTwoCopyPdfContent(element: HTMLElement, minimumFontPx = 5) {
+  for (const copy of Array.from(element.querySelectorAll<HTMLElement>(".pdf-copy"))) {
+    const content = copy.querySelector<HTMLElement>(".pdf-copy-content");
+    const footer = copy.querySelector<HTMLElement>(".pdf-copy-footer");
+    const shrinkable = Array.from(copy.querySelectorAll<HTMLElement>(".receipt-description strong"));
+    if (!content || !footer || !shrinkable.length) continue;
+    const overflows = () => {
+      const last = content.lastElementChild as HTMLElement | null;
+      const contentBottom = last ? last.getBoundingClientRect().bottom : content.getBoundingClientRect().bottom;
+      return contentBottom > footer.getBoundingClientRect().top - 2;
+    };
+    let size = parseFloat(getComputedStyle(shrinkable[0]).fontSize) || 8.5;
+    while (overflows() && size > minimumFontPx) {
+      size = Math.max(minimumFontPx, size - 0.5);
+      for (const node of shrinkable) {
+        node.style.fontSize = `${size}px`;
+        node.style.lineHeight = "1.15";
+      }
+    }
   }
 }
 
@@ -494,37 +523,59 @@ export function paginateStandardPdfTables(element: HTMLElement, pageHeightPx: nu
   return repeated;
 }
 
-export async function generateReceiptPdf(payment: Payment, student: Student, feeType: { name: string }, school: School, cashierName = payment.cashierName) {
+export type ReceiptCashierGender = "F" | "M" | "Autre";
+
+/** Au-delà de cette longueur, la description occupe toute la largeur du reçu. */
+export const RECEIPT_DESCRIPTION_WIDE_THRESHOLD = 40;
+
+export function receiptCashierFunction(gender?: ReceiptCashierGender | null) {
+  return gender === "F" ? "Caissière" : "Caissier";
+}
+
+/** Contenu commun aux deux exemplaires (école et parent) du reçu de paiement. */
+export function buildReceiptSections(payment: Payment, student: Student, feeType: { name: string }, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null) {
+  const description = (payment.note ?? "").replace(/\s+/g, " ").trim();
+  const cashier = (cashierName ?? "").trim();
+  return [
+    pdfInfoGrid([
+      { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
+      { label: "Date", value: formatPdfDate(payment.paidAt) },
+      { label: "Élève", value: `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
+      { label: "Matricule", value: student.matricule },
+      { label: "Classe", value: formatStudentClassName(student) },
+      { label: "Type de frais", value: payment.feeName ?? feeType.name },
+      ...(payment.collectionSchoolYearId ? [
+        { label: "Nature", value: payment.formerStudent ? "Paiement d'un ancien élève (dette d'une année passée)" : "Règlement d'un arriéré" },
+        { label: "Année de la créance", value: payment.debtSchoolYearName ?? payment.schoolYearId },
+      ] : []),
+      { label: "Montant payé", value: formatRecordedOperation(payment) },
+      {
+        label: "Description du paiement",
+        value: description || "—",
+        className: `receipt-description${description.length > RECEIPT_DESCRIPTION_WIDE_THRESHOLD ? " receipt-description--wide" : ""}`,
+      },
+    ], { className: "receipt-details" }),
+    `
+      <section class="signature-row receipt-signature">
+        <div>
+          <span>Signature et cachet</span>
+          <strong></strong>
+          <p class="receipt-signatory-name">${escapePdfHtml(cashier && cashier !== "-" ? cashier : "—")}</p>
+          <p class="receipt-signatory-function">${escapePdfHtml(receiptCashierFunction(cashierGender))}</p>
+        </div>
+      </section>
+    `,
+  ];
+}
+
+export async function generateReceiptPdf(payment: Payment, student: Student, feeType: { name: string }, school: School, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null) {
   await renderAcadPdfPreview({
     filename: `recu-${student.matricule}-${payment.id}.pdf`,
     title: "Reçu de paiement",
     school,
     copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
     singlePageFit: true,
-    sections: [
-      pdfInfoGrid([
-        { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
-        { label: "Date", value: formatPdfDate(payment.paidAt) },
-        { label: "Élève", value: `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
-        { label: "Matricule", value: student.matricule },
-        { label: "Classe", value: formatStudentClassName(student) },
-        { label: "Type de frais", value: payment.feeName ?? feeType.name },
-        ...(payment.collectionSchoolYearId ? [
-          { label: "Nature", value: payment.formerStudent ? "Paiement d'un ancien élève (dette d'une année passée)" : "Règlement d'un arriéré" },
-          { label: "Année de la créance", value: payment.debtSchoolYearName ?? payment.schoolYearId },
-        ] : []),
-        { label: "Montant payé", value: formatRecordedOperation(payment) },
-        { label: "Caissier", value: cashierName || "-" },
-      ]),
-      `
-        <section class="signature-row">
-          <div>
-            <span>Signature et cachet</span>
-            <strong></strong>
-          </div>
-        </section>
-      `,
-    ],
+    sections: buildReceiptSections(payment, student, feeType, cashierName, cashierGender),
   });
 }
 
@@ -622,6 +673,26 @@ export function buildTwoCopyPdfHtml({ copyLabels, renderHeight, ...options }: Pd
   `;
 }
 
+/** Nombre maximal de lettres du logo de secours (au-delà : initiales du nom). */
+export const PDF_BRAND_MARK_MAX_LETTERS = 8;
+
+/**
+ * Logo de secours écrit en lettres quand l'école n'a pas d'image de logo.
+ * Toujours sur UNE seule ligne, dans le carré : la taille des lettres diminue
+ * avec leur nombre (avant, un sigle long comme « GSAGAPÉ » se coupait en lignes
+ * de 3 lettres et la dernière débordait sous le carré, sur le bandeau).
+ */
+export function pdfFallbackBrandMark(school: Pick<School, "name"> & Partial<Pick<School, "acronym">>) {
+  const acronym = (school.acronym ?? "").replace(/\s+/g, "").trim();
+  const initials = school.name.split(/[\s.\-_/]+/).map((word) => Array.from(word).find((letter) => /[\p{L}\p{N}]/u.test(letter)) ?? "").join("");
+  const raw = acronym || initials || school.name.trim().slice(0, 1);
+  const letters = Array.from(raw.toLocaleUpperCase("fr")).slice(0, PDF_BRAND_MARK_MAX_LETTERS);
+  if (!letters.length) return "";
+  // Une capitale grasse occupe environ 0,72 em ; le carré fait environ 2,4 fois la taille de base.
+  const scale = Math.min(1, Math.floor((3.1 / letters.length) * 100) / 100);
+  return `<span class="brand-mark-letters" style="font-size:${scale}em">${escapePdfHtml(letters.join(""))}</span>`;
+}
+
 function buildPdfContentHtml({
   title,
   school,
@@ -642,7 +713,7 @@ function buildPdfContentHtml({
         ${
           logoDataUrl
             ? `<img src="${logoDataUrl}" alt="" />`
-            : `<span>${escapePdfHtml((school.acronym ?? school.name.slice(0, 1)).toUpperCase())}</span>`
+            : pdfFallbackBrandMark(school)
         }
       </div>
       <div class="school-block">
@@ -729,6 +800,20 @@ function twoCopyPdfStyles(renderHeight: number) {
     .pdf-copy .signature-row { margin: 5px 12px 0; }
     .pdf-copy .signature-row div { width: 170px; font-size: 7.5px; }
     .pdf-copy .signature-row strong { margin-top: 18px; }
+    .pdf-copy .receipt-description--wide { grid-column: 1 / -1; }
+    .pdf-copy .receipt-description strong { white-space: normal; overflow-wrap: anywhere; }
+    .pdf-copy .receipt-signature p { margin: 0; line-height: 1.2; }
+    .pdf-copy .receipt-signature .receipt-signatory-name {
+      margin-top: 3px;
+      color: #14213d;
+      font-size: 8.5px;
+      font-weight: 800;
+    }
+    .pdf-copy .receipt-signature .receipt-signatory-function {
+      margin-top: 1px;
+      color: #475569;
+      font-size: 7.5px;
+    }
     .pdf-copy-footer {
       margin: auto 12px 4px;
       padding-top: 3px;
@@ -820,6 +905,15 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       font-size: 18px;
       font-weight: 800;
       flex: 0 0 auto;
+    }
+    .brand-mark { overflow: hidden; }
+    .acadea-pdf .brand-mark .brand-mark-letters {
+      display: inline-block;
+      line-height: 1.3;
+      text-align: center;
+      white-space: nowrap !important;
+      overflow-wrap: normal !important;
+      word-break: keep-all !important;
     }
     .brand-mark img {
       width: 100%;
