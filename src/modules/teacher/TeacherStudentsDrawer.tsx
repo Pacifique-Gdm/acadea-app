@@ -8,6 +8,7 @@ import type { TeacherPortalData } from "./teacherPortalData";
 import { useTeacherGradingRoster } from "./useTeacherGradingRoster";
 import { useTeacherLearning } from "./useTeacherLearning";
 import { StudentPhoto } from "../../components/students/StudentPhoto";
+import { userFacingError } from "../../utils/userFacingError";
 
 const studentName = (student: Student) => [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ");
 
@@ -21,7 +22,7 @@ export function TeacherStudentsDrawer({ user, school, year, data, onClose }: { u
   const [observation, setObservation] = useState("");
   const [busy, setBusy] = useState(false);
   const detailRef = useRef<HTMLElement>(null);
-  useEffect(() => { void loadTeacherGrading(school.id, year.id).then(setGrading).catch((cause) => setError(cause instanceof Error ? cause.message : "Chargement impossible.")); }, [school.id, year.id]);
+  useEffect(() => { void loadTeacherGrading(school.id, year.id).then(setGrading).catch((cause) => setError(userFacingError(cause, "Chargement impossible."))); }, [school.id, year.id]);
   const views = useMemo(() => teacherAssignmentViews(data.assignments, data.subjects, data.classes), [data.assignments, data.subjects, data.classes]);
   const current = data.assignments.find((item) => item.id === selectedAssignment) ?? data.assignments[0];
   const { roster, error: rosterError } = useTeacherGradingRoster(current, school.id, year.id);
@@ -51,7 +52,7 @@ export function TeacherStudentsDrawer({ user, school, year, data, onClose }: { u
       setObservation("");
       setSuccess(result.notificationWarning || "Observation enregistrée.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
+      setError(userFacingError(cause, "Enregistrement impossible."));
     } finally {
       setBusy(false);
     }

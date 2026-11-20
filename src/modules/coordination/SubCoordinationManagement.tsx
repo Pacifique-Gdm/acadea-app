@@ -15,6 +15,9 @@ import {
   removeSubCoordinationSchool,
   transferSubCoordinationSchool,
 } from "../../services/subCoordinationService";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type Props = { coordination: Coordination; schools: School[]; currentUser: AppUser };
 
@@ -45,30 +48,32 @@ export function SubCoordinationManagement({ coordination, schools, currentUser }
   const [transferTargetId, setTransferTargetId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [success, setSuccess] = useState("");
 
   useEffect(() => {
     if (!db || currentUser.role !== "coordination_admin") return undefined;
     const stopItems = onSnapshot(query(collection(db, "subCoordinations"), where("coordinationId", "==", coordination.id)), (snapshot) => {
       setItems(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as SubCoordination)).sort((a, b) => a.circumscription.localeCompare(b.circumscription, "fr")));
-    }, () => setError("Impossible de charger les Sous-coordinations."));
+    }, () => setErrorLoad("Impossible de charger les Sous-coordinations."));
     const stopRelations = onSnapshot(query(collection(db, "subCoordinationSchools"), where("coordinationId", "==", coordination.id)), (snapshot) => {
       setRelations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as SubCoordinationSchool)));
-    }, () => setError("Impossible de charger les écoles déléguées."));
+    }, () => setErrorLoad("Impossible de charger les écoles déléguées."));
     const stopAuditLogs = onSnapshot(query(collection(db, "auditLogs"), where("coordinationId", "==", coordination.id)), (snapshot) => {
       setAuditLogs(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AuditLog)));
-    }, () => setError("Impossible de charger l’historique des Sous-coordinations."));
+    }, () => setErrorLoad("Impossible de charger l’historique des Sous-coordinations."));
     return () => { stopItems(); stopRelations(); stopAuditLogs(); };
-  }, [coordination.id, currentUser.role]);
+  }, [coordination.id, currentUser.role, errorLoadRetry.token]);
 
   useEffect(() => {
     if (!db || currentUser.role !== "coordination_admin" || items.length === 0) { setCoordinators([]); return; }
     let cancelled = false;
     void Promise.all(items.map((item) => getDoc(doc(db!, "users", item.coordinatorUserId)))).then((snapshots) => {
       if (!cancelled) setCoordinators(snapshots.filter((item) => item.exists()).map((item) => ({ id: item.id, ...item.data() } as AppUser)));
-    }).catch(() => { if (!cancelled) setError("Impossible de charger les Sous-coordinateurs."); });
+    }).catch(() => { if (!cancelled) setErrorLoad("Impossible de charger les Sous-coordinateurs."); });
     return () => { cancelled = true; };
-  }, [currentUser.role, items]);
+  }, [currentUser.role, items, errorLoadRetry.token]);
 
   const selected = items.find((item) => item.id === selectedId) ?? null;
   const selectedRelations = useMemo(() => relations.filter((item) => item.subCoordinationId === selectedId), [relations, selectedId]);
@@ -93,7 +98,7 @@ export function SubCoordinationManagement({ coordination, schools, currentUser }
     try {
       await createSubCoordination({ circumscription: circumscription.trim(), schoolIds, coordinator: { lastName: lastName.trim(), middleName: middleName.trim() || undefined, firstName: firstName.trim() || undefined, phone: phone.trim(), email: email.trim(), password } });
       setCreateOpen(false); resetForm(); setSuccess("Sous-coordination créée avec succès.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Création impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Création impossible.")); }
     finally { setBusy(false); }
   }
 
@@ -103,7 +108,7 @@ export function SubCoordinationManagement({ coordination, schools, currentUser }
     try {
       if (action === "add") await addSubCoordinationSchool(selected.id, schoolId); else await removeSubCoordinationSchool(selected.id, schoolId);
       setSuccess(action === "add" ? "École ajoutée au périmètre délégué." : "École retirée du périmètre délégué.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Modification impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Modification impossible.")); }
     finally { setBusy(false); }
   }
 
@@ -111,7 +116,7 @@ export function SubCoordinationManagement({ coordination, schools, currentUser }
     if (!selected || !transferSchoolId || !transferTargetId || busy) return;
     setBusy(true); setError(""); setSuccess("");
     try { await transferSubCoordinationSchool(selected.id, transferTargetId, transferSchoolId); setTransferSchoolId(""); setTransferTargetId(""); setSuccess("École transférée sans double attribution."); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Transfert impossible."); }
+    catch (cause) { setError(userFacingError(cause, "Transfert impossible.")); }
     finally { setBusy(false); }
   }
 
@@ -121,12 +126,12 @@ export function SubCoordinationManagement({ coordination, schools, currentUser }
     if (!window.confirm(archive ? "Archiver ce Sous-coordinateur ? Ses relations resteront conservées." : "Réactiver ce Sous-coordinateur avec son périmètre actuel ?")) return;
     setBusy(true); setError(""); setSuccess("");
     try { if (archive) await archiveSubCoordination(selected.id); else await reactivateSubCoordination(selected.id); setSuccess(archive ? "Sous-coordinateur archivé." : "Sous-coordinateur réactivé."); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Changement de statut impossible."); }
+    catch (cause) { setError(userFacingError(cause, "Changement de statut impossible.")); }
     finally { setBusy(false); }
   }
 
   return <div className="grid min-w-0 gap-4">
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     {success && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{success}</p>}
     <div className="sticky top-0 z-10 flex min-w-0 flex-col gap-3 rounded border border-blue-100 bg-blue-50 p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h3 className="font-bold">Sous-coordinations</h3><p className="break-words text-sm text-slate-600">Déléguez la supervision sans transférer l’autorité annuelle.</p></div><button type="button" className="primary-button w-full justify-center sm:w-auto" onClick={() => { resetForm(); setCreateOpen(true); }}><Plus className="h-4 w-4"/>Créer sous-coordination</button></div>
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]"><div className="grid content-start gap-2">{items.map((item) => <button key={item.id} type="button" className={`flex items-center justify-between gap-2 rounded border p-3 text-left ${selectedId === item.id ? "border-blue-400 bg-blue-50" : "bg-white"}`} onClick={() => setSelectedId(item.id)}><span className="min-w-0"><strong className="block truncate">{item.circumscription}</strong><span className="text-xs text-slate-500">{item.active ? "Active" : "Archivée"} · {relations.filter((relation) => relation.subCoordinationId === item.id && relation.active).length} école(s)</span></span><ChevronRight className="h-4 w-4 shrink-0"/></button>)}{items.length === 0 && <p className="rounded bg-slate-50 p-4 text-sm text-slate-500">Aucune Sous-coordination.</p>}</div>

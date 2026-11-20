@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { describe, expect, it, vi } from "vitest";
+import { userFacingError } from "../../utils/userFacingError";
 
 const source = readFileSync(new URL("./ControlModule.tsx", import.meta.url), "utf8");
 // Execute the real submit/reset handlers, without Firebase or real records.
@@ -18,7 +19,7 @@ function runSubmit(save: () => Promise<unknown>) {
   const values: Record<string, unknown> = { StudentId: "a", PaymentStudentQuery: "Eleve A", FeeTypeId: "fee-a", Amount: "20", PaymentNote: "note A" };
   const setters = Object.fromEntries(["CashierControlFeedback", "CashierControlFeedbackDrawer", "PaymentError", "PaymentSubmitting", "PaymentArrears", "ArrearsError", "ArrearsLoading", ...Object.keys(values)].map(key => [`set${key}`, (value: unknown) => { values[key] = value; }]));
   const attempt = { current: null as unknown };
-  const bindings = { ...setters, crypto: { randomUUID: () => "request-fictive" },
+  const bindings = { ...setters, userFacingError, crypto: { randomUUID: () => "request-fictive" },
     paymentSubmittingRef: { current: false }, paymentStudentRequestRef: { current: 0 }, paymentAttemptRef: attempt,
     isArchivedContext: false, studentId: "a", selectedFeeTypeValue: "fee-a", amount: "20", paymentNote: "note A",
     selectedPaymentStudent: { id: "a" }, selectedPaymentFee: { id: "fee-a" }, selectedPaymentDebt: undefined,

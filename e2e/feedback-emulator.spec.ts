@@ -141,7 +141,9 @@ test("offline panel: pending reads are not empty, failed synchronization retains
   await settle(page, "queue-list", [{ id: "historical-id", kind: "grade", status: "RETRYABLE_ERROR", createdAt: "2026-10-29T00:00:00Z" }]);
   await expect(view.getByText("En attente de reprise automatique", { exact: true })).toBeVisible();
   await settle(page, "queue-sync", undefined, "Network unavailable (test)");
-  await expect(view.getByRole("alert")).toContainText("Network unavailable (test)");
+  // Texte technique masqué : message réseau clair en français (lot « Messages d'erreur »).
+  await expect(view.getByRole("alert")).toContainText("Connexion Internet instable ou indisponible");
+  await expect(view.getByRole("alert")).not.toContainText("Network unavailable");
   await expect(view.getByText("En attente de reprise automatique", { exact: true })).toBeVisible();
   await view.getByRole("button", { name: "Réessayer la synchronisation" }).click();
   await expect(view.getByRole("button", { name: "Synchronisation…", exact: true })).toBeDisabled();

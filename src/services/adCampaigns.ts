@@ -64,7 +64,7 @@ function writeJson(key: string, value: unknown) {
 
 async function firestore() {
   const [{ db }, firestoreModule] = await Promise.all([import("../firebase"), import("@firebase/firestore")]);
-  if (!db) throw new Error("Firestore indisponible.");
+  if (!db) throw new Error("Service indisponible. Veuillez réessayer.");
   return { ...firestoreModule, db: db as unknown as Firestore };
 }
 

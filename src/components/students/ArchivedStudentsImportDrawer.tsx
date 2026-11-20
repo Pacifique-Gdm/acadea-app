@@ -6,6 +6,9 @@ import { annualExitReason } from "../../utils/studentYearTransition.js";
 import { loadFirestoreYearData } from "../../services/firestoreData";
 import type { AppData, AppUser, School, SchoolYear } from "../../types";
 import { orderSchoolYears } from "../../utils/schoolYears";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school, year, updateData }: {
   open: boolean; onClose: () => void; user: AppUser; data: AppData; school: School; year: SchoolYear;
@@ -15,6 +18,8 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
   const [confirmation, setConfirmation] = useState("");
   const [status, setStatus] = useState<ArchivedStudentsImportStatus>();
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
   const [finished, setFinished] = useState(false);
@@ -28,7 +33,7 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
 
   useEffect(() => {
     const version = ++contextVersion.current;
-    setStatus(undefined); setError(""); setFinished(false); setDecisions({}); setRetained(new Set());
+    setStatus(undefined); setErrorLoad(""); setFinished(false); setDecisions({}); setRetained(new Set());
     if (!open || !sourceYearId || !canImport) { setChecking(false); return; }
     setChecking(true);
     void requestArchivedStudentsImport({ schoolId: school.id, schoolYearId: year.id, sourceYearId, mode: "inspect" })
@@ -38,10 +43,10 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
         // Import déjà commencé : les décisions enregistrées s'appliquent et ne changent plus.
         if (next.decisionsLocked) { setDecisions(next.decisions ?? {}); setRetained(new Set(next.retainedStudentIds ?? [])); }
       })
-      .catch((caught) => { if (version === contextVersion.current) setError(caught instanceof Error ? caught.message : "Vérification de l'import impossible."); })
+      .catch((caught) => { if (version === contextVersion.current) setErrorLoad(userFacingError(caught, "Vérification de l'import impossible.")); })
       .finally(() => { if (version === contextVersion.current) setChecking(false); });
     return () => { contextVersion.current += 1; };
-  }, [canImport, open, school.id, sourceYearId, year.id]);
+  }, [canImport, open, school.id, sourceYearId, year.id, errorLoadRetry.token]);
 
   async function importStudents() {
     if (!canImport || confirmation !== "IMPORTER LES ELEVES" || !sourceYearId || checking || inFlight.current || status?.complete || !status?.sourceCount || review.missing.length) return;
@@ -63,7 +68,7 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
       updateData(refreshed, { persist: false });
       setFinished(true);
     } catch (caught) {
-      if (version === contextVersion.current) setError(caught instanceof Error ? caught.message : "Import interrompu. Vous pouvez le reprendre sans doublon.");
+      if (version === contextVersion.current) setError(userFacingError(caught, "Import interrompu. Vous pouvez le reprendre sans doublon."));
     } finally { inFlight.current = false; setBusy(false); }
   }
 
@@ -119,7 +124,7 @@ export function ArchivedStudentsImportDrawer({ open, onClose, user, data, school
               </button>
             </>}
           </>}
-      {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+      <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     </div>
   </AdminDrawer>;
 }

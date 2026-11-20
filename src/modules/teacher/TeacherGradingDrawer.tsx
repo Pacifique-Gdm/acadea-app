@@ -33,6 +33,8 @@ import { ConsolidatedGradesView } from "./ConsolidatedGradesView";
 import { useTeacherGradingRoster } from "./useTeacherGradingRoster";
 import type { TeacherPortalData } from "./teacherPortalData";
 import { exportTeacherGradesPdf } from "./teacherGradingPdf";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type Draft = { score: string; status: GradeEntry["status"] };
 type PendingTransition = { type: "close" | "assignment" | "slot" | "titular"; value?: string };
@@ -92,7 +94,9 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     }
   }, [portalData.classes, portalData.subjects, school.id, year.id]);
 
-  useEffect(() => { void reload(); }, [reload]);
+  // Chargement en échec : relance par le bouton « Réessayer » ou au retour du réseau.
+  const reloadRetry = useLoadRetry(loadFailed);
+  useEffect(() => { void reload(); }, [reload, reloadRetry.token]);
 
   const data = useMemo(() => rawData ? scopeTeacherGradingData(user, rawData) : undefined, [rawData, user]);
 
@@ -101,7 +105,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   const schoolClass = data?.classes.find((item) => item.id === assignment?.classId);
   const subject = data?.subjects.find((item) => item.id === assignment?.subjectId);
   const config = applicableGradingConfig(data?.configs ?? [], assignment?.classId ?? "", assignment?.subjectId ?? "", slot, school.id, year.id);
-  const { roster, error: rosterError } = useTeacherGradingRoster(assignment, school.id, year.id);
+  const { roster, error: rosterError, retry: retryRoster } = useTeacherGradingRoster(assignment, school.id, year.id);
   const students = useMemo(
     () => assignment && data ? activeStudentsForAssignment(roster?.assignmentId === assignment.id ? roster.students : data.students, school.id, year.id, assignment, data.classes) : [],
     [assignment, data, roster, school.id, year.id],
@@ -165,7 +169,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
     loadTeacherConsolidatedGrades(school.id, year.id, titular.classId).then((loaded) => {
       if (!cancelled) setConsolidatedData(loaded);
     }).catch((cause: unknown) => {
-      if (!cancelled) setConsolidatedError(cause instanceof Error ? cause.message : "Fiche consolidée indisponible.");
+      if (!cancelled) setConsolidatedError(userFacingError(cause, "Fiche consolidée indisponible."));
     }).finally(() => { if (!cancelled) setConsolidatedLoading(false); });
     return () => { cancelled = true; };
   }, [showConsolidated, titular?.classId, school.id, year.id]);
@@ -254,8 +258,8 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
       <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" onClick={() => setPendingTransition(null)}>Revenir au formulaire</button><button type="button" className="primary-button justify-center" onClick={() => { const next = pendingTransition; setPendingTransition(null); applyTransition(next); }}>Abandonner les modifications</button></div>
     </section>}
     {loading && <p role="status" className="rounded bg-slate-50 p-4">Chargement…</p>}
-    {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
-    {rosterError && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{rosterError}</p>}
+    <ErrorNotice error={error} onRetry={loadFailed ? reloadRetry.retry : undefined} />
+    <ErrorNotice error={rosterError} onRetry={retryRoster} />
     {success && <p role="status" className="rounded bg-green-50 p-3 text-green-800">{success}</p>}
     {data && !loadFailed && <div className="grid gap-4">
       <div className="grid grid-cols-2 gap-2"><button type="button" className={titularView ? "secondary-button w-full justify-center" : "primary-button w-full justify-center"} onClick={() => requestTransition({ type: "titular", value: "false" })}>Mes cotations</button><button type="button" className={titularView ? "primary-button w-full justify-center" : "secondary-button w-full justify-center"} onClick={() => requestTransition({ type: "titular", value: "true" })}>Ma classe titulaire</button></div>
@@ -273,7 +277,7 @@ export function TeacherGradingDrawer({ user, school, year, portalData, onClose }
   </AdminDrawer>}
     {showConsolidated && <AdminDrawer width="wide" title="Fiche consolidée" closeLabel="Revenir à Ma classe titulaire" onClose={() => setShowConsolidated(false)}>
       {consolidatedLoading ? <p role="status">Chargement de la fiche consolidée…</p>
-        : consolidatedError ? <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{consolidatedError}</p>
+        : consolidatedError ? <ErrorNotice error={consolidatedError} />
           : consolidatedReport ? <ConsolidatedGradesView report={consolidatedReport} school={school} year={year} className={data?.classes.find((item) => item.id === titular?.classId)?.name ?? "Classe titulaire"} /> : <p>Aucune fiche disponible.</p>}
     </AdminDrawer>}
   </>;

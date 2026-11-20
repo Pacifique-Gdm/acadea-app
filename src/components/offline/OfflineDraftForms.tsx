@@ -6,6 +6,7 @@ import type { OfflineScope } from "../../services/offlineQueue";
 import { attendanceRecordId } from "../../utils/attendance";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { offlineEnrollmentClasses, offlineFeeChoices, sortedOfflineStudents } from "../../utils/offlineFormChoices";
+import { userFacingError } from "../../utils/userFacingError";
 
 const slots = ["period_1", "period_2", "semester_1_exam", "period_3", "period_4", "semester_2_exam"];
 const slotLabel: Record<string, string> = { period_1: "1re période", period_2: "2e période", semester_1_exam: "Examen du 1er semestre",
@@ -103,7 +104,7 @@ function ScopedOfflineDraftForms({ scope, role }: { scope: OfflineScope; role: O
         setNom(""); setPostnom(""); setPrenom(""); setSexe("M"); setBirthDate(""); setClassId("");
       }
       setConfirmation(""); setScore(""); setReason(""); setAmount(""); setNote("");
-    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Brouillon local impossible."); }
+    } catch (cause) { setMessage(userFacingError(cause, "Brouillon local impossible.")); }
     finally { setSaving(false); savingRef.current = false; }
   }
 

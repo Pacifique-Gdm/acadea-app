@@ -4,6 +4,7 @@ import { auth, db } from "../firebase";
 import type { AppUser } from "../types";
 import type { StudentMedicalRecord, StudentMedicalRecordStatus } from "../modules/secretary/secretaryTypes";
 import { requiredMedicalRecordFields } from "../modules/secretary/medicalRecordFields";
+import { userFacingError } from "../utils/userFacingError";
 
 const serverTimestamp = (firestore as unknown as { serverTimestamp: () => unknown }).serverTimestamp;
 
@@ -31,7 +32,7 @@ export function medicalRecordSaveErrorMessage(error: unknown) {
   if (code === "unavailable" || code === "firestore/unavailable") {
     return "Impossible d'enregistrer la fiche médicale pour le moment. Réessayez.";
   }
-  return error instanceof Error && error.message ? error.message : "Impossible d'enregistrer la fiche médicale.";
+  return userFacingError(error, "Impossible d'enregistrer la fiche médicale.");
 }
 
 export function medicalRecordReadErrorMessage(error: unknown) {

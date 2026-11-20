@@ -8,7 +8,7 @@ describe("logo institutionnel de l'application", () => {
     expect(source).toContain("ENREGISTRER LE NOUVEAU LOGO");
     expect(source).toContain('platformLogoConfirmation !== expected');
     expect(source).toContain('setPlatformLogoConfirmation("")');
-    expect(source).toContain('if (!saved) throw new Error("Enregistrement Firestore indisponible.")');
+    expect(source).toContain('if (!saved) throw new Error("Enregistrement indisponible. Veuillez réessayer.")');
     expect(source.indexOf('onPlatformLogoSaved(logoUrl)')).toBeGreaterThan(source.indexOf('if (!saved) throw new Error'));
     expect(source).toContain('platformLogoSavingRef.current');
   });

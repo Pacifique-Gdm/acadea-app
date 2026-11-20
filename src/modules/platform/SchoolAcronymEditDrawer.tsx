@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { School } from "../../types";
 import { AdminDrawer } from "../../components/ui";
 import { canSaveSchoolAcronym, SCHOOL_ACRONYM_CONFIRMATION, schoolAcronymError } from "./schoolAcronym";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 export function SchoolAcronymEditDrawer({ school, saving, error, onClose, onSave }: {
   school: School;
@@ -23,7 +24,7 @@ export function SchoolAcronymEditDrawer({ school, saving, error, onClose, onSave
     <label className="grid gap-1 text-sm font-semibold">Nouveau sigle<input className="input" value={acronym} onChange={(event) => setAcronym(event.target.value)} disabled={saving} /></label>
     <p className="text-sm text-slate-600">Le nouveau sigle changera les futures propositions d’adresses email. Les adresses des comptes existants resteront inchangées.</p>
     <label className="grid gap-1 text-sm font-semibold">Saisissez exactement « {SCHOOL_ACRONYM_CONFIRMATION} »<input className="input" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" spellCheck={false} disabled={saving} /></label>
-    {validationError && <p role="alert" className="text-sm text-red-700">{validationError}</p>}
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={validationError} />
+    <ErrorNotice error={error} />
   </AdminDrawer>;
 }

@@ -3,6 +3,7 @@ import { app, auth, firebaseConfig } from "../firebase";
 import type { AppUser } from "../types";
 import type { AiWritingRequest, AiWritingResponse } from "../modules/secretary/aiWritingTypes";
 import { reportClientFailure } from "./clientFailureTelemetry";
+import { userFacingError } from "../utils/userFacingError";
 
 export function assertSecretaryAiAccess(user: AppUser, schoolId: string) {
   if (!app || !auth?.currentUser || auth.currentUser.uid !== user.id || user.role !== "secretary" || user.status === "inactive" || user.schoolId !== schoolId) throw new Error("Vous ne disposez pas de l'autorisation nécessaire.");
@@ -42,6 +43,6 @@ export function aiErrorMessage(error: unknown) {
   if (code.includes("deadline-exceeded")) return "Le délai d'attente est dépassé. Votre texte n'a pas été modifié.";
   if (code.includes("resource-exhausted")) return "La limite d'utilisation de l'Assistant IA est atteinte.";
   if (code.includes("unavailable") || code.includes("internal")) return "Le service IA est temporairement indisponible. Votre texte n'a pas été modifié.";
-  if (code.includes("invalid-argument")) return error instanceof Error ? error.message : "Le texte envoyé est invalide ou trop long.";
+  if (code.includes("invalid-argument")) return userFacingError(error, "Le texte envoyé est invalide ou trop long.");
   return "L'assistant IA est temporairement indisponible. Votre texte n'a pas été modifié.";
 }

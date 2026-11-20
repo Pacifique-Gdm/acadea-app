@@ -7,6 +7,8 @@ import { emptyParent, nextParentEmail } from "../../utils/parents";
 import { applyParentUnlinkResult, isExactParentStudentUnlinkConfirmation, PARENT_STUDENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import { schoolOptionDisplayName } from "../../utils/schoolOptions";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear, Student } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type ParentFormYearData = {
   parents: ParentProfile[];
@@ -132,7 +134,7 @@ export function ParentFormEditor({
     let confirmedParent: ParentProfile | undefined;
     let confirmedUser: AppUser | undefined;
     if (isNew && !password) {
-      setParentError("Mot de passe requis pour créer le compte Firebase Auth du parent.");
+      setParentError("Mot de passe requis pour créer le compte de connexion du parent.");
       return;
     }
     let userId = existingUser?.id ?? form.userId;
@@ -156,7 +158,7 @@ export function ParentFormEditor({
         confirmedParent = provisioned.parent;
         confirmedUser = provisioned.user;
       } catch (error) {
-        setParentError(error instanceof Error ? `Provisionnement parent impossible : ${error.message}` : "Provisionnement parent impossible.");
+        setParentError(error instanceof Error ? `Provisionnement parent impossible : ${userFacingError(error, "erreur inconnue")}` : "Provisionnement parent impossible.");
         return;
       }
     }
@@ -265,7 +267,7 @@ export function ParentFormEditor({
       setStudentUnlinkConfirmation("");
       setStudentUnlinkError("");
     } catch (error) {
-      setStudentUnlinkError(error instanceof Error ? error.message : "Déliaison de l'élève impossible.");
+      setStudentUnlinkError(userFacingError(error, "Déliaison de l'élève impossible."));
     } finally {
       setStudentUnlinkBusy(false);
     }
@@ -276,7 +278,7 @@ export function ParentFormEditor({
       {showBackButton && onBack && (
         <ParentDrawerBackButton onBack={onBack} />
       )}
-      {parentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentError}</p>}
+      <ErrorNotice error={parentError} onRetry={() => void saveParentProfile()} />
       {parentSuccess && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{parentSuccess}</p>}
       <FormPanel title="">
         <Field label="Nom complet" value={form.fullName} onChange={(value) => setForm({ ...form, fullName: value })} />
@@ -389,7 +391,7 @@ export function ParentFormEditor({
                   Confirmation
                   <input className="input bg-white" value={studentUnlinkConfirmation} disabled={studentUnlinkBusy} placeholder={PARENT_STUDENT_UNLINK_CONFIRMATION} onChange={(event) => setStudentUnlinkConfirmation(event.target.value)} />
                 </label>
-                {studentUnlinkError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 font-semibold text-red-700">{studentUnlinkError}</p>}
+                <ErrorNotice error={studentUnlinkError} onRetry={() => void confirmStudentUnlink()} />
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" className="secondary-button justify-center" disabled={studentUnlinkBusy} onClick={closeStudentUnlink}>Annuler</button>
                   <button type="button" className="rounded bg-red-700 px-4 py-2 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={studentUnlinkBusy || !isExactParentStudentUnlinkConfirmation(studentUnlinkConfirmation)} onClick={() => void confirmStudentUnlink()}>{studentUnlinkBusy ? "Déliaison…" : "Confirmer la déliaison"}</button>

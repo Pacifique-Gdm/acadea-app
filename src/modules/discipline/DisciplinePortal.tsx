@@ -29,6 +29,7 @@ import { readDisciplineClasses } from "../../services/disciplineClasses";
 import { userSectionIds } from "../../utils/userSections";
 import type { SchoolClassRecord } from "../../types";
 import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
 
 type DisciplineTab = "status" | "attendance" | "messages" | "menu";
 
@@ -155,7 +156,7 @@ export function DisciplinePortal({
     setClassRecords([]); setClassesError("");
     if (!isRefreshing) void readDisciplineClasses(school.id, year.id, controller.signal)
       .then(rows => { if (active) setClassRecords(rows); })
-      .catch((cause: unknown) => { if (active) setClassesError(cause instanceof Error ? cause.message : "Classes indisponibles."); });
+      .catch((cause: unknown) => { if (active) setClassesError(userFacingError(cause, "Classes indisponibles.")); });
     return () => { active = false; controller.abort(); };
   }, [school.id, year.id, user.id, user.role, user.section, user.sectionIds, isRefreshing]);
   const [notificationsOpen, setNotificationsOpen] = useState(false);

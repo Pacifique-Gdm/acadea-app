@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.8] — 2026-11-20 — Correction
+- Messages d'erreur clairs en français partout (réseau, délai, session, autorisation), bouton « Réessayer » qui relance vraiment, relance automatique des chargements au retour du réseau (jamais pour l'argent)
+
 ## [1.16.7] — 2026-11-20 — Correction
 - Écran de connexion : retrait du rappel « téléphone partagé » ajouté avec la 1.16.6
 

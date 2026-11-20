@@ -10,6 +10,8 @@ import { editableGradingSlots, gradingSlotLabels, type EditableGradingSlot } fro
 import { loadDirectorConsolidatedReport, loadGradePublicationOptions, publishGrades, withdrawGradePublication, type PublicationComparison } from "../teacher/gradePublicationService";
 import type { ConsolidatedClassReport } from "../teacher/consolidatedGrades";
 import type { StudyClass } from "./studyTypes";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type Options = Awaited<ReturnType<typeof loadGradePublicationOptions>>;
 type Screen = "classes" | "report" | "options";
@@ -25,6 +27,8 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [published, setPublished] = useState<Published>();
   const [withdrawText, setWithdrawText] = useState("");
   const [slot, setSlot] = useState<EditableGradingSlot>("period_1");
@@ -40,9 +44,9 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
     let active = true;
     setOptions(undefined);
     loadGradePublicationOptions(school.id, year.id, classId).then((value) => { if (active) setOptions(value); })
-      .catch((cause: unknown) => { if (active) setError(userFacingError(cause, "Types de frais indisponibles.")); });
+      .catch((cause: unknown) => { if (active) setErrorLoad(userFacingError(cause, "Types de frais indisponibles.")); });
     return () => { active = false; };
-  }, [school.id, year.id, classId, screen, optionsAttempt]);
+  }, [school.id, year.id, classId, screen, optionsAttempt, errorLoadRetry.token]);
 
   function changeCriteria() { setPublished(undefined); setRequestId(crypto.randomUUID()); setError(""); }
   async function showReport(nextClassId: string) {
@@ -93,7 +97,7 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
   }
 
   return <AdminDrawer width={screen === "report" ? "wide" : "default"} title={screen === "classes" ? "Publication des cotes" : screen === "report" ? "Fiche consolidée" : "Option de publication"} closeLabel={screen === "classes" ? "Revenir au Menu" : "Revenir aux classes"} onClose={() => { if (screen === "classes") onClose(); else { setScreen("classes"); setError(""); } }}>
-    {error && <p role="alert" className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     {error && screen === "options" && !options && <button type="button" className="secondary-button mb-3 w-full justify-center" onClick={() => { setError(""); setOptionsAttempt((attempt) => attempt + 1); }}>Réessayer le chargement</button>}
     {error && screen === "report" && !loading && !report && <button type="button" className="secondary-button mb-3 w-full justify-center" onClick={() => void showReport(classId)}>Réessayer la fiche</button>}
     {screen === "classes" && <div className="grid gap-3">

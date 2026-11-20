@@ -21,6 +21,7 @@ import {
 import { AdministrativeRecipientSelector } from "./AdministrativeRecipientSelector";
 import { formatMessageAttachmentSize, MAX_MESSAGE_ATTACHMENTS_TOTAL_SIZE, MESSAGE_ATTACHMENT_ACCEPT, validateMessageAttachments } from "../../utils/messageAttachments";
 import { useSchoolMessageRecipients } from "../../hooks/useSchoolMessageRecipients";
+import { userFacingError } from "../../utils/userFacingError";
 
 type MessagesYearData = {
   parents: ParentProfile[];
@@ -77,7 +78,7 @@ export function MessagesModule({
   const isStudyDirector = user.role === "study_director";
   const isSecretary = user.role === "secretary";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
-  const { recipients: secureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError, hasCoordination } = useSchoolMessageRecipients(user, school, year.id);
+  const { recipients: secureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError, retry: retryAdministrativeRecipients, hasCoordination } = useSchoolMessageRecipients(user, school, year.id);
   const recipientCategories = useMemo(() => schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin, hasCoordination, !isLoadingAdministrativeRecipients),
     [isSchoolAdmin, secureDirectory, hasCoordination, isLoadingAdministrativeRecipients]);
   const administrativeRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "administrative", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
@@ -195,7 +196,7 @@ export function MessagesModule({
     } catch (error) {
       await deletePendingMessageAttachments(uploaded);
       console.error("Envoi aux administratifs impossible.", error);
-      setMessageFeedback(error instanceof Error ? error.message : "Message non envoyé. Veuillez réessayer.");
+      setMessageFeedback(userFacingError(error, "Message non envoyé. Veuillez réessayer."));
     } finally {
       setIsSendingAdministrative(false);
     }
@@ -469,7 +470,7 @@ export function MessagesModule({
               </select>
             </label>
             {recipientCategory === "administrative" || recipientCategory === "coordination" || recipientCategory === "subCoordination" ? (
-              <AdministrativeRecipientSelector kind={activeAdministrativeKind} showRecipientsWithoutSearch={isSchoolAdmin} mode={administrativeRecipientMode} onModeChange={setAdministrativeRecipientMode} search={administrativeSearch} onSearchChange={setAdministrativeSearch} recipients={activeAdministrativeRecipients} selectedIds={selectedAdministrativeIds} onSelectedIdsChange={setSelectedAdministrativeIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} />
+              <AdministrativeRecipientSelector kind={activeAdministrativeKind} showRecipientsWithoutSearch={isSchoolAdmin} mode={administrativeRecipientMode} onModeChange={setAdministrativeRecipientMode} search={administrativeSearch} onSearchChange={setAdministrativeSearch} recipients={activeAdministrativeRecipients} selectedIds={selectedAdministrativeIds} onSelectedIdsChange={setSelectedAdministrativeIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} onRetry={retryAdministrativeRecipients} />
             ) : recipientCategory === "teachers" ? (
               <AdministrativeRecipientSelector kind="teacher" mode={teacherRecipientMode} onModeChange={setTeacherRecipientMode} search={teacherSearch} onSearchChange={setTeacherSearch} recipients={teacherRecipients} selectedIds={selectedTeacherIds} onSelectedIdsChange={setSelectedTeacherIds} isLoading={isLoadingAdministrativeRecipients} error={administrativeLoadError} />
             ) : isSchoolAdmin || isSecretary || isCashier || isDisciplineDirector || isStudyDirector ? (
