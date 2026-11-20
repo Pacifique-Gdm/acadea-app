@@ -348,13 +348,11 @@ export function PlatformModule({
     || platformMenuDrawer === "ad-campaigns" || platformMenuDrawer === "create-coordination"
     || (platformView === "students" && serverSearch.schools === null && !serverSearch.loading);
   const allSchoolsRequested = useRef(false);
-  const [allSchoolsLoading, setAllSchoolsLoading] = useState(false);
   useEffect(() => {
     if (!needsAllSchools || allSchoolsRequested.current) return;
-    allSchoolsRequested.current = true; setAllSchoolsLoading(true);
+    allSchoolsRequested.current = true;
     void loadAllPlatformSchools().then(({ schools, schoolYears }) => mergeKnownSchools(schools, schoolYears))
-      .catch((cause: unknown) => { allSchoolsRequested.current = false; setSchoolActionError(cause instanceof Error ? cause.message : "Écoles indisponibles."); })
-      .finally(() => setAllSchoolsLoading(false));
+      .catch((cause: unknown) => { allSchoolsRequested.current = false; setSchoolActionError(cause instanceof Error ? cause.message : "Écoles indisponibles."); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [needsAllSchools]);
 
