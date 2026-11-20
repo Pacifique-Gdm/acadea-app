@@ -9,6 +9,7 @@ import { clearOfflineAccess, offlineAccessEligible, readOfflineAccess, readOffli
 import { OfflineAccessScreen } from "./components/auth/OfflineAccessScreen";
 import { confirmLogoutWithDrafts } from "./components/auth/LogoutDraftsDialog";
 import { countUnsentOfflineOperations } from "./services/offlineQueue";
+import { cleanDeviceAfterSession, purgeExpiredOfflineData, shouldReloadAfterLogout } from "./services/deviceCleanup";
 import { prepareOfflineContext } from "./services/offlineContext";
 import { prepareOfflineShell } from "./services/offlineShell";
 import { AccessDenied } from "./components/auth/AccessDenied";
@@ -305,6 +306,9 @@ export default function App() {
     return { kind, id: id ?? "" };
   });
   const logoutInProgressRef = useRef(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  // P4, lot 2 : ménage des copies hors ligne périmées à l'ouverture (jamais les brouillons non envoyés).
+  useEffect(() => { void purgeExpiredOfflineData(); }, []);
   const renderedSessionRef = useRef("");
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -872,6 +876,9 @@ export default function App() {
     const leavingUserId = user?.id ?? offlineAccess?.userId ?? "";
     const unsentDrafts = leavingUserId ? await countUnsentOfflineOperations(leavingUserId).catch(() => 0) : 0;
     if (unsentDrafts > 0 && !(await confirmLogoutWithDrafts(unsentDrafts))) return;
+    const online = typeof navigator === "undefined" ? undefined : navigator.onLine;
+    const reloadAfter = shouldReloadAfterLogout(online);
+    if (reloadAfter) setLoggingOut(true);
     schoolRefreshRef.current?.stop();
     yearRequestVersion.current += 1;
     secondaryRefreshVersion.current++;
@@ -891,13 +898,20 @@ export default function App() {
     navigate("/login");
     try { await clearOfflineAccess(); }
     catch { setAuthError("Le nettoyage du stockage local a échoué. Effacez les données de ce site avant de partager l'appareil."); }
+    let signedOut = false;
     try {
       await signOutUser();
+      signedOut = true;
     } catch (error) {
       setAuthError(userFacingError(error, "Déconnexion impossible."));
     } finally {
       logoutInProgressRef.current = false;
     }
+    // P4, lot 2 : nettoyage central de l'appareil (les brouillons non envoyés ne sont jamais touchés).
+    await cleanDeviceAfterSession().catch(() => undefined);
+    // En ligne : rechargement complet sur /login pour vider aussi la mémoire de Firestore et de l'onglet.
+    if (signedOut && reloadAfter && typeof window !== "undefined") { window.location.replace("/login"); return; }
+    setLoggingOut(false);
   }
 
   function updateData(next: Partial<AppData>, options: { persist?: boolean } = {}) {
@@ -1064,6 +1078,18 @@ export default function App() {
         <div>
           <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
           <p className="font-semibold text-ink">Préparation de votre espace Acadéa...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (loggingOut) {
+    // P4, lot 2 : écran neutre pendant la déconnexion et le nettoyage (au plus quelques secondes), puis page rechargée.
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#F5F7FB] px-4 text-center">
+        <div>
+          <PlatformLogoSlot logoUrl={platformLogoUrl} compact />
+          <p className="font-semibold text-ink">Déconnexion en cours...</p>
         </div>
       </main>
     );
