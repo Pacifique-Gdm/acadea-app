@@ -156,6 +156,28 @@ export async function inspectOfflineOperations<T = unknown>(scope: OfflineScope)
   } finally { database.close(); }
 }
 
+/** P4, lot 1 : états d'un brouillon qui n'est pas (encore) arrivé au serveur. */
+export const UNSENT_OFFLINE_STATUSES: readonly OfflineOperationStatus[] = ["LOCAL_PENDING", "SYNCING", "RETRYABLE_ERROR", "CONFLICT", "REJECTED"];
+
+/**
+ * P4, lot 1 : nombre de brouillons non envoyés de ce compte sur cet appareil, toutes écoles et années confondues.
+ * Lecture seule des métadonnées en clair (rien n'est déchiffré, modifié ni supprimé).
+ */
+export async function countUnsentOfflineOperations(userId: string): Promise<number> {
+  if (!userId || !globalThis.indexedDB) return 0;
+  const database = await openDatabase();
+  try {
+    const read = database.transaction("operations", "readonly");
+    const rows = await requestResult(read.objectStore("operations").getAll()) as StoredOperation[];
+    return countUnsentRows(rows, userId);
+  } finally { database.close(); }
+}
+
+/** Partie pure du comptage (testée sans IndexedDB). */
+export function countUnsentRows(rows: readonly Pick<OfflineOperation, "scope" | "status">[], userId: string): number {
+  return rows.filter((row) => row.scope?.userId === userId && UNSENT_OFFLINE_STATUSES.includes(row.status)).length;
+}
+
 export async function listOfflineOperations<T = unknown>(scope: OfflineScope): Promise<OfflineOperation<T>[]> {
   return (await inspectOfflineOperations<T>(scope)).operations;
 }

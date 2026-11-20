@@ -126,10 +126,14 @@ export async function signOutUser() {
   assertFirebaseAuthReady();
 
   const authModule = (await import("firebase/auth")) as unknown as FirebaseAuthModule;
-  // Lot 24 : le jeton push de cet appareil est retiré avant la déconnexion (jamais bloquant).
+  // Lot 24 : le jeton push de cet appareil est retiré avant la déconnexion.
+  // P4, lot 1 : sans réseau ce retrait ne se termine jamais ; il est donc borné (3 s) et `signOut` est toujours appelé.
   const uid = (auth as { currentUser?: { uid?: string } } | undefined)?.currentUser?.uid;
-  if (uid) await import("./pushNotifications").then((module) => module.forgetDevicePushToken(uid)).catch(() => undefined);
-  await authModule.signOut(auth);
+  const { forgetTokenThenSignOut } = await import("./signOutSequence");
+  await forgetTokenThenSignOut({
+    forget: uid ? () => import("./pushNotifications").then((module) => module.forgetDevicePushToken(uid)) : undefined,
+    signOut: () => authModule.signOut(auth),
+  });
 }
 
 export async function createFirebaseAuthUser(email: string, password: string) {
