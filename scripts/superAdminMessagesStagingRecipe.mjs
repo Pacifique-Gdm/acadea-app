@@ -52,7 +52,9 @@ async function prepare(s) {
   const documents = [];
   const add = (collection, id, data) => documents.push({ path: `${collection}/${id}`, data: { id, fixtureId: tag, ...data } });
   const now = new Date().toISOString();
-  const schools = ["a", "b", "c"].map((letter) => ({ id: `${tag}-school-${letter}`, yearId: `${tag}-year-${letter}`, adminId: `${tag}-admin-${letter}`, name: `[FICTIVE] Messages ${short} ${letter.toUpperCase()}` }));
+  // Un mot distinct par école : une lettre seule (« a ») se retrouverait dans « messages » et répondrait pour les 3 écoles.
+  const WORDS = { a: "Alpha", b: "Bravo", c: "Charlie" };
+  const schools = ["a", "b", "c"].map((letter) => ({ id: `${tag}-school-${letter}`, yearId: `${tag}-year-${letter}`, adminId: `${tag}-admin-${letter}`, name: `[FICTIVE] Messages ${short} ${WORDS[letter]}` }));
   for (const school of schools) {
     add("schools", school.id, { name: school.name, status: "active", active: true, currency: "USD", address: "Adresse fictive", phone: "", email: "", schoolType: "Primaire uniquement",
       educationLevels: ["Primaire"], schoolOptions: [], activeSchoolYearId: school.yearId, subscriptionStatus: "active", subscriptionPlan: "Premium", createdAt: now });
@@ -162,7 +164,8 @@ async function open(browser, viewport) {
     if (firestoreIds.has(requestId)) traffic.firestoreBytes += size;
     if (apiIds.has(requestId)) traffic.apiBytes += size;
   });
-  await page.goto(`${origin}/login`);
+  // Réseau parfois lent vers le staging : on attend le document seulement, avec plus de marge.
+  await page.goto(`${origin}/login`, { waitUntil: "domcontentloaded", timeout: 120_000 });
   await page.getByPlaceholder("email@ecole.com").fill(state.m.platform.email);
   await page.getByPlaceholder("Votre mot de passe").fill(password);
   await page.getByRole("button", { name: "Se connecter", exact: true }).click();
@@ -240,10 +243,10 @@ async function run() {
       await checked("Administrateurs d'école : recherche d'une école par son nom, choix gardés d'une recherche à l'autre", async () => {
         await page.getByLabel("Catégorie de destinataires").selectOption("school_admin");
         const search = page.getByLabel("Rechercher un destinataire");
-        await search.fill(`messages ${m.short} a`);
+        await search.fill(`messages ${m.short} alpha`);
         await expect(page.getByText("1 école(s) trouvée(s)")).toBeVisible();
         await page.getByLabel(new RegExp(`Admin fictif ${m.short} A`)).check();
-        await search.fill(`messages ${m.short} b`);
+        await search.fill(`messages ${m.short} bravo`);
         await page.getByLabel(new RegExp(`Admin fictif ${m.short} B`)).check();
         await expect(page.getByLabel("Destinataires choisis")).toContainText(`Admin fictif ${m.short} A`);
         await expect(page.getByLabel("Destinataires choisis")).toContainText(`Admin fictif ${m.short} B`);
