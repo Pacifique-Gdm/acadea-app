@@ -3,6 +3,10 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.6] — 2026-11-20 — Correction
+- Déconnexion : nettoyage complet de l'appareil (mémoires, devises des dépenses, copies hors ligne, notifications affichées), puis page rechargée ; les brouillons non envoyés restent
+- Page de connexion : rappel pour les téléphones partagés
+
 ## [1.16.5] — 2026-11-20 — Correction
 - Rapport financier PDF : tous les paiements et toutes les dépenses de la période (plus de coupure à 24 lignes), colonne Classe remplie, totaux des tableaux égaux à la synthèse
 
