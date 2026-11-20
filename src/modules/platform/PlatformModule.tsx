@@ -44,6 +44,8 @@ import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
 import { CoordinationCreateDrawer } from "./CoordinationCreateDrawer";
 import { useServerSchoolSearch } from "./useSchoolSearch";
+import { counterAsksReload, needsSchoolDrawerLoad, schoolDrawerKey, snapshotSchoolDrawerData, useSchoolChangeCounter, type SchoolDrawerCache, type SchoolDrawerData } from "./schoolDrawerCache";
+import { schoolCountLabel, useSlowFlag } from "./schoolSearchStatus";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass, SchoolYear } from "../../types";
 import { CLASSES } from "../../types";
 
@@ -317,30 +319,29 @@ export function PlatformModule({
   // Si la liste de recherche du serveur n'est pas prête, l'écran garde la recherche locale ci-dessus.
   const serverSearch = useServerSchoolSearch({ query: search, status: statusFilter, schoolType: typeFilter, sort: sortBy }, platformView === "students");
   const listedSchools = serverSearch.schools?.map((row) => visibleSchools.find((school) => school.id === row.id) ?? row) ?? filteredSchools;
-  const schoolsSignature = visibleSchools.map((school) => `${school.id}:${school.name}:${school.acronym ?? ""}:${school.status}:${school.schoolType ?? ""}`).join("|");
-  const knownSchools = useRef<Map<string, string> | null>(null);
+  // Version 1.16.5 : la liste du serveur n'est relue qu'après une vraie création, modification ou suppression
+  // d'école (appel direct dans ces actions). Ouvrir le drawer d'une école ne relance jamais la recherche.
   const refreshServerSearch = serverSearch.refresh;
-  useEffect(() => {
-    // Une école créée, modifiée ou supprimée : relecture directe de la liste du serveur. Une école seulement lue
-    // (drawer ouvert, lot SA-2b) ne relance pas la recherche : les pages déjà affichées restent.
-    const next = new Map(visibleSchools.map((school) => [school.id, `${school.name}:${school.acronym ?? ""}:${school.status}:${school.schoolType ?? ""}`] as const));
-    const previous = knownSchools.current; knownSchools.current = next;
-    if (!previous) return;
-    const recent = (school: School) => Date.now() - (Date.parse(school.createdAt ?? "") || 0) < 10 * 60_000;
-    const changed = [...previous].some(([id, value]) => next.has(id) ? next.get(id) !== value : true)
-      || visibleSchools.some((school) => !previous.has(school.id) && recent(school));
-    if (changed) refreshServerSearch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [schoolsSignature]);
+  const searchIsSlow = useSlowFlag(serverSearch.loading);
+
+  // Dernières données connues : une réponse qui arrive après un `await` ne doit jamais repartir d'une copie
+  // ancienne (sinon l'école tout juste lue disparaissait de la liste des écoles connues).
+  const latestDataRef = useRef(data);
+  useEffect(() => { latestDataRef.current = data; }, [data]);
+  function updateKnownData(next: Partial<AppData>) {
+    latestDataRef.current = { ...latestDataRef.current, ...next };
+    updateData(next, { persist: false });
+  }
 
   // Lot SA-2b : écoles connues = celles déjà lues (drawer ouvert, écran qui a besoin de toutes les écoles).
   const [schoolDrawerLoadingId, setSchoolDrawerLoadingId] = useState("");
   function mergeKnownSchools(schools: School[], schoolYears: SchoolYear[]) {
     const ids = new Set(schools.map((item) => item.id)), yearIds = new Set(schoolYears.map((item) => item.id));
-    updateData({
-      schools: [...data.schools.filter((item) => !ids.has(item.id)), ...schools],
-      schoolYears: [...data.schoolYears.filter((item) => !yearIds.has(item.id)), ...schoolYears],
-    }, { persist: false });
+    const current = latestDataRef.current;
+    updateKnownData({
+      schools: [...current.schools.filter((item) => !ids.has(item.id)), ...schools],
+      schoolYears: [...current.schoolYears.filter((item) => !yearIds.has(item.id)), ...schoolYears],
+    });
   }
   // Écrans qui ont encore besoin de toutes les écoles (Coordinations, Messages, Publicité, Créer Coordination,
   // recherche locale si la liste du serveur n'est pas prête) : chargement une seule fois, à leur ouverture.
@@ -402,6 +403,7 @@ export function PlatformModule({
         { persist: false },
       );
       onSchoolsChanged?.();
+      refreshServerSearch();
       setSchoolActionSuccess(`École « ${provisioned.school.name} » et administrateur principal créés et confirmés par le serveur.`);
       setSchoolName("");
       setMainAdminName("");
@@ -503,6 +505,7 @@ export function PlatformModule({
         { persist: false },
       );
       onSchoolsChanged?.();
+      refreshServerSearch();
       setSchoolStatusTarget(null);
       setSchoolStatusConfirmation("");
       setSchoolActionSuccess(`École « ${school.name} » ${action === "suspend" ? "suspendue" : "réactivée"}.`);
@@ -543,6 +546,7 @@ export function PlatformModule({
       const savedLogoVersion = (payload.school as School).logoVersion;
       if (patch.logoUrl !== undefined && savedLogoVersion) primeSchoolLogo(schoolEditTarget.id, savedLogoVersion, patch.logoUrl);
       updateData({ schools: data.schools.map((item) => item.id === schoolEditTarget.id ? payload.school as School : item) }, { persist: false });
+      refreshServerSearch();
       setSchoolEditTargetId("");
       setSchoolActionSuccess("Informations de l'école enregistrées avec succès.");
     } catch (error) {
@@ -560,6 +564,7 @@ export function PlatformModule({
       const payload = await manageSchool({ action: "change-acronym", schoolId: schoolAcronymTarget.id, acronym, confirmation });
       if (!payload.school || payload.school.acronym !== acronym) throw new Error("Relecture du nouveau sigle incomplète.");
       updateData({ schools: data.schools.map((item) => item.id === schoolAcronymTarget.id ? payload.school as School : item) }, { persist: false });
+      refreshServerSearch();
       setSchoolAcronymTargetId("");
       setSchoolActionSuccess("Sigle de l'école enregistré avec succès.");
     } catch (error) {
@@ -761,6 +766,7 @@ export function PlatformModule({
         { persist: false },
       );
       onSchoolsChanged?.();
+      refreshServerSearch();
       setSelectedSchoolId(remainingSchools[0]?.id ?? "");
       setPlatformView("students");
       setSchoolDrawerId("");
@@ -1048,7 +1054,7 @@ export function PlatformModule({
       if (schoolDetailRequestRef.current !== requestId) return;
       if (!aiAssistant) throw new Error("Quota indisponible");
       setAiAssistantMonthlyLimit(String(schoolAiUsageThisMonth(aiAssistant).monthlyLimit));
-      updateData({ schools: data.schools.map((item) => item.id === schoolId ? { ...item, aiAssistant } : item) }, { persist: false });
+      updateKnownData({ schools: latestDataRef.current.schools.map((item) => item.id === schoolId ? { ...item, aiAssistant } : item) });
     } catch {
       if (schoolDetailRequestRef.current === requestId) setAiQuotaWarning("Quota non actualisé : dernière valeur connue affichée.");
     } finally {
@@ -1056,40 +1062,73 @@ export function PlatformModule({
     }
   }
 
-  function loadSchoolDrawerData(schoolId: string, schoolYearId: string) {
+  // Version 1.16.5 : données de chaque école et année déjà ouvertes, gardées pendant la session.
+  const schoolDrawerCache = useRef<SchoolDrawerCache>(new Map());
+  const drawerKey = drawerSchool && drawerYear ? schoolDrawerKey(drawerSchool.id, drawerYear.id) : "";
+  const lastCounters = useRef(new Map<string, number>());
+
+  function applySchoolDrawerData(schoolId: string, schoolData: SchoolDrawerData) {
+    const current = latestDataRef.current;
+    updateKnownData({
+      users: [...current.users.filter((item) => item.role === "super_admin" || !item.schoolId), ...schoolData.users],
+      students: schoolData.students,
+      parents: schoolData.parents,
+      feeTypes: schoolData.feeTypes,
+      payments: schoolData.payments,
+      expenses: schoolData.expenses,
+      messages: schoolData.messages,
+      notifications: schoolData.notifications,
+      auditLogs: schoolData.auditLogs,
+      valves: schoolData.valves,
+      biometricTerminals: [...current.biometricTerminals.filter((terminal) => terminal.schoolId !== schoolId), ...schoolData.biometricTerminals],
+      disciplineSanctions: [],
+    });
+  }
+
+  /** Garde les données de l'école affichée (avec les changements faits dans le drawer) avant de la quitter. */
+  function keepCurrentDrawerData() {
+    const entry = drawerKey ? schoolDrawerCache.current.get(drawerKey) : undefined;
+    if (!entry || !drawerSchool || schoolDetailLoading) return;
+    entry.data = snapshotSchoolDrawerData(latestDataRef.current, drawerSchool.id);
+  }
+
+  // Une seule lecture par ouverture : le compteur de changements de l'école et de l'année affichées.
+  useSchoolChangeCounter(drawerKey, (key, count) => {
+    lastCounters.current.set(key, count);
+    const entry = schoolDrawerCache.current.get(key);
+    if (counterAsksReload(entry, count) && key === drawerKey && drawerSchool && drawerYear && !schoolDetailLoading) {
+      loadSchoolDrawerData(drawerSchool.id, drawerYear.id, { force: true });
+    }
+  });
+
+  function loadSchoolDrawerData(schoolId: string, schoolYearId: string, options: { force?: boolean } = {}) {
     const requestId = schoolDetailRequestRef.current + 1;
     schoolDetailRequestRef.current = requestId;
     setAiAssistantMessage("");
     setAiAssistantError("");
     setAiAssistantChangeTarget(null);
     setAiAssistantConfirmation("");
-    const school = visibleSchools.find((item) => item.id === schoolId);
+    const school = latestDataRef.current.schools.find((item) => item.id === schoolId);
     setAiAssistantMonthlyLimit(String(schoolAiUsageThisMonth(school?.aiAssistant).monthlyLimit));
     selectSchool(schoolId);
     setSchoolDrawerId(schoolId);
     setSchoolDetailError("");
+    const key = schoolDrawerKey(schoolId, schoolYearId);
+    const cached = schoolDrawerCache.current.get(key);
+    if (cached && !needsSchoolDrawerLoad(schoolDrawerCache.current, key, options.force)) {
+      // Retour sur une école déjà ouverte : affichage immédiat, aucune lecture (le compteur dira si elle a changé).
+      applySchoolDrawerData(schoolId, cached.data);
+      setSchoolDetailLoading(false);
+      setAiQuotaLoading(false);
+      return;
+    }
     setSchoolDetailLoading(true);
     void refreshSchoolQuota(schoolId, requestId);
     loadSuperAdminSchoolData(schoolId, schoolYearId)
       .then((schoolData) => {
         if (schoolDetailRequestRef.current !== requestId) return;
-        updateData(
-          {
-            users: [...data.users.filter((item) => item.role === "super_admin" || !item.schoolId), ...schoolData.users],
-            students: schoolData.students,
-            parents: schoolData.parents,
-            feeTypes: schoolData.feeTypes,
-            payments: schoolData.payments,
-            expenses: schoolData.expenses,
-            messages: schoolData.messages,
-            notifications: schoolData.notifications,
-            auditLogs: schoolData.auditLogs,
-            valves: schoolData.valves,
-            biometricTerminals: [...data.biometricTerminals.filter((terminal) => terminal.schoolId !== schoolId), ...schoolData.biometricTerminals],
-            disciplineSanctions: [],
-          },
-          { persist: false },
-        );
+        schoolDrawerCache.current.set(key, { data: schoolData, counter: lastCounters.current.get(key) });
+        applySchoolDrawerData(schoolId, schoolData);
       })
       .catch((error) => {
         if (schoolDetailRequestRef.current !== requestId) return;
@@ -1104,6 +1143,7 @@ export function PlatformModule({
   }
 
   function openSchoolDrawer(schoolId: string) {
+    keepCurrentDrawerData();
     // Lot SA-2b : l'école et ses années ne sont pas chargées à l'ouverture : on les lit au clic, puis on ouvre.
     if (!visibleSchools.some((item) => item.id === schoolId) || !data.schoolYears.some((year) => year.schoolId === schoolId)) {
       setSchoolDrawerLoadingId(schoolId);
@@ -1126,11 +1166,19 @@ export function PlatformModule({
 
   function changeDrawerYear(schoolYearId: string) {
     if (!drawerSchool || !schoolYearId || schoolYearId === drawerYear?.id) return;
+    keepCurrentDrawerData();
     setDrawerYearId(schoolYearId);
     loadSchoolDrawerData(drawerSchool.id, schoolYearId);
   }
 
+  /** Bouton « Actualiser » du drawer : relecture complète de l'école affichée. */
+  function refreshSchoolDrawer() {
+    if (!drawerSchool || !drawerYear || schoolDetailLoading) return;
+    loadSchoolDrawerData(drawerSchool.id, drawerYear.id, { force: true });
+  }
+
   function closeSchoolDrawer() {
+    keepCurrentDrawerData();
     schoolDetailRequestRef.current += 1;
     setAiAssistantChangeTarget(null);
     setAiAssistantConfirmation("");
@@ -1362,7 +1410,7 @@ export function PlatformModule({
 
               <div className="grid min-w-0 gap-3">
                 {schoolDrawerLoadingId && <p className="text-sm text-slate-600" role="status">Ouverture de l'école…</p>}
-                {serverSearch.schools && <p className="text-sm text-slate-600" role="status" data-school-search-total>{serverSearch.total} école(s){serverSearch.loading ? " · recherche…" : ""}</p>}
+                {serverSearch.schools && <p className="text-sm text-slate-600" role="status" data-school-search-total>{schoolCountLabel(serverSearch.total)}{searchIsSlow && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-slate-400 align-middle" aria-label="Recherche en cours" data-school-search-slow />}</p>}
                 {serverSearch.error && <p role="alert" className="text-sm text-red-700">{serverSearch.error}</p>}
                 {listedSchools.length === 0 && !serverSearch.loading && (
                   <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
@@ -1492,12 +1540,13 @@ export function PlatformModule({
           <div className="grid gap-4">
             <div className="flex min-w-0 items-start gap-3 rounded border border-slate-200 bg-slate-50 p-4">
               <SchoolLogo school={drawerSchool} />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h2 className="break-words text-lg font-bold text-ink">{drawerSchool.name}</h2>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <StatusBadge status={drawerSchool.status} />
                 </div>
               </div>
+              <button type="button" onClick={refreshSchoolDrawer} disabled={schoolDetailLoading} data-school-drawer-refresh className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink disabled:opacity-50" title="Actualiser les données de l'école" aria-label="Actualiser les données de l'école"><RefreshCw className={`h-4 w-4${schoolDetailLoading ? " animate-spin" : ""}`} /></button>
             </div>
             <label className="grid gap-1 rounded border border-slate-200 bg-white p-3 text-sm font-semibold">
               Année scolaire consultée
