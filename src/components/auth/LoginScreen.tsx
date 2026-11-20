@@ -143,6 +143,10 @@ export function LoginScreen({
           <ShieldCheck className="h-4 w-4 text-mint" />
           Espace sécurisé
         </div>
+        {/* P4, lot 2 (correction 7) : rappel pour les téléphones partagés. */}
+        <p className="mt-2 text-center text-xs text-slate-500">
+          Sur un téléphone partagé, appuyez toujours sur « Déconnexion ». Les PDF téléchargés restent dans le dossier Téléchargements : supprimez-les.
+        </p>
         </>}
       </section>
     </main>

@@ -59,6 +59,13 @@ export function loadStudentPhotoUrl(path: string): Promise<string> {
   return pending;
 }
 
+/** P4, lot 2 : oublie les photos lues par le compte précédent et libère leurs adresses blob:. */
+export function clearStudentPhotoUrls() {
+  const pending = [...objectUrls.values()];
+  objectUrls.clear();
+  for (const url of pending) void url.then((value) => URL.revokeObjectURL(value), () => undefined);
+}
+
 function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
