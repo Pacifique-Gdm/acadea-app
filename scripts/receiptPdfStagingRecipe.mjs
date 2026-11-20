@@ -38,6 +38,7 @@ const output = `diagnostics/receipt-pdf-staging/${new Date().toISOString().repla
 const manifestPath = 'diagnostics/receipt-pdf-staging/manifest.json';
 const retireOnly = process.argv.includes('--step=retire');
 const results = [];
+const logoInk = {};
 const record = (name, result, detail = '') => {
   results.push({ name, result, ...(detail ? { detail } : {}) });
   console.log(`${result} : ${name}${detail ? ` — ${detail}` : ''}`);
@@ -144,6 +145,19 @@ async function pdfFromPreview(page, label) {
     const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     await sheet.render({ canvasContext: canvas.getContext('2d'), canvas, viewport }).promise;
     writeFileSync(`${output}/${label}-page${index}.png`, canvas.toBuffer('image/png'));
+    if (index === 1) {
+      // École sans image de logo : les lettres du sigle doivent être dessinées dans le carré (deux exemplaires).
+      const context = canvas.getContext('2d');
+      const ink = [0.052, 0.503].map((top) => {
+        const pixels = context.getImageData(Math.round(canvas.width * 0.09), Math.round(canvas.height * top),
+          Math.round(canvas.width * 0.035), Math.round(canvas.height * 0.026)).data;
+        let count = 0;
+        for (let offset = 0; offset < pixels.length; offset += 4) if (pixels[offset] < 160 && pixels[offset + 1] < 160) count += 1;
+        return count;
+      });
+      assert.ok(ink.every((value) => value >= 40), `${label} : lettres du logo de secours absentes ou rognées (${ink.join(' / ')}).`);
+      logoInk[label] = ink;
+    }
   }
   return pdf.numPages;
 }
@@ -221,7 +235,7 @@ try {
         const pages = await pdfFromPreview(page, label);
         await page.screenshot({ path: `${output}/${label}-apercu.png`, fullPage: false });
         assert.equal(pages, 1, `${label} : ${pages} pages au lieu d’une seule.`);
-        record(`Reçu ${device}, description ${kind} : une seule page`, 'PASS');
+        record(`Reçu ${device}, description ${kind} : une seule page, sigle dessiné dans le carré`, 'PASS', `encre ${logoInk[label].join(" / ")}`);
         await page.locator('[data-pdf-close]').last().click();
       }
     }
