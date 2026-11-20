@@ -104,19 +104,33 @@ export async function loadSuperAdminInitialData(userId: string, authenticatedUse
     throw new Error("Chargement Firestore impossible : profil Super Administrateur introuvable.");
   }
 
-  const [schools, schoolYears, biometricTerminals] = await Promise.all([
-    loadCollection<School>("schools"),
-    loadCollection<SchoolYear>("schoolYears"),
-    loadOptionalCollection<BiometricTerminal>("biometricTerminals"),
-  ]);
+  // Lot SA-2b : plus aucun chargement de toutes les écoles ni de toutes les années à l'ouverture.
+  // Une école (et ses années) se charge à l'ouverture de son drawer ; toutes les écoles seulement pour les écrans
+  // qui en ont encore besoin (voir `loadAllPlatformSchools`).
+  const biometricTerminals = await loadOptionalCollection<BiometricTerminal>("biometricTerminals");
 
   const data = emptySuperAdminData();
   data.users = [userProfile];
-  data.schools = schools;
-  data.schoolYears = schoolYears;
   data.biometricTerminals = biometricTerminals;
 
   return { data };
+}
+
+/** Lot SA-2b : une école et ses années scolaires (ouverture de son drawer). */
+export async function loadPlatformSchoolWithYears(schoolId: string): Promise<{ school: School | null; schoolYears: SchoolYear[] }> {
+  const database = ensureFirestore();
+  const [schoolSnapshot, yearsSnapshot] = await Promise.all([
+    getDoc(doc(database, "schools", schoolId)),
+    getDocs(query(collection(database, "schoolYears"), where("schoolId", "==", schoolId))),
+  ]);
+  const school = schoolSnapshot.exists() ? normalizeSchoolDomainDocument("schools", { id: schoolSnapshot.id, ...schoolSnapshot.data() }) as unknown as School : null;
+  return { school, schoolYears: yearsSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as SchoolYear) };
+}
+
+/** Lot SA-2b : toutes les écoles et années, seulement pour les écrans qui en ont encore besoin (lots 5 et 6 à venir). */
+export async function loadAllPlatformSchools(): Promise<{ schools: School[]; schoolYears: SchoolYear[] }> {
+  const [schools, schoolYears] = await Promise.all([loadCollection<School>("schools"), loadCollection<SchoolYear>("schoolYears")]);
+  return { schools, schoolYears };
 }
 
 export async function loadSuperAdminSchoolData(schoolId: string, schoolYearId: string): Promise<SuperAdminSchoolData> {
