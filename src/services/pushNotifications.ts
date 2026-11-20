@@ -3,9 +3,12 @@ import type { Firestore } from "@firebase/firestore";
 import { app, auth, db, firebaseReady } from "../firebase";
 import { getServiceWorkerRegistration } from "../pwa";
 import type { AppUser } from "../types";
+import { resolveApiUrl } from "../config/apiUrl";
 import { resolveMessagePushDestination, resolveOperationalPushDestination, resolvePaymentRecordedDestination } from "../utils/pushNotificationRoutes";
 
 const DEVICE_ID_KEY = "acadea:push-device-id";
+/** P4, lot 4 : retrait du jeton d'un compte resté en attente (sans réseau), à refaire à sa prochaine connexion. */
+export const PENDING_PUSH_REMOVAL_PREFIX = "acadea:push-a-retirer:";
 export const PAYMENT_PUSH_EVENT = "acadea:payment-recorded-push";
 export const MESSAGE_PUSH_EVENT = "acadea:message-push";
 export const OPERATIONAL_PUSH_EVENT = "acadea:operational-push";
@@ -54,17 +57,63 @@ function isAuthorizedParent(user: AppUser) {
     && (user.role !== "parent" || (Boolean(user.schoolId) && Boolean(user.parentId)));
 }
 
-/** Retire le jeton de CET appareil (déconnexion) : plus aucune notification n'y arrivera. */
+function readStorage(key: string) {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+}
+
+function writeStorage(key: string, value: string | null) {
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+  } catch { /* stockage indisponible : la suppression côté serveur reste la protection principale */ }
+}
+
+async function forgetLocalMessagingToken() {
+  if (!app) return;
+  const messagingModule = await import("firebase/messaging");
+  if (await messagingModule.isSupported().catch(() => false)) await messagingModule.deleteToken(messagingModule.getMessaging(app)).catch(() => false);
+}
+
+/**
+ * Retire le jeton de CET appareil (déconnexion) : plus aucune notification n'y arrivera.
+ * P4, lot 4 : le jeton du navigateur est invalidé EN MÊME TEMPS (sans attendre Firestore, qui ne répond pas
+ * sans réseau), et un retrait non abouti est noté pour être refait à la prochaine connexion de ce compte.
+ */
 export async function forgetDevicePushToken(userId: string) {
   if (!db || !userId || typeof window === "undefined") return;
-  const deviceId = window.localStorage.getItem(DEVICE_ID_KEY);
+  const deviceId = readStorage(DEVICE_ID_KEY);
   if (!deviceId) return;
   stopPushForegroundListener();
-  await deleteDoc(tokenDocument(userId, deviceId)).catch(() => undefined);
-  if (app) {
-    const messagingModule = await import("firebase/messaging");
-    if (await messagingModule.isSupported().catch(() => false)) await messagingModule.deleteToken(messagingModule.getMessaging(app)).catch(() => false);
-  }
+  writeStorage(PENDING_PUSH_REMOVAL_PREFIX + userId, deviceId);
+  const localToken = forgetLocalMessagingToken().catch(() => undefined);
+  await deleteDoc(tokenDocument(userId, deviceId)).then(() => writeStorage(PENDING_PUSH_REMOVAL_PREFIX + userId, null), () => undefined);
+  await localToken;
+}
+
+/** P4, lot 4 : refait, pour le compte connecté, un retrait de jeton resté en attente lors d'une déconnexion sans réseau. */
+export async function flushPendingPushTokenRemoval(userId: string) {
+  if (!db || !userId || typeof window === "undefined" || currentFirebaseUid() !== userId) return false;
+  const deviceId = readStorage(PENDING_PUSH_REMOVAL_PREFIX + userId);
+  if (!deviceId) return false;
+  await deleteDoc(tokenDocument(userId, deviceId));
+  writeStorage(PENDING_PUSH_REMOVAL_PREFIX + userId, null);
+  return true;
+}
+
+/**
+ * P4, lot 4 : annonce au serveur que ce navigateur appartient désormais à ce compte. Le serveur supprime chez
+ * l'ANCIEN compte le document qui porte exactement ce jeton. Un échec ne bloque pas l'activation.
+ */
+async function reportPushDeviceOwner(deviceId: string, token: string) {
+  const currentUser = (auth as unknown as { currentUser?: { getIdToken?: () => Promise<string> } } | undefined)?.currentUser;
+  if (!currentUser?.getIdToken || typeof fetch !== "function") return;
+  const idToken = await currentUser.getIdToken();
+  const response = await fetch(resolveApiUrl("/api/message-recipients"), {
+    method: "POST",
+    headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "register-push-device", deviceId, token }),
+  });
+  if (!response.ok) throw new Error("Enregistrement de l'appareil de notifications refusé.");
 }
 
 export async function getPushNotificationStatus(user: AppUser): Promise<PushNotificationStatus> {
@@ -127,6 +176,11 @@ async function registerPushNotifications(user: AppUser, requestPermission: boole
     },
     { merge: true },
   );
+  // P4, lot 4 : le document de ce compte vient d'être réécrit pour cet appareil ; un retrait en attente n'a plus d'objet.
+  writeStorage(PENDING_PUSH_REMOVAL_PREFIX + user.id, null);
+  await reportPushDeviceOwner(deviceId, token).catch((error) => {
+    console.warn("Notifications : l'ancien compte de cet appareil n'a pas pu être détaché.", error);
+  });
 
   stopForegroundListener?.();
   stopForegroundListener = messagingModule.onMessage(messaging, (payload) => {
@@ -165,8 +219,11 @@ export function enablePushNotifications(user: AppUser): Promise<PushEnableResult
   return promise;
 }
 
-export function restorePushNotifications(user: AppUser) {
-  return registerPushNotifications(user, false);
+export async function restorePushNotifications(user: AppUser) {
+  const result = await registerPushNotifications(user, false);
+  // P4, lot 4 : pas de réinscription (permission retirée, navigateur incompatible…) : on refait le retrait en attente.
+  if (result.status !== "enabled") await flushPendingPushTokenRemoval(user.id).catch(() => false);
+  return result;
 }
 
 export function stopPushForegroundListener() {
