@@ -292,7 +292,7 @@ try {
       const page = await login(context, account, password);
       await page.getByRole('button', { name: 'Menu', exact: true }).last().click();
       await page.getByRole('button', { name: /Rapport financier/ }).first().click();
-      await expect(page.getByRole('heading', { name: 'Rapport financier' })).toBeVisible();
+      await expect(page.getByLabel('Date début')).toBeVisible();
       await page.getByLabel('Date début').fill(m.from);
       await page.getByLabel('Date fin').fill(m.today);
       const exportButton = page.getByRole('button', { name: /Export PDF/ });
