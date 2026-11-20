@@ -10,6 +10,7 @@ import { OfflineAccessScreen } from "./components/auth/OfflineAccessScreen";
 import { confirmLogoutWithDrafts } from "./components/auth/LogoutDraftsDialog";
 import { countUnsentOfflineOperations } from "./services/offlineQueue";
 import { cleanDeviceAfterSession, purgeExpiredOfflineData, shouldReloadAfterLogout } from "./services/deviceCleanup";
+import { afterSessionCleanup, classifyAuthTransition, cleanAfterAccountSwitch, cleanAfterSignedOut, decideSessionErrorCleanup, decideSignedOutCleanup } from "./services/sessionTransition";
 import { prepareOfflineContext } from "./services/offlineContext";
 import { prepareOfflineShell } from "./services/offlineShell";
 import { AccessDenied } from "./components/auth/AccessDenied";
@@ -516,7 +517,7 @@ export default function App() {
     const prepare = () => {
       if (busy || navigator.onLine === false) return;
       busy = true;
-      void prepareOfflineContext(user, school, selectedYear).catch(() => {
+      void afterSessionCleanup(() => prepareOfflineContext(user, school, selectedYear)).catch(() => {
         /* The online portal remains usable if optional local preparation fails. */
       }).finally(() => { busy = false; });
     };
@@ -547,7 +548,15 @@ export default function App() {
     setAuthError((current) => !nextUser && current.includes(ARCHIVED_TEACHER_LOGIN_MARKER) ? current : "");
     setBootstrapError("");
 
+    const transition = classifyAuthTransition(authenticatedUserIdRef.current, nextUser?.id);
     if (!nextUser) {
+      // P4, lot 3 (correction 4) : fin de session automatique (session expirée, compte désactivé, profil introuvable)
+      // => nettoyage central, SEULEMENT en ligne : hors ligne, la reprise hors ligne doit continuer à marcher.
+      void cleanAfterSignedOut(decideSignedOutCleanup({
+        previousUserId: authenticatedUserIdRef.current,
+        online: typeof navigator === "undefined" ? undefined : navigator.onLine,
+        logoutInProgress: logoutInProgressRef.current,
+      }));
       suspendedSchoolRef.current = false;
       setSchoolSuspended(false);
       authenticatedUserIdRef.current = "";
@@ -564,9 +573,24 @@ export default function App() {
 
     // A users/{uid} snapshot is a profile update, not a new authentication.
     // Keep the current route/year while propagating sectionIds immediately.
-    if (authenticatedUserIdRef.current === nextUser.id) {
+    if (transition === "same-account") {
       setUser(nextUser);
       return;
+    }
+
+    if (transition === "account-switch") {
+      // P4, lot 3 (correction 5) : un autre compte s'est connecté dans un autre onglet. L'écran repart de zéro
+      // (aucune donnée du compte précédent), les caches sont vidés et l'écran reste masqué jusqu'au chargement.
+      schoolRefreshRef.current?.stop();
+      yearRequestVersion.current += 1;
+      secondaryRefreshVersion.current++;
+      setSecondaryRefreshIssues({});
+      setRefreshError("");
+      setOfflineAccess(null);
+      setPlatformStats(null);
+      setPlatformLoadError("");
+      setData(loadInitialData());
+      void cleanAfterAccountSwitch();
     }
 
     authenticatedUserIdRef.current = nextUser.id;
@@ -629,6 +653,13 @@ export default function App() {
           });
           return;
         }
+        // P4, lot 3 (correction 4) : compte désactivé, profil introuvable ou droits retirés => nettoyage
+        // central, seulement en ligne et pour une erreur définitive (jamais pour un souci de réseau).
+        void cleanAfterSignedOut(decideSessionErrorCleanup({
+          error,
+          online: typeof navigator === "undefined" ? undefined : navigator.onLine,
+          logoutInProgress: logoutInProgressRef.current,
+        }));
         if (!logoutInProgressRef.current) {
           setAuthError(userFacingError(error, "Session Firebase invalide."));
         }
@@ -718,9 +749,10 @@ export default function App() {
         if (offlineAccessEligible(bootstrapUser) && nextSchool?.status === "active" && nextYear?.status === "active" && navigator.onLine !== false) {
           void getCurrentFirebaseIdToken().then(() => {
             if (cancelled || auth?.currentUser?.uid !== bootstrapUser.id) return;
-            return prepareOfflineShell().then(() => rememberOfflineAccess({ userId: bootstrapUser.id, role: bootstrapUser.role,
+            // P4, lot 3 : le billet du nouveau compte est écrit APRÈS le nettoyage du compte précédent.
+            return prepareOfflineShell().then(() => afterSessionCleanup(() => rememberOfflineAccess({ userId: bootstrapUser.id, role: bootstrapUser.role,
               schoolId: nextSchool.id, schoolName: nextSchool.name,
-              schoolYearId: nextYear.id, schoolYearName: nextYear.name }));
+              schoolYearId: nextYear.id, schoolYearName: nextYear.name })));
           }).catch(() => { /* An unavailable local store must not interrupt normal online access. */ });
         }
         secondaryVersion = ++secondaryRefreshVersion.current;
