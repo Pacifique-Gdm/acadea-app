@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.7] — 2026-11-20 — Correction
+- Notifications : sur un téléphone partagé, l'ancien compte ne reçoit plus ses notifications quand un autre compte active les siennes ; le jeton du navigateur est retiré même sans réseau (P4 lot 4)
+
 ## [1.16.6] — 2026-11-20 — Correction
 - Déconnexion : nettoyage complet de l'appareil (mémoires, devises des dépenses, copies hors ligne, notifications affichées), puis page rechargée ; les brouillons non envoyés restent
 - Page de connexion : rappel pour les téléphones partagés
