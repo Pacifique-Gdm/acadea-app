@@ -778,7 +778,7 @@ function twoCopyPdfStyles(renderHeight: number) {
     .pdf-copy .brand-mark { width: 34px; height: 34px; font-size: 14px; }
     .pdf-copy .school-block h1 { margin-bottom: 1px; font-size: 13px; line-height: 1.08; }
     .pdf-copy .school-block p { margin: 1px 0; font-size: 7px; line-height: 1.12; }
-    .pdf-copy .document-title { margin: 4px 12px 5px; padding: 4px 7px; }
+    .pdf-copy .document-title { margin: 4px 12px 5px; padding: 4px 7px 6px; }
     .pdf-copy .document-title p { font-size: 6.5px; }
     .pdf-copy .document-title h2 { font-size: 11.5px; line-height: 1.12; }
     .pdf-copy .document-title span,
@@ -920,9 +920,11 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       height: 100%;
       object-fit: contain;
     }
+    /* Poids explicite : la base Tailwind de l'application remet les titres h1/h2 en poids normal. */
     .school-block h1 {
       margin: 0 0 3px;
       font-size: 18px;
+      font-weight: 800;
       line-height: 1.18;
     }
     .school-block p {
@@ -956,14 +958,21 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       margin: 0;
       color: #14213d;
       font-size: 17px;
+      font-weight: 800;
       line-height: 1.28;
     }
+    /*
+     * html2canvas mesure la ligne de base avec l'interligne de la page de
+     * l'application (1,5) et la descend encore de 2 px : avec un interligne
+     * plus petit, la « Date de génération » était dessinée sur le bord du cadre.
+     */
     .document-title span,
     .document-title small {
       display: block;
       margin-top: 4px;
       color: #526173;
       font-size: 9.5px;
+      line-height: ${Math.max(1.5, pdfSettings.lineSpacing)};
     }
     .pdf-section {
       margin: 0 18px 12px;
