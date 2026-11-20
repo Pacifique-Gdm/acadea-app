@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.7] — 2026-11-20 — Correction
+- PDF : nom de l'école et titre du document à nouveau en gras ; la date de génération reste dans son cadre (reçu, dépense et tous les PDF à bandeau)
+
 ## [1.16.6] — 2026-11-20 — Correction
 - Déconnexion : nettoyage complet de l'appareil (mémoires, devises des dépenses, copies hors ligne, notifications affichées), puis page rechargée ; les brouillons non envoyés restent
 - Page de connexion : rappel pour les téléphones partagés
