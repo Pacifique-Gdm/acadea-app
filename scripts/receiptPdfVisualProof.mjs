@@ -23,7 +23,7 @@ await mkdir(outputDir, { recursive: true });
 
 const entry = resolve(outputDir, "entry.ts");
 await writeFile(entry, `
-export { generateReceiptPdf, generateExpensePdf, renderAcadPdfPreview, pdfInfoGrid, pdfSection } from ${JSON.stringify(resolve("src/utils/pdf.ts").replaceAll("\\", "/"))};
+export { generateReceiptPdf, generateExpensePdf, renderAcadPdfPreview, pdfInfoGrid, pdfSection, buildTwoCopyPdfHtml } from ${JSON.stringify(resolve(process.env.PDF_PROOF_SOURCE ?? "src/utils/pdf.ts").replaceAll("\\", "/"))};
 `);
 const bundlePath = resolve(outputDir, "bundle.js");
 await build({
@@ -52,6 +52,7 @@ const longNote = ("Paiement de la deuxième tranche des frais scolaires, versé 
   + "avec un reliquat à régler au prochain trimestre selon l'accord passé avec la direction. ").repeat(6).slice(0, 1000);
 const scenarios = [
   { name: "recu-sans-logo", note: "", logo: false },
+  { name: "recu-sans-logo-sigle-long", note: "Tranche 1", logo: false, schoolName: "G.S AGAPÉ", acronym: "GSAGAPÉ" },
   { name: "recu-description-vide", note: "" },
   { name: "recu-description-courte", note: "Tranche 2 – septembre" },
   { name: "recu-description-longue", note: longNote },
@@ -88,7 +89,7 @@ try {
     const base64 = await page.evaluate(async ({ kind, options }) => {
       document.querySelectorAll("[data-pdf-download]").forEach((node) => node.closest("div[role=dialog], body > div")?.remove());
       const proof = window.PdfProof;
-      const school = { id: "ecole-fictive", name: "École fictive Acadéa", currency: "USD", address: "Avenue fictive 1", phone: "+243 000 000 000", ...(options.logo === false ? {} : { logoUrl: options.logoDataUrl }) };
+      const school = { id: "ecole-fictive", name: options.schoolName ?? "École fictive Acadéa", ...(options.acronym ? { acronym: options.acronym } : {}), currency: "USD", address: "Avenue fictive 1", phone: "+243 000 000 000", ...(options.logo === false ? {} : { logoUrl: options.logoDataUrl }) };
       const student = { id: "eleve-1", nom: "MUKENDI", postnom: "KABEYA", prenom: "Grâce", matricule: "EL-0001", className: "3e Humanités", option: "Scientifique" };
       if (kind === "receipt") {
         const payment = {
@@ -120,6 +121,27 @@ try {
     const { pages, files } = await pdfToImages(scenario.name, bytes);
     console.log(`${scenario.name} : ${pages} page(s) -> ${files.join(", ")}`);
     if (pages !== 1) failures.push(`${scenario.name} : ${pages} pages au lieu d'une seule.`);
+  }
+  // Le logo de secours en lettres reste dans son carré, quel que soit le sigle.
+  for (const [name, acronym] of [["G.S AGAPÉ", "GSAGAPÉ"], ["Complexe scolaire Élite", "CSÉLITEPLUS"], ["École", undefined], ["Institut", "IÉ"]]) {
+    const overflow = await page.evaluate(({ name, acronym }) => {
+      const host = document.createElement("div");
+      host.className = "acadea-pdf";
+      host.innerHTML = window.PdfProof.buildTwoCopyPdfHtml({ title: "Reçu", school: { id: "x", name, ...(acronym ? { acronym } : {}) }, generatedAt: new Date(), logoDataUrl: "", showDocumentTitle: true, centerDocumentTitle: false, sections: ["<p>x</p>"], pdfSettings: { fontFamily: "Aptos", fontSize: 10, lineSpacing: 1.4, margins: "normal", paperSize: "A4" }, renderWidth: 794, renderHeight: 1100, copyLabels: ["A", "B"] });
+      document.body.appendChild(host);
+      const problems = Array.from(host.querySelectorAll(".brand-mark")).map((box) => {
+        const letters = box.querySelector("span");
+        if (!letters) return "aucune lettre";
+        const outer = box.getBoundingClientRect(), inner = letters.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(letters);
+        const lines = range.getClientRects().length;
+        return lines > 1 || letters.scrollWidth > letters.clientWidth + 1 || inner.bottom > outer.bottom + 0.5 || inner.top < outer.top - 0.5 ? `${lines} ligne(s), largeur ${letters.scrollWidth}/${letters.clientWidth}` : "";
+      }).filter(Boolean);
+      host.remove();
+      return problems;
+    }, { name, acronym });
+    console.log(`logo de secours « ${acronym ?? name} » : ${overflow.length ? overflow.join(" ; ") : "dans le carré"}`);
+    if (overflow.length) failures.push(`Logo de secours « ${acronym ?? name} » hors du carré : ${overflow.join(" ; ")}`);
   }
   for (const kind of ["expense", "report"]) {
     const bytes = await capture(kind, {});

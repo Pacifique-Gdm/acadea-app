@@ -673,6 +673,26 @@ export function buildTwoCopyPdfHtml({ copyLabels, renderHeight, ...options }: Pd
   `;
 }
 
+/** Nombre maximal de lettres du logo de secours (au-delà : initiales du nom). */
+export const PDF_BRAND_MARK_MAX_LETTERS = 8;
+
+/**
+ * Logo de secours écrit en lettres quand l'école n'a pas d'image de logo.
+ * Toujours sur UNE seule ligne, dans le carré : la taille des lettres diminue
+ * avec leur nombre (avant, un sigle long comme « GSAGAPÉ » se coupait en lignes
+ * de 3 lettres et la dernière débordait sous le carré, sur le bandeau).
+ */
+export function pdfFallbackBrandMark(school: Pick<School, "name"> & Partial<Pick<School, "acronym">>) {
+  const acronym = (school.acronym ?? "").replace(/\s+/g, "").trim();
+  const initials = school.name.split(/[\s.\-_/]+/).filter(Boolean).map((word) => word[0]).join("");
+  const raw = acronym || initials || school.name.trim().slice(0, 1);
+  const letters = Array.from(raw.toLocaleUpperCase("fr")).slice(0, PDF_BRAND_MARK_MAX_LETTERS);
+  if (!letters.length) return "";
+  // Une capitale grasse occupe environ 0,72 em ; le carré fait environ 2,4 fois la taille de base.
+  const scale = Math.min(1, Math.floor((3.1 / letters.length) * 100) / 100);
+  return `<span class="brand-mark-letters" style="font-size:${scale}em">${escapePdfHtml(letters.join(""))}</span>`;
+}
+
 function buildPdfContentHtml({
   title,
   school,
@@ -693,7 +713,7 @@ function buildPdfContentHtml({
         ${
           logoDataUrl
             ? `<img src="${logoDataUrl}" alt="" />`
-            : `<span>${escapePdfHtml((school.acronym ?? school.name.slice(0, 1)).toUpperCase())}</span>`
+            : pdfFallbackBrandMark(school)
         }
       </div>
       <div class="school-block">
@@ -885,6 +905,18 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
       font-size: 18px;
       font-weight: 800;
       flex: 0 0 auto;
+    }
+    .brand-mark { overflow: hidden; }
+    .acadea-pdf .brand-mark .brand-mark-letters {
+      display: block;
+      max-width: 100%;
+      padding: 0 2px;
+      overflow: hidden;
+      line-height: 1;
+      text-align: center;
+      white-space: nowrap !important;
+      overflow-wrap: normal !important;
+      word-break: keep-all !important;
     }
     .brand-mark img {
       width: 100%;

@@ -2,8 +2,10 @@
 /**
  * Recette staging du reçu de paiement (description, signature, en-tête).
  *
- * Crée sa propre école d'essai (marque e2e-recu-<32 hexadécimaux>), avec un logo
- * et un compte Caissier d'essai, puis, dans l'application hébergée :
+ * Crée sa propre école d'essai (marque e2e-recu-<32 hexadécimaux>), SANS image de
+ * logo et avec un sigle long accentué (« GSAGAPÉ », cas du « E » qui débordait
+ * sous le carré du bandeau), et un compte Caissier d'essai, puis, dans
+ * l'application hébergée :
  *  - enregistre trois paiements par le vrai formulaire : description vide,
  *    courte et longue (1000 caractères) ;
  *  - ouvre chaque reçu sur ordinateur (1440 px) et sur téléphone (390 px),
@@ -71,16 +73,6 @@ function saveManifest(m) {
   writeFileSync(manifestPath, JSON.stringify(m, null, 2), { mode: 0o600 });
 }
 
-/** Logo fictif : carré bleu, disque jaune et bande verte (aucune lettre). */
-function fictitiousLogo() {
-  const canvas = createCanvas(160, 160);
-  const context = canvas.getContext('2d');
-  context.fillStyle = '#1d4ed8'; context.fillRect(0, 0, 160, 160);
-  context.fillStyle = '#facc15'; context.beginPath(); context.arc(80, 70, 42, 0, Math.PI * 2); context.fill();
-  context.fillStyle = '#16a34a'; context.fillRect(0, 130, 160, 30);
-  return `data:image/png;base64,${canvas.toBuffer('image/png').toString('base64')}`;
-}
-
 async function prepare(s) {
   if (existsSync(manifestPath) && !JSON.parse(readFileSync(manifestPath, 'utf8')).retired) throw Error('Recette précédente non effacée : lancer --step=retire.');
   const tag = `e2e-recu-${randomUUID().replaceAll('-', '')}`;
@@ -90,10 +82,9 @@ async function prepare(s) {
   const users = [{ key: 'cashier', role: 'cashier', uid: `${tag}-cashier`, email: `${tag}-cashier@example.invalid`, schoolId: school }];
   const documents = [];
   const add = (collection, id, data) => documents.push({ path: `${collection}/${id}`, data: { id, fixtureId: tag, ...data } });
-  add('schools', school, { name: 'École fictive recette reçu', status: 'active', active: true, currency: 'USD',
-    address: 'Avenue fictive 1, Kinshasa', phone: '+243 000 000 000', activeSchoolYearId: year, logoVersion: `${tag}-logo-1`,
+  add('schools', school, { name: 'G.S AGAPÉ (essai reçu)', acronym: 'GSAGAPÉ', status: 'active', active: true, currency: 'USD',
+    address: 'Avenue fictive 1, Kinshasa', phone: '+243 000 000 000', activeSchoolYearId: year,
     schoolOptions: [], schoolType: 'Primaire uniquement', educationLevels: ['Primaire'], subscriptionStatus: 'active', subscriptionPlan: 'premium' });
-  add('schoolLogos', school, { schoolId: school, logoUrl: fictitiousLogo(), logoVersion: `${tag}-logo-1` });
   add('schoolYears', year, { schoolId: school, name: `${start}-${start + 1}`, status: 'active', currency: 'USD', startsAt: `${start}-09-01`, endsAt: `${start + 1}-07-31` });
   add('classes', `${tag}-class`, { schoolId: school, schoolYearId: year, name: '1ère Primaire', section: 'Primaire', active: true });
   add('students', student, { schoolId: school, schoolYearId: year, nom: 'RECUFICTIF', postnom: 'RECETTE', prenom: 'Grâce',

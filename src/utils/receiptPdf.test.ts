@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Payment, School, Student } from "../types";
-import { buildReceiptSections, buildTwoCopyPdfHtml, RECEIPT_DESCRIPTION_WIDE_THRESHOLD, receiptCashierFunction } from "./pdf";
+import { buildReceiptSections, buildTwoCopyPdfHtml, pdfFallbackBrandMark, RECEIPT_DESCRIPTION_WIDE_THRESHOLD, receiptCashierFunction } from "./pdf";
 import { DEFAULT_PDF_SETTINGS } from "./pdfSettings";
 
 const school = { id: "ecole-a", name: "École fictive Acadéa", currency: "USD" } as School;
-const student = { id: "eleve-1", nom: "MUKENDI", postnom: "KABEYA", prenom: "Grâce", matricule: "EL-0001", className: "3e Humanités" } as Student;
+const student = { id: "eleve-1", nom: "MUKENDI", postnom: "KABEYA", prenom: "Grâce", matricule: "EL-0001", className: "3e Humanités" } as unknown as Student;
 const basePayment = {
   id: "pay-1", receiptNumber: "REC-2026-00042", schoolId: school.id, schoolYearId: "2026-2027", studentId: student.id,
   feeTypeId: "fee-1", feeName: "Frais scolaires", amount: 150, currency: "USD", paidAt: "2026-11-20", cashierName: "Josée NGALULA",
@@ -69,6 +69,24 @@ describe("Reçu de paiement : description, signature et en-tête", () => {
     expect(receiptCashierFunction("M")).toBe("Caissier");
     expect(receiptCashierFunction(undefined)).toBe("Caissier");
     expect(occurrences(receiptHtml(basePayment, "Josée NGALULA", "F"), ">Caissière<")).toBe(2);
+  });
+
+  it("garde le logo de secours d'un sigle long accentué sur une seule ligne, dans le carré", () => {
+    const html = buildTwoCopyPdfHtml({
+      title: "Reçu de paiement", school: { ...school, name: "G.S AGAPÉ", acronym: "GSAGAPÉ" }, generatedAt: new Date(),
+      logoDataUrl: "", showDocumentTitle: true, centerDocumentTitle: false, sections: ["<p>x</p>"],
+      pdfSettings: DEFAULT_PDF_SETTINGS, renderWidth: 900, renderHeight: 1348, copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
+    });
+    expect(occurrences(html, '<span class="brand-mark-letters" style="font-size:0.44em">GSAGAPÉ</span>')).toBe(2);
+    expect(html).toMatch(/\.brand-mark-letters \{[^}]*white-space: nowrap !important;[^}]*word-break: keep-all !important;/);
+    expect(html).toContain(".brand-mark { overflow: hidden; }");
+  });
+
+  it("réduit la taille selon le nombre de lettres et limite le logo de secours à 8 lettres", () => {
+    expect(pdfFallbackBrandMark({ name: "Institut", acronym: "IÉ" })).toContain('style="font-size:1em">IÉ<');
+    expect(pdfFallbackBrandMark({ name: "Complexe scolaire", acronym: "CSÉLITEPLUS" })).toContain(">CSÉLITEP<");
+    expect(pdfFallbackBrandMark({ name: "Groupe scolaire Agapé" })).toContain('style="font-size:1em">GSA<');
+    expect(pdfFallbackBrandMark({ name: "G.S AGAPÉ", acronym: "" })).toContain(">GSA<");
   });
 
   it("écrit un tiret quand le caissier est inconnu", () => {

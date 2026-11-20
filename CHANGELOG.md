@@ -5,6 +5,7 @@ Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/vers
 
 ## [1.16.1] — 2026-11-20 — Correction
 - Reçu de paiement : description du paiement à la place du caissier, nom et fonction du caissier sous la signature
+- PDF (tous les documents à bandeau) : le logo de secours en lettres, utilisé quand l'école n'a pas d'image de logo, reste sur une ligne dans son carré ; un sigle long comme « GSAGAPÉ » ne laisse plus un « E » déborder sous le carré
 
 ## [1.16.0] — 2026-11-19 — Fonctionnalité
 - Super administrateur : la recherche des écoles est faite par le serveur (liste de recherche tenue à jour automatiquement), 25 écoles par page avec « Voir plus »
