@@ -7,6 +7,8 @@ import { auth } from "./firebase";
 import { randomId } from "./utils/randomId";
 import { clearOfflineAccess, offlineAccessEligible, readOfflineAccess, readOfflineAccessForCurrentDevice, rememberOfflineAccess, type OfflineAccess } from "./services/offlineAccess";
 import { OfflineAccessScreen } from "./components/auth/OfflineAccessScreen";
+import { confirmLogoutWithDrafts } from "./components/auth/LogoutDraftsDialog";
+import { countUnsentOfflineOperations } from "./services/offlineQueue";
 import { prepareOfflineContext } from "./services/offlineContext";
 import { prepareOfflineShell } from "./services/offlineShell";
 import { AccessDenied } from "./components/auth/AccessDenied";
@@ -866,6 +868,10 @@ export default function App() {
   }
 
   async function logout() {
+    // P4, lot 1 : prévenir s'il reste des brouillons non envoyés (ils ne sont jamais supprimés ici).
+    const leavingUserId = user?.id ?? offlineAccess?.userId ?? "";
+    const unsentDrafts = leavingUserId ? await countUnsentOfflineOperations(leavingUserId).catch(() => 0) : 0;
+    if (unsentDrafts > 0 && !(await confirmLogoutWithDrafts(unsentDrafts))) return;
     schoolRefreshRef.current?.stop();
     yearRequestVersion.current += 1;
     secondaryRefreshVersion.current++;

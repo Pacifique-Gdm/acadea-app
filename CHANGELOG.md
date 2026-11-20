@@ -3,6 +3,10 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.16.3] — 2026-11-20 — Correction
+- Déconnexion : elle se termine toujours, même sans réseau (le compte précédent ne revient plus au rechargement)
+- Déconnexion : avertissement s'il reste des brouillons non envoyés (ils restent sur l'appareil, réservés au compte, et ne sont jamais supprimés)
+
 ## [1.16.2] — 2026-11-20 — Correction
 - Reçu de paiement : description du paiement à la place du caissier, nom et fonction du caissier sous la signature
 - PDF (tous les documents à bandeau) : le logo de secours en lettres, utilisé quand l'école n'a pas d'image de logo, reste sur une ligne dans son carré ; un sigle long comme « GSAGAPÉ » ne laisse plus un « E » déborder sous le carré

@@ -19,7 +19,9 @@ describe("lot 24 : bandeau d'activation des notifications", () => {
   it("le jeton de l'appareil est retiré à la déconnexion, tous les rôles peuvent activer", () => {
     const auth = readFileSync(new URL("../services/auth.ts", import.meta.url), "utf8").split("\r\n").join("\n");
     const push = readFileSync(new URL("../services/pushNotifications.ts", import.meta.url), "utf8");
-    expect(auth.indexOf("forgetDevicePushToken(uid)")).toBeLessThan(auth.indexOf("await authModule.signOut(auth);\n}"));
+    // P4 lot 1 : le retrait (borné à 3 s) est passé à la séquence qui appelle ensuite toujours signOut.
+    expect(auth.indexOf("forgetDevicePushToken(uid)")).toBeGreaterThan(auth.indexOf("forgetTokenThenSignOut({"));
+    expect(auth.indexOf("forgetDevicePushToken(uid)")).toBeLessThan(auth.indexOf("signOut: () => authModule.signOut(auth)"));
     expect(push).toContain("export async function forgetDevicePushToken(userId: string)");
     expect(push).not.toContain('return user.role === "parent" && user.status');
   });
