@@ -48,3 +48,22 @@ export function buildStudentChangeLog({ id, actor, previous, student, now }) {
     createdAt: now,
   };
 }
+
+const FIELD_LABELS = Object.freeze({
+  matricule: "Matricule", nom: "Nom", postnom: "Postnom", prenom: "Prénom", sexe: "Sexe", birthDate: "Date de naissance",
+  address: "Adresse", phone: "Téléphone", className: "Classe", classId: "Classe (référence)", subClassId: "Sous-classe",
+  classOptionKey: "Option (référence)", section: "Section", option: "Option", parentId: "Parent", status: "Statut", photo: "Photo",
+});
+// Les références internes ne disent rien à l'administrateur : seuls les champs lisibles sont résumés.
+const HIDDEN_IN_SUMMARY = new Set(["classId", "classOptionKey", "subClassId", "parentId"]);
+
+/** Résumé lisible pour l'historique de l'administrateur : « Adresse : vide → Avenue 2 · Classe : 1ère → 2ème ». */
+export function summarizeStudentChanges(changeLog, maxLength = 900) {
+  const parts = changeLog.fields.filter((field) => !HIDDEN_IN_SUMMARY.has(field)).map((field) => {
+    const label = FIELD_LABELS[field] ?? field;
+    const after = changeLog.after[field] || "vide";
+    return changeLog.action === "update" ? `${label} : ${changeLog.before[field] || "vide"} → ${after}` : `${label} : ${after}`;
+  });
+  const summary = parts.join(" · ") || (changeLog.fields.length ? "Références internes mises à jour" : "");
+  return summary.length > maxLength ? `${summary.slice(0, maxLength - 1)}…` : summary;
+}

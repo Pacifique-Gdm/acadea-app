@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpDown, Banknote, Bell, Clock3, MessageSquare, Search, ShieldCheck } from "lucide-react";
+import { ArrowUpDown, Banknote, Bell, Clock3, MessageSquare, Search, ShieldCheck, UserPen } from "lucide-react";
 import type { AppData, AppUser, AuditLog } from "../../types";
 import { listPedagogicalHistory, type PedagogicalHistoryCursor } from "../../services/pedagogicalHistory";
-import { buildActivityHistoryItems, formatActivityDateTime } from "../../utils/activityHistory";
+import { ACTIVITY_HISTORY_PAGE_SIZE, activityHistoryActors, buildActivityHistoryItems, filterActivityHistoryItems, formatActivityDateTime } from "../../utils/activityHistory";
 import type { ActivityHistoryItem, ActivityHistoryYearData } from "../../utils/activityHistory";
 import { ErrorNotice } from "../ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
@@ -26,6 +26,10 @@ export function ActivityHistoryContent({
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | ActivityHistoryItem["type"]>("all");
+  const [actorFilter, setActorFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [visibleCount, setVisibleCount] = useState(ACTIVITY_HISTORY_PAGE_SIZE);
   const [pedagogicalLogs, setPedagogicalLogs] = useState<AuditLog[]>([]);
   const [pedagogicalCursor, setPedagogicalCursor] = useState<PedagogicalHistoryCursor | null>(null);
   const [pedagogicalLoading, setPedagogicalLoading] = useState(false);
@@ -59,12 +63,11 @@ export function ActivityHistoryContent({
     } catch { setPedagogicalError("Impossible de charger les activités pédagogiques. Veuillez réessayer."); }
     finally { setPedagogicalLoading(false); }
   }
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredItems = items.filter((item) => {
-    const matchesType = typeFilter === "all" || item.type === typeFilter;
-    const text = `${item.title} ${item.actorName} ${item.details}`.toLowerCase();
-    return matchesType && (!normalizedQuery || text.includes(normalizedQuery));
-  });
+  const filteredItems = filterActivityHistoryItems(items, { query, type: typeFilter, actor: actorFilter, from: fromDate, to: toDate });
+  const actors = useMemo(() => activityHistoryActors(items), [items]);
+  // Toute nouvelle recherche ou tout nouveau filtre repart de la première page.
+  useEffect(() => { setVisibleCount(ACTIVITY_HISTORY_PAGE_SIZE); }, [query, typeFilter, actorFilter, fromDate, toDate]);
+  const shownItems = filteredItems.slice(0, visibleCount);
   const historyTypeLabels: Record<ActivityHistoryItem["type"], string> = {
     activity: "Activité",
     message: "Message",
@@ -72,6 +75,7 @@ export function ActivityHistoryContent({
     payment: "Paiement",
     expense: "Dépense",
     discipline: "Sanction",
+    student: "Élève",
   };
 
   function historyIconTone(type: ActivityHistoryItem["type"]) {
@@ -80,6 +84,7 @@ export function ActivityHistoryContent({
     if (type === "payment") return "bg-mint/10 text-mint";
     if (type === "expense") return "bg-red-50 text-red-700";
     if (type === "discipline") return "bg-purple-50 text-purple-700";
+    if (type === "student") return "bg-sky-50 text-sky-700";
     return "bg-slate-100 text-slate-600";
   }
 
@@ -89,6 +94,7 @@ export function ActivityHistoryContent({
     if (type === "payment") return <Banknote className="h-4 w-4" />;
     if (type === "expense") return <ArrowUpDown className="h-4 w-4" />;
     if (type === "discipline") return <ShieldCheck className="h-4 w-4" />;
+    if (type === "student") return <UserPen className="h-4 w-4" />;
     return <Clock3 className="h-4 w-4" />;
   }
 
@@ -117,14 +123,32 @@ export function ActivityHistoryContent({
           {(role === "admin" || role === "cashier") && <option value="payment">Paiements</option>}
           {(role === "admin" || role === "cashier") && <option value="expense">Dépenses</option>}
           {role === "admin" && <option value="discipline">Sanctions</option>}
+          {role === "admin" && <option value="student">Élèves (ajouts et modifications)</option>}
         </select>
       </div>
+      {role === "admin" && <div className="grid min-w-0 gap-2 sm:grid-cols-3">
+        <label className="grid min-w-0 gap-1 text-xs font-semibold text-slate-600">
+          Utilisateur
+          <select aria-label="Filtrer par utilisateur" value={actorFilter} onChange={(event) => setActorFilter(event.target.value)} className="input min-w-0 max-w-full">
+            <option value="">Tous les utilisateurs</option>
+            {actors.map((actor) => <option key={actor} value={actor}>{actor}</option>)}
+          </select>
+        </label>
+        <label className="grid min-w-0 gap-1 text-xs font-semibold text-slate-600">
+          Du
+          <input type="date" aria-label="Début de la période" value={fromDate} onChange={(event) => setFromDate(event.target.value)} className="input min-w-0 max-w-full" />
+        </label>
+        <label className="grid min-w-0 gap-1 text-xs font-semibold text-slate-600">
+          Au
+          <input type="date" aria-label="Fin de la période" value={toDate} onChange={(event) => setToDate(event.target.value)} className="input min-w-0 max-w-full" />
+        </label>
+      </div>}
 
       <div className="min-w-0 max-w-full space-y-2">
         {filteredItems.length === 0 && (
           <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucune activité disponible.</p>
         )}
-        {filteredItems.map((item) => (
+        {shownItems.map((item) => (
           <article key={item.id} className="box-border w-full min-w-0 max-w-full rounded border border-slate-200 bg-white p-3 text-sm">
             <div className="flex min-w-0 items-start gap-3">
               <div className={`mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded ${historyIconTone(item.type)}`}>
@@ -146,6 +170,7 @@ export function ActivityHistoryContent({
           </article>
         ))}
       </div>
+      {filteredItems.length > shownItems.length && <button type="button" className="secondary-button justify-center" onClick={() => setVisibleCount((count) => count + ACTIVITY_HISTORY_PAGE_SIZE)}>Voir plus ({filteredItems.length - shownItems.length} restantes)</button>}
       {pedagogicalCursor && <button type="button" className="secondary-button justify-center" disabled={pedagogicalLoading} onClick={() => void loadMorePedagogical()}>Afficher plus d’activités pédagogiques</button>}
       </>}
     </div>

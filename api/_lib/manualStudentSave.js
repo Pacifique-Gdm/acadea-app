@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { studentForPersistence } from "../../src/utils/studentYearTransition.js";
 import { studentIdentityKey } from "../../src/utils/studentSearch.js";
-import { buildStudentChangeLog } from "./studentChangeLog.js";
+import { buildStudentChangeLog, summarizeStudentChanges } from "./studentChangeLog.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { identityCandidatesQuery, identityIndexReady, identityIndexStateRef, identityLockId } from "./studentIdentityIndex.js";
 
@@ -221,7 +221,7 @@ export async function saveManualStudent({ db, caller, body }) {
       transaction.set(db.doc(`studentChangeLogs/${logId}`), changeLog);
       transaction.set(db.doc(`auditLogs/audit_${logId}`), buildServerAudit({ id: `audit_${logId}`, eventType: existing ? AUDIT_EVENT_TYPES.STUDENT_UPDATED : AUDIT_EVENT_TYPES.STUDENT_CREATED,
         actor: { ...caller, name: actorName }, schoolId, schoolYearId, resourceType: "student", resourceId: id,
-        metadata: { matricule: student.matricule ?? "", fields: changeLog.fields.join(", ") } }));
+        metadata: { matricule: student.matricule ?? "", student: changeLog.studentName, fields: changeLog.fields.join(", "), changes: summarizeStudentChanges(changeLog) } }));
     }
     if (!existing) transaction.set(counterRef, { schoolId, schoolYearId, lastAllocated: sequence });
     if (matriculePrefixCounter) transaction.set(matriculePrefixCounter.ref, matriculePrefixCounter.value);

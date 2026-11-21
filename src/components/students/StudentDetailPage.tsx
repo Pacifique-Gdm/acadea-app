@@ -17,7 +17,6 @@ import { isArchivedStudent } from "../../utils/studentUtils";
 import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear } from "../../types";
 import { StudentPhoto } from "./StudentPhoto";
-import { StudentChangeHistory } from "./StudentChangeHistory";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../ui/ErrorNotice";
 
@@ -310,7 +309,6 @@ export function StudentDetailPage({
             })}
           </div>
         </FormPanel>}
-        {user.role === "school_admin" && <StudentChangeHistory schoolId={school.id} studentId={student.id} />}
       </section>
       {canManageParentLink && parentLinkOpen && (
         <AdminDrawer title="Lier à un parent" onClose={closeParentLink} closeLabel="Fermer la liaison parent">

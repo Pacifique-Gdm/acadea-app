@@ -1,7 +1,7 @@
 import { useAdSuppression } from "../../services/adSuppression";
 import { supportBalance } from "../../../api/_lib/socialSupportMath.js";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
 import { AllocationRubricSelect, formatRubricAmount, rubricSpendCheck, useAllocationSpendOptions } from "../../components/AllocationRubricSelect";
@@ -1679,7 +1679,7 @@ export function ControlModule({
                 <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description du paiement (facultatif)" />
               </label>
               <div className={paymentStudentRecordRights.canCreate ? "grid min-w-0 grid-cols-2 gap-2" : "grid min-w-0"}>
-                {paymentStudentRecordRights.canCreate && <button type="button" onClick={() => setPaymentStudentRecord({ mode: "create" })} disabled={paymentSubmitting} className="secondary-button min-w-0 justify-center whitespace-normal disabled:opacity-50"><UserPlus className="h-4 w-4 shrink-0" aria-hidden="true" /> Ajouter un élève</button>}
+                {paymentStudentRecordRights.canCreate && <button type="button" onClick={() => setPaymentStudentRecord({ mode: "create" })} disabled={paymentSubmitting} className="secondary-button min-w-0 justify-center gap-1 whitespace-nowrap px-2 text-[13px] sm:text-sm disabled:opacity-50"><Plus className="h-4 w-4 shrink-0" aria-hidden="true" /> Ajouter un élève</button>}
                 <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button min-w-0 w-full justify-center whitespace-normal" type="button"><Plus className="h-4 w-4 shrink-0" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
               </div>
               {paymentStudentRecord && (paymentStudentRecordRights.canCreate || paymentStudentRecordRights.canEdit) && (
