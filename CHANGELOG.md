@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.18.5] — 2026-11-21 — Correction
+- Notifications : sur un téléphone partagé, l'ancien compte ne reçoit plus ses notifications quand un autre compte active les siennes ; le jeton du navigateur est retiré même sans réseau (P4 lot 4)
+
 ## [1.18.4] — 2026-11-21 — Correction
 - Changement de classe refusé (écran et serveur) pour un élève qui a déjà des paiements cette année, en attendant le remboursement automatique du trop-perçu ; sans paiement, le changement reste possible
 
