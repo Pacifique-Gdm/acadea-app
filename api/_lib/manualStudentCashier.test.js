@@ -50,7 +50,11 @@ describe("lot C : fiche élève enregistrée par le caissier", () => {
     expect(log).toMatchObject({ action: "create", actorId: "cashier-a", actorRole: "cashier", actorName: "Caissier A", studentId: base.id, schoolId: "school-a" });
     expect(log.after).toMatchObject({ nom: "KABILA", className: "1ère Primaire" });
     expect(log.before).toEqual({});
-    expect([...rows.keys()].some((path) => path.startsWith("auditLogs/audit_stu_"))).toBe(true);
+    const [, audit] = [...rows].find(([path]) => path.startsWith("auditLogs/audit_stu_"));
+    // Résumé en français simple : pas de matricule répété, pas de code technique.
+    expect(audit.metadata.changes).toContain("Sexe : Fille");
+    expect(audit.metadata.changes).toContain("Statut : Actif");
+    expect(audit.metadata.changes).not.toMatch(/Matricule|ACTIVE/);
   });
 
   it("le caissier modifie la fiche : seuls les champs changés sont notés, avec l'avant et l'après", async () => {
