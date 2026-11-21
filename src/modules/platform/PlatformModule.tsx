@@ -18,24 +18,22 @@ import type { UseBillingControlsResult } from "../../hooks/useBillingControls";
 import { useRealtimeCoordinations } from "../../hooks/useRealtimeCoordinations";
 import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hooks/useRealtimeSchoolUsers";
 import { savePlatformSettings } from "../../services/firestoreData";
-import { loadAllPlatformSchools, loadPlatformSchoolWithYears, loadSuperAdminSchoolData } from "../../services/superAdminData";
+import { loadAllPlatformSchools, loadPlatformSchoolWithYears } from "../../services/superAdminData";
+import { appendSchoolHistoryPage, loadSchoolDrawerDetail, loadSchoolHistoryPage } from "../../services/schoolDrawerSummary";
 import { platformStatsTimeLabel, type PlatformStats } from "../../services/platformStats";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin, setSchoolAdminStatus } from "../../services/provisioning";
 import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, resetSchoolAiMonthlyUsage, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
 import { ADMIN_REMOVAL_CONFIRMATION, canConfirmAdminRemoval, markAdminRemoved } from "../../utils/adminRemoval";
 import { aiAssistantConfirmationPhrase, canConfirmAiAssistantChange } from "../../utils/aiAssistantConfirmation";
-import { isSessionAuditAction } from "../../utils/audit";
 import { activityTimestamp } from "../../utils/activityHistory";
 import { educationLevelsForSchoolLevel, schoolLevelFromConfig } from "../../utils/schoolConfig";
 import type { SchoolLevelChoice } from "../../utils/schoolConfig";
-import { formatStudentClassName } from "../../utils/studentClasses";
 import { orderSchoolYears } from "../../utils/schoolYears";
 import { SchoolInformationEditDrawer } from "./SchoolInformationEditDrawer";
 import { primeSchoolLogo } from "../../services/schoolLogo";
 import { SchoolAcronymEditDrawer } from "./SchoolAcronymEditDrawer";
 import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
-import { isArchivedStudent } from "../../utils/studentUtils";
 import { canonicalSchoolOption, normalizeSchoolOptions, schoolOptionDisplayName, SCHOOL_OPTION_RENAME_CONFIRMATION } from "../../utils/schoolOptions";
 import { isSchoolOptionAddConfirmation, SCHOOL_OPTION_ADD_CONFIRMATION } from "../../utils/schoolOptions";
 import { addSchoolOptionToCatalog, loadSchoolOptionCatalog } from "../../services/schoolOptionCatalog";
@@ -44,10 +42,12 @@ import { resolveSchoolYearCurrency } from "../../utils/currency";
 import { CoordinationManagement } from "./CoordinationManagement";
 import { CoordinationCreateDrawer } from "./CoordinationCreateDrawer";
 import { useServerSchoolSearch } from "./useSchoolSearch";
-import { counterAsksReload, needsSchoolDrawerLoad, schoolDrawerKey, snapshotSchoolDrawerData, useSchoolChangeCounter, type SchoolDrawerCache, type SchoolDrawerData } from "./schoolDrawerCache";
+import { counterAsksReload, mergeSchoolHistory, needsSchoolDrawerLoad, schoolClassEnrollment, schoolDrawerKey, useSchoolChangeCounter, type SchoolDrawerCache, type SchoolDrawerData } from "./schoolDrawerCache";
 import { schoolCountLabel, useSlowFlag } from "./schoolSearchStatus";
-import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass, SchoolYear } from "../../types";
-import { CLASSES } from "../../types";
+import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolYear } from "../../types";
+
+/** Lot SA-4 : seuls les administrateurs de l'école sont suivis en temps réel dans le drawer. */
+const DRAWER_REALTIME_ROLES = ["school_admin"] as const;
 
 export function PlatformModule({
   user,
@@ -219,12 +219,15 @@ export function PlatformModule({
   useEffect(() => {
     realtimeUsersStateRef.current = { users: data.users, schoolId: schoolDrawerId, updateData };
   }, [data.users, schoolDrawerId, updateData]);
+  // Lot SA-4 : le drawer n'affiche que les administrateurs ; les autres comptes sont comptés par le serveur.
+  const [realtimeAdminsSchoolId, setRealtimeAdminsSchoolId] = useState("");
   const applyRealtimeSchoolUsers = useCallback((users: AppUser[]) => {
     const current = realtimeUsersStateRef.current;
     if (!current.schoolId) return;
     current.updateData({ users: reconcileRealtimeSchoolUsers(current.users, users, current.schoolId) }, { persist: false });
+    setRealtimeAdminsSchoolId(current.schoolId);
   }, []);
-  useRealtimeSchoolUsers({ user, schoolId: schoolDrawerId, onUsers: applyRealtimeSchoolUsers });
+  useRealtimeSchoolUsers({ user, schoolId: schoolDrawerId, onUsers: applyRealtimeSchoolUsers, roles: DRAWER_REALTIME_ROLES });
   const { coordinations, loaded: coordinationsLoaded, error: coordinationLoadError } = useRealtimeCoordinations();
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
@@ -256,7 +259,12 @@ export function PlatformModule({
   const drawerYear = drawerSchool
     ? data.schoolYears.find((year) => year.id === drawerYearId && year.schoolId === drawerSchool.id) ?? drawerActiveYear
     : undefined;
-  const drawerStats = drawerSchool ? getPlatformSchoolStats(drawerSchool.id, data, drawerYear?.id) : { students: 0, parents: 0, admins: 0, users: 0 };
+  // Lot SA-4 : nombres et historique envoyés par le serveur pour l'école et l'année affichées.
+  const [drawerDetail, setDrawerDetail] = useState<{ key: string; data: SchoolDrawerData } | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const drawerKey = drawerSchool && drawerYear ? schoolDrawerKey(drawerSchool.id, drawerYear.id) : "";
+  const drawerData = drawerKey && drawerDetail?.key === drawerKey ? drawerDetail.data : undefined;
   const drawerAdmins = drawerSchool
     ? data.users.filter((item) =>
         item.role === "school_admin" &&
@@ -266,39 +274,11 @@ export function PlatformModule({
       )
     : [];
   const drawerMainAdmin = drawerSchool ? drawerAdmins.find((admin) => admin.id === drawerSchool.mainAdminId) ?? drawerAdmins[0] : undefined;
-  const drawerLogs = drawerSchool
-    ? data.auditLogs
-        .filter((log) =>
-          log.schoolId === drawerSchool.id &&
-          !isSessionAuditAction(log.action) &&
-          (!drawerYear?.id || !log.schoolYearId || log.schoolYearId === drawerYear.id),
-        )
-        .sort((a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt))
-    : [];
-  const drawerClassEnrollment = useMemo(() => {
-    if (!drawerSchool) return [];
-    const counts = new Map<string, { label: string; className: SchoolClass; count: number }>();
-    data.students
-      .filter((student) => student.schoolId === drawerSchool.id)
-      .filter((student) => (drawerYear?.id ? student.schoolYearId === drawerYear.id : true))
-      .filter((student) => !isArchivedStudent(student))
-      .forEach((student) => {
-        const label = formatStudentClassName({ ...student, option: student.option ? schoolOptionDisplayName(drawerSchool, student.option) : student.option });
-        const key = `${student.className}::${student.option ?? ""}`;
-        const current = counts.get(key);
-        counts.set(key, {
-          label,
-          className: student.className,
-          count: (current?.count ?? 0) + 1,
-        });
-      });
-    return Array.from(counts.values()).sort((first, second) => {
-      const firstClassIndex = CLASSES.indexOf(first.className);
-      const secondClassIndex = CLASSES.indexOf(second.className);
-      if (firstClassIndex !== secondClassIndex) return firstClassIndex - secondClassIndex;
-      return first.label.localeCompare(second.label, "fr");
-    });
-  }, [data.students, drawerSchool, drawerYear?.id]);
+  const drawerStats = drawerData
+    ? { ...drawerData.summary, admins: realtimeAdminsSchoolId === drawerSchool?.id ? drawerAdmins.length : drawerData.summary.admins }
+    : { students: 0, parents: 0, admins: drawerAdmins.length, users: 0 };
+  const drawerLogs = drawerSchool ? mergeSchoolHistory(data.auditLogs, drawerData?.history.logs ?? [], drawerSchool.id, drawerYear?.id) : [];
+  const drawerClassEnrollment = useMemo(() => schoolClassEnrollment(drawerData?.summary, drawerSchool), [drawerData?.summary, drawerSchool]);
   const maxDrawerClassEnrollment = Math.max(1, ...drawerClassEnrollment.map((item) => item.count));
   const adminFormValid =
     adminName.trim().length >= 2 &&
@@ -1063,33 +1043,13 @@ export function PlatformModule({
   }
 
   // Version 1.16.5 : données de chaque école et année déjà ouvertes, gardées pendant la session.
+  // Lot SA-4 : ces données sont désormais les nombres et l'historique envoyés par le serveur.
   const schoolDrawerCache = useRef<SchoolDrawerCache>(new Map());
-  const drawerKey = drawerSchool && drawerYear ? schoolDrawerKey(drawerSchool.id, drawerYear.id) : "";
   const lastCounters = useRef(new Map<string, number>());
 
-  function applySchoolDrawerData(schoolId: string, schoolData: SchoolDrawerData) {
-    const current = latestDataRef.current;
-    updateKnownData({
-      users: [...current.users.filter((item) => item.role === "super_admin" || !item.schoolId), ...schoolData.users],
-      students: schoolData.students,
-      parents: schoolData.parents,
-      feeTypes: schoolData.feeTypes,
-      payments: schoolData.payments,
-      expenses: schoolData.expenses,
-      messages: schoolData.messages,
-      notifications: schoolData.notifications,
-      auditLogs: schoolData.auditLogs,
-      valves: schoolData.valves,
-      biometricTerminals: [...current.biometricTerminals.filter((terminal) => terminal.schoolId !== schoolId), ...schoolData.biometricTerminals],
-      disciplineSanctions: [],
-    });
-  }
-
-  /** Garde les données de l'école affichée (avec les changements faits dans le drawer) avant de la quitter. */
-  function keepCurrentDrawerData() {
-    const entry = drawerKey ? schoolDrawerCache.current.get(drawerKey) : undefined;
-    if (!entry || !drawerSchool || schoolDetailLoading) return;
-    entry.data = snapshotSchoolDrawerData(latestDataRef.current, drawerSchool.id);
+  function applySchoolDrawerData(key: string, schoolData: SchoolDrawerData) {
+    setDrawerDetail({ key, data: schoolData });
+    setHistoryError("");
   }
 
   // Une seule lecture par ouverture : le compteur de changements de l'école et de l'année affichées.
@@ -1100,6 +1060,24 @@ export function PlatformModule({
       loadSchoolDrawerData(drawerSchool.id, drawerYear.id, { force: true });
     }
   });
+
+  /** « Voir plus » : page suivante de l'historique, ajoutée aux lignes déjà affichées et gardée en mémoire. */
+  function loadMoreSchoolHistory() {
+    if (!drawerSchool || !drawerYear || !drawerData || historyLoading || !drawerData.history.hasMore) return;
+    const key = drawerKey;
+    const schoolId = drawerSchool.id;
+    setHistoryLoading(true);
+    setHistoryError("");
+    void loadSchoolHistoryPage(schoolId, drawerYear.id, drawerData.history.page + 1)
+      .then((page) => {
+        const entry = schoolDrawerCache.current.get(key);
+        if (!entry) return;
+        entry.data = { ...entry.data, history: appendSchoolHistoryPage(entry.data.history, page) };
+        setDrawerDetail((current) => (current?.key === key ? { key, data: entry.data } : current));
+      })
+      .catch((cause: unknown) => setHistoryError(cause instanceof Error ? cause.message : "Historique de l'école indisponible."))
+      .finally(() => setHistoryLoading(false));
+  }
 
   function loadSchoolDrawerData(schoolId: string, schoolYearId: string, options: { force?: boolean } = {}) {
     const requestId = schoolDetailRequestRef.current + 1;
@@ -1117,18 +1095,18 @@ export function PlatformModule({
     const cached = schoolDrawerCache.current.get(key);
     if (cached && !needsSchoolDrawerLoad(schoolDrawerCache.current, key, options.force)) {
       // Retour sur une école déjà ouverte : affichage immédiat, aucune lecture (le compteur dira si elle a changé).
-      applySchoolDrawerData(schoolId, cached.data);
+      applySchoolDrawerData(key, cached.data);
       setSchoolDetailLoading(false);
       setAiQuotaLoading(false);
       return;
     }
     setSchoolDetailLoading(true);
     void refreshSchoolQuota(schoolId, requestId);
-    loadSuperAdminSchoolData(schoolId, schoolYearId)
+    loadSchoolDrawerDetail(schoolId, schoolYearId)
       .then((schoolData) => {
         if (schoolDetailRequestRef.current !== requestId) return;
         schoolDrawerCache.current.set(key, { data: schoolData, counter: lastCounters.current.get(key) });
-        applySchoolDrawerData(schoolId, schoolData);
+        applySchoolDrawerData(key, schoolData);
       })
       .catch((error) => {
         if (schoolDetailRequestRef.current !== requestId) return;
@@ -1143,7 +1121,6 @@ export function PlatformModule({
   }
 
   function openSchoolDrawer(schoolId: string) {
-    keepCurrentDrawerData();
     // Lot SA-2b : l'école et ses années ne sont pas chargées à l'ouverture : on les lit au clic, puis on ouvre.
     if (!visibleSchools.some((item) => item.id === schoolId) || !data.schoolYears.some((year) => year.schoolId === schoolId)) {
       setSchoolDrawerLoadingId(schoolId);
@@ -1166,7 +1143,6 @@ export function PlatformModule({
 
   function changeDrawerYear(schoolYearId: string) {
     if (!drawerSchool || !schoolYearId || schoolYearId === drawerYear?.id) return;
-    keepCurrentDrawerData();
     setDrawerYearId(schoolYearId);
     loadSchoolDrawerData(drawerSchool.id, schoolYearId);
   }
@@ -1178,7 +1154,6 @@ export function PlatformModule({
   }
 
   function closeSchoolDrawer() {
-    keepCurrentDrawerData();
     schoolDetailRequestRef.current += 1;
     setAiAssistantChangeTarget(null);
     setAiAssistantConfirmation("");
@@ -1772,7 +1747,17 @@ export function PlatformModule({
               </div>
             )}
 
-            {detailTab === "history" && <AuditTimeline logs={drawerLogs} />}
+            {detailTab === "history" && (
+              <div className="grid gap-3">
+                <AuditTimeline logs={drawerLogs} />
+                {historyError && <p role="alert" className="text-sm text-red-700">{historyError}</p>}
+                {drawerData?.history.hasMore && (
+                  <button type="button" className="secondary-button justify-center" disabled={historyLoading} onClick={loadMoreSchoolHistory} data-school-history-more>
+                    {historyLoading ? "Chargement…" : "Voir plus"}
+                  </button>
+                )}
+              </div>
+            )}
 
           </div>
         </AdminDrawer>

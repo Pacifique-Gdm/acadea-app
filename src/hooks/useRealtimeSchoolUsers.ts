@@ -13,10 +13,11 @@ export function reconcileRealtimeSchoolUsers(current: AppUser[], incoming: AppUs
   return [...outsideSchool, ...schoolUsers.values()];
 }
 
-export function subscribeToRealtimeSchoolUsers(database: Firestore, user: AppUser, schoolId: string, onUsers: (users: AppUser[]) => void) {
+export function subscribeToRealtimeSchoolUsers(database: Firestore, user: AppUser, schoolId: string, onUsers: (users: AppUser[]) => void, onlyRoles?: readonly AppUser["role"][]) {
   if (!["super_admin", "school_admin", "cashier"].includes(user.role) || user.status === "inactive" || user.active === false || !schoolId) return undefined;
   if (user.role !== "super_admin" && user.schoolId !== schoolId) return undefined;
-  const roles = user.role === "cashier" ? DASHBOARD_PERSONNEL_ROLES : user.role === "school_admin" ? SCHOOL_ADMIN_PERSONNEL_ROLES : undefined;
+  // Lot SA-4 : le Super administrateur peut limiter l'écoute à certains rôles (drawer d'école : administrateurs seulement).
+  const roles = user.role === "cashier" ? DASHBOARD_PERSONNEL_ROLES : user.role === "school_admin" ? SCHOOL_ADMIN_PERSONNEL_ROLES : onlyRoles?.length ? onlyRoles : undefined;
   const usersQuery = roles
     ? query(collection(database, "users"), where("schoolId", "==", schoolId), where("role", "in", [...roles]))
     : query(collection(database, "users"), where("schoolId", "==", schoolId));
@@ -27,9 +28,9 @@ export function subscribeToRealtimeSchoolUsers(database: Firestore, user: AppUse
   );
 }
 
-export function useRealtimeSchoolUsers({ user, schoolId, onUsers }: { user: AppUser | null; schoolId: string; onUsers: (users: AppUser[]) => void }) {
+export function useRealtimeSchoolUsers({ user, schoolId, onUsers, roles }: { user: AppUser | null; schoolId: string; onUsers: (users: AppUser[]) => void; roles?: readonly AppUser["role"][] }) {
   useEffect(() => {
     if (!firebaseReady || !db || !user || !schoolId) return undefined;
-    return subscribeToRealtimeSchoolUsers(db as unknown as Firestore, user, schoolId, onUsers);
-  }, [onUsers, schoolId, user]);
+    return subscribeToRealtimeSchoolUsers(db as unknown as Firestore, user, schoolId, onUsers, roles);
+  }, [onUsers, schoolId, user, roles]);
 }

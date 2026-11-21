@@ -2,7 +2,7 @@ import { Clock3 } from "lucide-react";
 import type { AuditLog } from "../../types";
 import { formatActivityDateTime } from "../../utils/activityHistory";
 
-export function AuditTimeline({ logs }: { logs: AuditLog[] }) {
+export function AuditTimeline({ logs }: { logs: Pick<AuditLog, "id" | "action" | "actorName" | "createdAt">[] }) {
   if (logs.length === 0) {
     return (
       <div className="min-w-0 rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">

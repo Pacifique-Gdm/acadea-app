@@ -39,6 +39,19 @@ describe("utilisateurs d'école en temps réel", () => {
     expect(mocks.where).toHaveBeenCalledWith("role", "in", ["school_admin", "cashier", "discipline_director"]);
   });
 
+  it("lot SA-4 : drawer du Super administrateur limité aux administrateurs de l'école", () => {
+    mocks.onSnapshot.mockReturnValue(vi.fn());
+    const superAdmin = account("super", "super_admin", { schoolId: undefined });
+    subscribeToRealtimeSchoolUsers({} as never, superAdmin, "school-a", vi.fn(), ["school_admin"]);
+    expect(mocks.where).toHaveBeenCalledWith("schoolId", "==", "school-a");
+    expect(mocks.where).toHaveBeenCalledWith("role", "in", ["school_admin"]);
+    vi.clearAllMocks();
+    mocks.onSnapshot.mockReturnValue(vi.fn());
+    // Un Caissier garde ses propres rôles, même si un autre filtre est demandé.
+    subscribeToRealtimeSchoolUsers({} as never, account("cashier", "cashier"), "school-a", vi.fn(), ["school_admin"]);
+    expect(mocks.where).toHaveBeenCalledWith("role", "in", ["school_admin", "cashier", "discipline_director"]);
+  });
+
   it("refuse un rôle non autorisé ou une autre école", () => {
     expect(subscribeToRealtimeSchoolUsers({} as never, account("secretary", "secretary"), "school-a", vi.fn())).toBeUndefined();
     expect(subscribeToRealtimeSchoolUsers({} as never, account("cashier", "cashier"), "school-b", vi.fn())).toBeUndefined();

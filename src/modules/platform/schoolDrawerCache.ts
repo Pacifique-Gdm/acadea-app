@@ -1,8 +1,13 @@
 import { useEffect, useRef } from "react";
 import { doc, onSnapshot, type Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
-import type { AppData } from "../../types";
-import type { SuperAdminSchoolData } from "../../services/superAdminData";
+import type { AuditLog, School, SchoolClass } from "../../types";
+import type { SchoolDrawerDetail, SchoolDrawerSummary, SchoolHistoryLog } from "../../services/schoolDrawerSummary";
+import { CLASSES } from "../../types";
+import { formatStudentClassName } from "../../utils/studentClasses";
+import { schoolOptionDisplayName } from "../../utils/schoolOptions";
+import { isSessionAuditAction } from "../../utils/audit";
+import { activityTimestamp } from "../../utils/activityHistory";
 
 /**
  * Version 1.16.5 : données du drawer d'une école gardées en mémoire pendant la session.
@@ -10,7 +15,8 @@ import type { SuperAdminSchoolData } from "../../services/superAdminData";
  * Elles ne sont relues que si le compteur de changements de l'école (`feeAllocationChangeCounters`, déjà tenu
  * par le serveur depuis la version 1.15.2) a bougé, ou avec le bouton « Actualiser ».
  */
-export type SchoolDrawerData = Omit<SuperAdminSchoolData, "admins">;
+/** Lot SA-4 : ce qui est gardé n'est plus la copie des collections de l'école, mais les nombres et l'historique reçus. */
+export type SchoolDrawerData = SchoolDrawerDetail;
 export type SchoolDrawerCacheEntry = { data: SchoolDrawerData; counter?: number };
 export type SchoolDrawerCache = Map<string, SchoolDrawerCacheEntry>;
 
@@ -31,22 +37,32 @@ export function counterAsksReload(entry: SchoolDrawerCacheEntry | undefined, cou
   return entry.counter !== count;
 }
 
-/** Copie des données de l'école affichée (avec les changements faits dans le drawer) avant de la quitter. */
-export function snapshotSchoolDrawerData(data: AppData, schoolId: string): SchoolDrawerData {
-  const ofSchool = <T extends { schoolId?: string }>(items: T[]) => items.filter((item) => item.schoolId === schoolId);
-  return {
-    users: ofSchool(data.users),
-    students: ofSchool(data.students),
-    parents: ofSchool(data.parents),
-    feeTypes: ofSchool(data.feeTypes),
-    payments: ofSchool(data.payments),
-    expenses: ofSchool(data.expenses),
-    messages: ofSchool(data.messages),
-    notifications: ofSchool(data.notifications),
-    auditLogs: ofSchool(data.auditLogs),
-    valves: ofSchool(data.valves),
-    biometricTerminals: ofSchool(data.biometricTerminals),
-  };
+/** Répartition par classe à afficher, dans l'ordre des classes, avec le nom d'option choisi par l'école. */
+export function schoolClassEnrollment(summary: SchoolDrawerSummary | undefined, school: School | undefined) {
+  if (!summary || !school) return [];
+  return summary.classes
+    .map((item) => ({
+      label: formatStudentClassName({ className: item.className as SchoolClass, option: item.option ? schoolOptionDisplayName(school, item.option) : item.option }),
+      className: item.className as SchoolClass,
+      count: item.count,
+    }))
+    .sort((first, second) => {
+      const classOrder = CLASSES.indexOf(first.className) - CLASSES.indexOf(second.className);
+      return classOrder || first.label.localeCompare(second.label, "fr");
+    });
+}
+
+type TimelineLog = Pick<AuditLog, "id" | "action" | "actorName" | "createdAt">;
+
+/**
+ * Historique affiché : pages reçues du serveur et lignes écrites pendant la session (actions faites dans le drawer),
+ * sans doublon ni connexion, de la plus récente à la plus ancienne.
+ */
+export function mergeSchoolHistory(localLogs: AuditLog[], serverLogs: SchoolHistoryLog[], schoolId: string, schoolYearId?: string): TimelineLog[] {
+  const local = localLogs.filter((log) => log.schoolId === schoolId && (!schoolYearId || !log.schoolYearId || log.schoolYearId === schoolYearId));
+  const rows = new Map<string, TimelineLog>();
+  for (const log of [...serverLogs, ...local]) if (!rows.has(log.id) && !isSessionAuditAction(log.action)) rows.set(log.id, log);
+  return [...rows.values()].sort((first, second) => activityTimestamp(second.createdAt) - activityTimestamp(first.createdAt));
 }
 
 /** Écoute le seul compteur de l'école et de l'année affichées dans le drawer (une lecture par ouverture). */
