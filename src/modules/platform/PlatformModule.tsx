@@ -1063,12 +1063,13 @@ export function PlatformModule({
 
   /** « Voir plus » : page suivante de l'historique, ajoutée aux lignes déjà affichées et gardée en mémoire. */
   function loadMoreSchoolHistory() {
-    if (!drawerSchool || !drawerYear || !drawerData || historyLoading || !drawerData.history.hasMore) return;
+    const cursor = drawerData?.history.cursor;
+    if (!drawerSchool || !drawerYear || !drawerData || historyLoading || !drawerData.history.hasMore || !cursor) return;
     const key = drawerKey;
     const schoolId = drawerSchool.id;
     setHistoryLoading(true);
     setHistoryError("");
-    void loadSchoolHistoryPage(schoolId, drawerYear.id, drawerData.history.page + 1)
+    void loadSchoolHistoryPage(schoolId, drawerYear.id, cursor)
       .then((page) => {
         const entry = schoolDrawerCache.current.get(key);
         if (!entry) return;

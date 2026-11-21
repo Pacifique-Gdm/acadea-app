@@ -10,7 +10,8 @@ import type { AuditLog } from "../types";
 export type SchoolDrawerClassCount = { className: string; option: string; count: number };
 export type SchoolDrawerSummary = { students: number; parents: number; admins: number; users: number; classes: SchoolDrawerClassCount[] };
 export type SchoolHistoryLog = Pick<AuditLog, "id" | "action" | "actorName" | "createdAt"> & { schoolYearId?: string };
-export type SchoolHistoryPage = { logs: SchoolHistoryLog[]; page: number; total: number; hasMore: boolean };
+/** cursor : repère de la page suivante, donné par le serveur (null quand il n'y a plus rien). */
+export type SchoolHistoryPage = { logs: SchoolHistoryLog[]; hasMore: boolean; cursor: string | null };
 export type SchoolDrawerDetail = { summary: SchoolDrawerSummary; history: SchoolHistoryPage };
 
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
@@ -32,7 +33,7 @@ export function parseSchoolDrawerSummary(value: unknown): SchoolDrawerSummary {
 
 export function parseSchoolHistoryPage(value: unknown): SchoolHistoryPage {
   const history = value as Partial<SchoolHistoryPage> | null;
-  if (!history || !Array.isArray(history.logs) || !isCount(history.page) || !isCount(history.total) || typeof history.hasMore !== "boolean") {
+  if (!history || !Array.isArray(history.logs) || typeof history.hasMore !== "boolean" || !(history.cursor === null || isText(history.cursor)) || (history.hasMore && !history.cursor)) {
     throw new Error("Historique de l'école incomplet.");
   }
   const logs = history.logs.map((item) => {
@@ -40,7 +41,7 @@ export function parseSchoolHistoryPage(value: unknown): SchoolHistoryPage {
     if (!row || !isText(row.id) || !isText(row.action) || !isText(row.actorName) || !isText(row.createdAt)) throw new Error("Historique de l'école incomplet.");
     return { id: row.id, action: row.action, actorName: row.actorName, createdAt: row.createdAt, ...(isText(row.schoolYearId) ? { schoolYearId: row.schoolYearId } : {}) };
   });
-  return { logs, page: history.page!, total: history.total!, hasMore: history.hasMore! };
+  return { logs, hasMore: history.hasMore!, cursor: history.cursor ?? null };
 }
 
 async function postSchoolDrawer(body: Record<string, unknown>, fallback: string) {
@@ -62,13 +63,13 @@ export async function loadSchoolDrawerDetail(schoolId: string, schoolYearId: str
 }
 
 /** « Voir plus » dans l'historique : page suivante seulement. */
-export async function loadSchoolHistoryPage(schoolId: string, schoolYearId: string, page: number): Promise<SchoolHistoryPage> {
-  const payload = await postSchoolDrawer({ action: "school-history", schoolId, schoolYearId, page }, "Historique de l'école indisponible.");
+export async function loadSchoolHistoryPage(schoolId: string, schoolYearId: string, cursor: string): Promise<SchoolHistoryPage> {
+  const payload = await postSchoolDrawer({ action: "school-history", schoolId, schoolYearId, cursor }, "Historique de l'école indisponible.");
   return parseSchoolHistoryPage(payload.history);
 }
 
 /** Ajoute une page à l'historique déjà affiché, sans doublon. */
 export function appendSchoolHistoryPage(current: SchoolHistoryPage, next: SchoolHistoryPage): SchoolHistoryPage {
   const known = new Set(current.logs.map((log) => log.id));
-  return { logs: [...current.logs, ...next.logs.filter((log) => !known.has(log.id))], page: next.page, total: next.total, hasMore: next.hasMore };
+  return { logs: [...current.logs, ...next.logs.filter((log) => !known.has(log.id))], hasMore: next.hasMore, cursor: next.cursor };
 }

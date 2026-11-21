@@ -7,7 +7,7 @@ import type { AuditLog, School } from "../../types";
 const platform = readFileSync(new URL("./PlatformModule.tsx", import.meta.url), "utf8");
 const loader = platform.slice(platform.indexOf("function loadSchoolDrawerData("), platform.indexOf("function openSchoolDrawer("));
 
-const emptyData = () => ({ data: { summary: { students: 0, parents: 0, admins: 0, users: 0, classes: [] }, history: { logs: [], page: 0, total: 0, hasMore: false } } });
+const emptyData = () => ({ data: { summary: { students: 0, parents: 0, admins: 0, users: 0, classes: [] }, history: { logs: [], hasMore: false, cursor: null } } });
 
 describe("drawer d'une école gardé en mémoire", () => {
   it("retour sur une école déjà ouverte : aucune lecture, sauf avec « Actualiser »", () => {

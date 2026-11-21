@@ -183,13 +183,14 @@ export default async function handler(req, res) {
       }
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: `platform.${requestedAction}`, ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
       if (requestedAction === "school-history") {
-        const page = Number.isInteger(body.page) && body.page >= 0 && body.page < 10_000 ? body.page : 0;
-        sendJson(res, 200, { history: await readSchoolHistoryPage(db, drawerSchoolId, drawerYearId, page) });
+        // Repère de la page suivante, donné par la page précédente (refusé s'il est mal formé).
+        const cursor = typeof body.cursor === "string" && body.cursor ? body.cursor : null;
+        sendJson(res, 200, { history: await readSchoolHistoryPage(db, drawerSchoolId, drawerYearId, cursor) });
         return;
       }
       const [summary, history] = await Promise.all([
         readSchoolDrawerSummary(db, drawerSchoolId, drawerYearId),
-        readSchoolHistoryPage(db, drawerSchoolId, drawerYearId, 0),
+        readSchoolHistoryPage(db, drawerSchoolId, drawerYearId),
       ]);
       sendJson(res, 200, { summary, history });
       return;
