@@ -15,6 +15,7 @@ import { failureKind, plainFailureMessage, publicServerMessage } from "../../ser
 import { discardUploadedPhotoIfUnused, findSavedStudent } from "../../services/studentSaveVerification";
 import { needsStorageUpload, uploadStudentPhoto } from "../../services/studentPhotoStorage";
 import { userFacingError } from "../../utils/userFacingError";
+import { waitForCondition } from "../../utils/waitForCondition";
 
 /** Droits de la fiche élève officielle (création, modification, parent, options et sous-classes). */
 export interface StudentRecordCapabilities {
@@ -76,6 +77,8 @@ export function StudentRecordDrawer({
   const listensItself = providedClasses === undefined;
   const structuredClasses = providedClasses ?? ownClasses;
   const structuredClassesLoaded = listensItself ? ownClassesLoaded : Boolean(providedClassesLoaded);
+  const classesRef = useRef({ loaded: structuredClassesLoaded, classes: structuredClasses });
+  classesRef.current = { loaded: structuredClassesLoaded, classes: structuredClasses };
   // Les choix viennent exclusivement du référentiel persistant de l'école.
   const schoolOptions = normalizeSchoolOptions(school.schoolOptions);
   const optionChoices = schoolOptions;
@@ -115,7 +118,9 @@ export function StudentRecordDrawer({
         setSaveError(validationError);
         return;
       }
-      if (!structuredClassesLoaded) { setSaveError("Chargement des classes en cours. Veuillez réessayer."); return; }
+      // Un clic sur « Sauver » pendant le chargement des classes attend la fin du chargement (15 s au plus) au lieu d'échouer.
+      if (!(await waitForCondition(() => classesRef.current.loaded))) { setSaveError("Chargement des classes impossible pour le moment. Veuillez réessayer."); return; }
+      const structuredClasses = classesRef.current.classes;
       const previousStudent = exists ? studentRecords.find((item) => item.id === form.id) : undefined;
       const academicChanged = !previousStudent || previousStudent.classId !== form.classId
         || previousStudent.className !== form.className || previousStudent.option !== form.option
