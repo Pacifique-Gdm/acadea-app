@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { studentForPersistence } from "../../src/utils/studentYearTransition.js";
 import { studentIdentityKey } from "../../src/utils/studentSearch.js";
+import { CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, hasYearPayments, isClassChange } from "../../src/utils/classChangeGuard.js";
 import { buildStudentChangeLog, summarizeStudentChanges } from "./studentChangeLog.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { identityCandidatesQuery, identityIndexReady, identityIndexStateRef, identityLockId } from "./studentIdentityIndex.js";
@@ -149,6 +150,12 @@ export async function saveManualStudent({ db, caller, body }) {
       biometric: input.biometric && typeof input.biometric === "object" && !Array.isArray(input.biometric) ? input.biometric : undefined,
     };
     if (existing) for (const key of OPTIONAL_FIELDS) if (!(key in fields)) delete next[key];
+    // Protection provisoire : un élève qui a déjà au moins un paiement cette année ne change pas de classe
+    // (rattachement des paiements et remboursement du trop-perçu pas encore en ligne).
+    if (existing && isClassChange(existing, next)) {
+      const paid = await transaction.get(db.collection("payments").where("studentId", "==", id));
+      if (hasYearPayments(paid.docs.map((snapshot) => snapshot.data()), id, schoolId, schoolYearId)) reject(CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, 409, "failed-precondition");
+    }
     await validClassReferences(transaction, db, next, Boolean(offlineOperationId));
     const oldKey = existing ? studentIdentityKey(existing) : "";
     const newKey = studentIdentityKey(next);

@@ -1,3 +1,4 @@
+import { CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, hasYearPayments, isClassChange } from "../../utils/classChangeGuard";
 import { useEffect, useRef, useState } from "react";
 import { StudentForm } from "./StudentForm";
 import { AdminDrawer } from "../ui";
@@ -125,6 +126,11 @@ export function StudentRecordDrawer({
       const academicChanged = !previousStudent || previousStudent.classId !== form.classId
         || previousStudent.className !== form.className || previousStudent.option !== form.option
         || previousStudent.subClassId !== form.subClassId || previousStudent.classOptionKey !== form.classOptionKey;
+      // Protection provisoire : pas de changement de classe pour un élève qui a déjà payé cette année (le serveur refuse aussi).
+      if (previousStudent && isClassChange(previousStudent, form) && hasYearPayments(data.payments, previousStudent.id, school.id, previousStudent.schoolYearId ?? year.id)) {
+        setSaveError(CLASS_CHANGE_WITH_PAYMENTS_MESSAGE);
+        return;
+      }
       const academicError = academicChanged ? validateStudentAcademicSelection(structuredClasses, form, optionChoices) : "";
       if (academicError) { setSaveError(academicError); return; }
       const selectedClass = resolveStudentParentClass(structuredClasses, form);
