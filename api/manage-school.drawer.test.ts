@@ -13,9 +13,13 @@ vi.mock("./_lib/firebaseAdmin.js", () => ({
       users: [{ id: "u1", schoolId: "school-a", role: "school_admin" }],
       auditLogs: [{ id: "l1", schoolId: "school-a", schoolYearId: "year-1", action: "Création", actorName: "SA", createdAt: "2026-11-20T10:00:00.000Z" }],
     };
+    const refused: Record<string, unknown> = { get: async () => { throw Object.assign(new Error("requires an index"), { code: 9 }); } };
+    for (const step of ["orderBy", "select", "limit", "startAfter"]) refused[step] = () => refused;
     const query = (name: string, filters: [string, unknown][] = []): unknown => ({
       where: (field: string, _operator: string, value: unknown) => query(name, [...filters, [field, value]]),
       select: () => query(name, filters),
+      // Sans index en test : toute requête triée est refusée (code 9), le serveur se replie sur la lecture complète.
+      orderBy: () => refused,
       get: async () => {
         mocks.reads.push(name);
         const docs = (rows[name] ?? []).filter((row) => filters.every(([field, value]) => row[field] === value));
@@ -42,15 +46,16 @@ describe("API du drawer d'école (lot SA-4)", () => {
     const response = await request({ action: "school-drawer", schoolId: "school-a", schoolYearId: "year-1" });
     expect(response.status).toBe(200);
     expect(response.body.summary).toEqual({ students: 1, parents: 1, admins: 1, users: 1, classes: [{ className: "1ère Primaire", option: "", count: 1 }] });
-    expect(response.body.history).toMatchObject({ page: 0, total: 1, hasMore: false });
+    expect(response.body.history).toMatchObject({ hasMore: false, cursor: null, mode: "memory" });
     // Ni paiements, ni dépenses, ni messages, ni notifications, ni valves, ni frais.
     expect([...new Set(mocks.reads)].sort()).toEqual(["auditLogs", "parents", "students", "users"]);
   });
 
   it("page suivante de l'historique", async () => {
-    const response = await request({ action: "school-history", schoolId: "school-a", schoolYearId: "year-1", page: 1 });
+    const response = await request({ action: "school-history", schoolId: "school-a", schoolYearId: "year-1", cursor: "m:1" });
     expect(response.status).toBe(200);
-    expect(response.body.history).toMatchObject({ page: 1, logs: [], hasMore: false });
+    expect(response.body.history).toMatchObject({ logs: [], hasMore: false, cursor: null });
+    expect((await request({ action: "school-history", schoolId: "school-a", schoolYearId: "year-1", cursor: "n:importe" })).status).toBe(400);
   });
 
   it("refuse tous les autres rôles, sans rien lire", async () => {
