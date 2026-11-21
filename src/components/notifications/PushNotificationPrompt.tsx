@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { AppUser } from "../../types";
 import { enablePushNotifications, getPushNotificationStatus, type PushNotificationStatus } from "../../services/pushNotifications";
 import { ANDROID_BLOCKED_STEPS, detectPushDevice, IOS_BLOCKED_STEPS, IOS_INSTALL_STEPS, needsIosInstall, PUSH_PROMPT_SNOOZE_KEY, PUSH_STATUS_RECHECK_MS, pushPromptDue, pushPromptVisible, pushSettingsVisible } from "../../utils/pushPrompt";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 function currentDevice() {
   const standalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || (navigator as { standalone?: boolean }).standalone === true);
@@ -73,7 +74,7 @@ export function PushNotificationPrompt({ user }: { user: AppUser }) {
   return <div role="region" aria-label="Activer les notifications" className="mx-auto mt-2 grid max-w-6xl gap-2 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
     <p className="font-semibold">Activez les notifications pour recevoir vos messages et paiements, même quand l'application est fermée.</p>
     <PushNotificationHelp status={status} device={device} />
-    {error && <p role="alert" className="text-red-700">{error}</p>}
+    <ErrorNotice error={error} />
     <div className="flex flex-wrap gap-2">
       {!needsIosInstall(device) && status !== "blocked" && <button type="button" className="primary-button" onClick={() => void enable()}>Activer</button>}
       <button type="button" className="secondary-button" onClick={later}>Plus tard</button>
@@ -90,7 +91,7 @@ export function PushNotificationSettings({ user }: { user: AppUser }) {
     <h3 className="font-bold text-ink">Notifications</h3>
     <p>État : <strong>{label}</strong></p>
     <PushNotificationHelp status={status} device={device} />
-    {error && <p role="alert" className="text-red-700">{error}</p>}
+    <ErrorNotice error={error} />
     {status === "available" && <button type="button" className="primary-button w-fit" onClick={() => void enable()}>Activer</button>}
   </section>;
 }

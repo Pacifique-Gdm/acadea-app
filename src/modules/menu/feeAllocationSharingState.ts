@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { loadAllocationShares, rubricsSharedWith, staffRoleLabel, type AllocationShares } from "../../services/feeAllocation";
+import { userFacingError } from "../../utils/userFacingError";
 
 /** Lot « Deux onglets » : état du partage des rubriques (Administrateur). */
-const message = (cause: unknown) => cause instanceof Error ? cause.message : "Partage indisponible.";
+const message = (cause: unknown) => userFacingError(cause, "Partage indisponible.");
 
 export function useAllocationShares(schoolId: string, enabled: boolean) {
   const [shares, setShares] = useState<AllocationShares | null>(null);

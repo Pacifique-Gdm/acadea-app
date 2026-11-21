@@ -66,7 +66,7 @@ try {
   await amount.fill('10'); await note.fill('PREMIER'); await submit.click();
   await expect.poll(async () => (await payments()).length).toBe(1);
   await expect(search).toHaveValue(''); await expect(amount).toHaveValue(''); await expect(note).toHaveValue('');
-  await expect(form.getByText(/Élève sélectionné/)).toHaveCount(0);
+  await expect(form.getByRole('group', { name: 'Élève sélectionné' })).toHaveCount(0);
   record('Premier paiement confirmé par Firestore : élève, recherche, montant et description réinitialisés');
   await search.fill('BETA'); await form.getByRole('button', { name: /BETA FICTIF RESET/ }).click();
   await expect(form.getByText(/ALPHA/)).toHaveCount(0); await expect(amount).toHaveValue(''); await expect(note).toHaveValue('');
@@ -84,7 +84,7 @@ try {
   }, transportErrors));
   await submit.click(); await expect.poll(() => Boolean(serverPaymentId)).toBe(true);
   await expect(submit).toBeEnabled(); await expect(amount).toHaveValue('12'); await expect(note).toHaveValue('SECOND');
-  await expect(form.getByText(/Élève sélectionné : BETA/)).toBeVisible();
+  await expect(form.getByRole('group', { name: 'Élève sélectionné' }).filter({ hasText: /^BETA/ })).toBeVisible();
   await expect.poll(async () => (await payments()).length).toBe(2);
   record('Réponse serveur perdue après écriture : formulaire conservé et aucun faux succès');
   await submit.click(); await expect(search).toHaveValue(''); await expect(amount).toHaveValue(''); await expect(note).toHaveValue('');

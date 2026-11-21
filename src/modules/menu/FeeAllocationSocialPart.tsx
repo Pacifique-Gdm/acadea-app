@@ -7,11 +7,14 @@ import { socialPartPreview, socialPartRubrics, type SocialPartLine as Line } fro
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 /** Lot 27c-4 : partie 2 de la répartition, propre aux cas sociaux. */
 const toLines = (rubrics: FeeAllocationRubric[]): Line[] => rubrics.map((rubric) => ({ id: rubric.id, name: rubric.name, mode: rubric.mode,
   value: String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100) }));
-const message = (cause: unknown) => cause instanceof Error ? cause.message : "Partie 2 indisponible.";
+const message = (cause: unknown) => userFacingError(cause, "Partie 2 indisponible.");
 const newId = () => crypto.randomUUID().replaceAll("-", "");
 const decimal = /^[0-9]+(?:[.,][0-9]{1,2})?$/;
 
@@ -26,6 +29,8 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
   const [net, setNet] = useState("");
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState(""), [notice, setNotice] = useState(""), [confirming, setConfirming] = useState(false);
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const request = useRef<PublishSocialPart | null>(null);
   useEffect(() => {
     let alive = true;
@@ -36,9 +41,9 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
         setLines(toLines(result.social?.rubrics ?? result.partOne.rubrics));
         setNet(String(result.partOne.feeAmountMinor / 200));
       }
-    }).catch((cause) => { if (alive) setError(message(cause)); }).finally(() => { if (alive) setLoading(false); });
+    }).catch((cause) => { if (alive) setErrorLoad(message(cause)); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [config.schoolId, config.feeTypeId]);
+  }, [config.schoolId, config.feeTypeId, errorLoadRetry.token]);
   const entered = useMemo(() => socialPartRubrics(lines), [lines]);
   const preview = useMemo(() => {
     if (!partOne || entered.error) return { rows: [], error: entered.error };
@@ -90,7 +95,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
         : <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[420px] text-sm" aria-label="Aperçu partie 1 et partie 2"><thead><tr><th scope="col" className="border-b p-2 text-left">Rubrique</th><th scope="col" className="border-b p-2 text-left">Élève normal (paie {formatCurrencyMoney(partOne.feeAmountMinor / 100, currency)})</th><th scope="col" className="border-b p-2 text-left">Cas social (paie {formatCurrencyMoney(Number(net.replace(",", ".")), currency)})</th></tr></thead>
           <tbody>{preview.rows.map((row) => <tr key={row.rubricId}><td className="border-b p-2">{row.name}</td><td className="border-b p-2">{formatCurrencyMoney(row.normalMinor / 100, currency)}</td><td className="border-b p-2">{formatCurrencyMoney(row.socialMinor / 100, currency)}</td></tr>)}</tbody></table></div>}
       {copy && <p className="mt-2 text-xs text-slate-600">Identique à la partie 1 : les cas sociaux reçoivent exactement les mêmes montants qu'avec la partie 1.</p>}
-      {error && <p role="alert" className="my-3 text-sm text-red-700">{error}</p>}
+      <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
       {notice && <p role="status" className="my-3 text-sm text-emerald-700">{notice}</p>}
       {uncertain && <p className="my-2 text-sm">La publication a peut-être abouti. La vérification renvoie exactement la même demande.</p>}
       {canPublish && (confirming || uncertain ? <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm">

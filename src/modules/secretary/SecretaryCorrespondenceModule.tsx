@@ -13,6 +13,7 @@ import { filterSecretaryCorrespondences } from "./secretaryListFilters";
 import { exportCorrespondenceListPdf } from "./secretaryListPdf";
 import { CORRESPONDENCE_DELIVERY_MODES, correspondenceDeliveryModeLabel } from "./correspondenceOptions";
 import { SecretaryDocumentDeleteDialog } from "./SecretaryDocumentDeleteDialog";
+import { userFacingError } from "../../utils/userFacingError";
 
 const initialInput = { direction: "incoming" as CorrespondenceDirection, date: new Date().toISOString().slice(0, 10), subject: "", sender: "", recipient: "", content: "", copiePourInformation: "", status: "received" as CorrespondenceStatus };
 
@@ -36,7 +37,7 @@ function correspondenceErrorMessage(error: unknown) {
   const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
   if (code.includes("permission-denied")) return "Votre session ne permet pas d'enregistrer ce courrier.";
   if (code.startsWith("storage/")) return "Le courrier a été enregistré, mais la pièce jointe n'a pas pu être téléversée.";
-  return error instanceof Error && error.message ? error.message : "Impossible d'enregistrer le courrier pour le moment.";
+  return userFacingError(error, "Impossible d'enregistrer le courrier pour le moment.");
 }
 
 export function SecretaryCorrespondenceModule({ user, users = [], school, year }: { user: AppUser; users?: AppUser[]; school: School; year: SchoolYear }) {
@@ -160,7 +161,7 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
     if (pdfBusyId) return;
     setPdfBusyId(item.id); setMessage("");
     try { await printCorrespondence(item); }
-    catch (error) { console.error("Échec de génération du PDF du courrier", error); setMessage(error instanceof Error ? error.message : "Impossible d'afficher le PDF du courrier."); }
+    catch (error) { console.error("Échec de génération du PDF du courrier", error); setMessage(userFacingError(error, "Impossible d'afficher le PDF du courrier.")); }
     finally { setPdfBusyId(""); }
   }
 
@@ -169,7 +170,7 @@ export function SecretaryCorrespondenceModule({ user, users = [], school, year }
     setExportBusy(true); setMessage("");
     const filters = [queryText.trim() ? `Recherche : ${queryText.trim()}` : "", direction !== "all" ? `Sens : ${direction === "incoming" ? "Entrant" : "Sortant"}` : "", outgoingType !== "all" ? `Type : ${outgoingType}` : "", priority !== "all" ? `Priorité : ${priority}` : "", deliveryMode !== "all" ? `Mode d’acheminement : ${correspondenceDeliveryModeLabel(deliveryMode)}` : ""].filter(Boolean).join(" · ");
     try { await exportCorrespondenceListPdf({ rows: filtered, school, year, filters, typeLabel: (item) => item.direction === "incoming" ? "Courrier entrant" : correspondenceTypeLabel(item.outgoing?.correspondenceType) }); }
-    catch (error) { console.error("Échec de l'export PDF des courriers", error); setMessage(error instanceof Error ? error.message : "Export PDF des courriers impossible."); }
+    catch (error) { console.error("Échec de l'export PDF des courriers", error); setMessage(userFacingError(error, "Export PDF des courriers impossible.")); }
     finally { setExportBusy(false); }
   }
 

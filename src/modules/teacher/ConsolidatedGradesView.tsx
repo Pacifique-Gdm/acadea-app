@@ -5,6 +5,8 @@ import { consolidatedPeriodLabels, consolidatedSelection, rankingPlaces, type Co
 import { consolidatedScoreLabel, consolidatedStudentName, exportConsolidatedGradesPdf } from "./consolidatedGradesPdf";
 import { percentageRankLabel } from "./percentageRankLabel";
 import { editableGradingSlots, type EditableGradingSlot } from "./teacherGrading";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 const initialFilter = (): ConsolidatedFilter => ({ mode: "period", choice: "", placeSlot: "period_1" });
 const gradeModes: Array<[ConsolidatedFilterMode, string]> = [["period", "Par période"], ["course", "Par cours"], ["student", "Par élèves"]];
@@ -25,7 +27,7 @@ export function ConsolidatedGradesView({ report, school, year, className }: { re
     if (exporting || (requiresChoice && !filter.choice)) return;
     setExporting(true); setError("");
     try { await exportConsolidatedGradesPdf({ report, tab, filter, school, year, className }); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Export PDF impossible. Réessayez."); }
+    catch (cause) { setError(userFacingError(cause, "Export PDF impossible. Réessayez.")); }
     finally { setExporting(false); }
   }
 
@@ -49,7 +51,7 @@ export function ConsolidatedGradesView({ report, school, year, className }: { re
     {tab === "ranking" && filter.mode === "place" && <label className="grid min-w-0 gap-1 text-sm font-semibold">Période de référence
       <select className="input min-w-0 w-full" value={filter.placeSlot} onChange={(event) => updateFilter({ ...filter, choice: "", placeSlot: event.target.value as EditableGradingSlot })}>{editableGradingSlots.map((slot) => <option key={slot} value={slot}>{consolidatedPeriodLabels[slot]}</option>)}</select>
     </label>}
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={error} onRetry={() => void exportPdf()} />
     {tab === "grades" ? <section role="tabpanel" className="min-w-0" aria-label="Tableau de cotes">
       <div className="overflow-x-auto rounded border bg-white" role="region" aria-label="Tableau de cotes" tabIndex={0}>
         <table className="min-w-max text-sm"><thead><tr><th className="sticky left-0 bg-white p-2 text-left">Élève</th>{courses.flatMap((course) => slots.map((slot) => <th key={`${course.key}-${slot}`} className="whitespace-nowrap p-2 text-left">{course.name} · {consolidatedPeriodLabels[slot]}</th>))}</tr></thead>

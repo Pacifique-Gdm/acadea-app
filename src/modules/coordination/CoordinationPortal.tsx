@@ -26,6 +26,8 @@ import { useFrozenWhileHidden, useVisitedTabs } from "../../components/layout/ke
 import { HeaderAdBanner } from "../../components/ads/HeaderAd";
 import { useHeaderAd } from "../../hooks/useHeaderAd";
 import { useAdSuppression } from "../../services/adSuppression";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
@@ -65,6 +67,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   const [refreshError, setRefreshError] = useState("");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [error, setError] = useState("");
+  const errorRetry = useLoadRetry(Boolean(error), () => setError(""));
 
   useEffect(() => {
     if (!["coordination_admin", "sub_coordination_admin"].includes(user.role) || !user.coordinationId || (user.role === "sub_coordination_admin" && !user.subCoordinationId) || !db) return undefined;
@@ -109,7 +112,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
       }, () => setError("Impossible de charger la Sous-coordination."))
       : undefined;
     return () => { relationRevision++; stopSchoolListeners.forEach((stop) => stop()); stopCoordination(); stopRelations(); stopSubCoordination?.(); };
-  }, [refreshToken, user.coordinationId, user.role, user.subCoordinationId]);
+  }, [refreshToken, user.coordinationId, user.role, user.subCoordinationId, errorRetry.token]);
 
   const activeSchools = useMemo(() => schools.filter((school) => school.status === "active" && relations.some((relation) => relation.schoolId === school.id)), [relations, schools]);
   // Lot « répartition rapide » : « Répartition des frais » préparée dès la connexion (mêmes écoles que le menu).
@@ -133,6 +136,8 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   const inbox = useCoordinationInbox(user, activeSchools, refreshToken);
   useEffect(() => { syncAppBadge(inbox.unreadCount); }, [inbox.unreadCount]);
 
+  // Supervision en échec : relance par « Réessayer », au retour du réseau ou après quelques secondes.
+  const supervisionRetry = useLoadRetry(Boolean(supervisionError));
   const loadSupervision = useCallback(async () => {
     if (!supervisionScope) { setSupervisionModel(emptySupervisionModel); setLoadedSupervisionScope(""); return; }
     const requestId = ++supervisionRequestRef.current;
@@ -176,7 +181,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   useEffect(() => {
     if (tab !== "dashboard" || !supervisionScope || loadedSupervisionScope === supervisionScope) return;
     void loadSupervision().catch(() => undefined);
-  }, [loadSupervision, loadedSupervisionScope, supervisionScope, tab]);
+  }, [loadSupervision, loadedSupervisionScope, supervisionScope, tab, supervisionRetry.token]);
 
   async function refreshCoordination() {
     setRefreshError("");
@@ -241,8 +246,8 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     <PushNotificationPrompt user={user} />
     <section data-testid="coordination-content" className="mx-auto grid max-w-6xl gap-4 px-4 py-5">
       {tab !== "dashboard" && tab !== "control" && tab !== "students" && <div className="rounded border border-blue-100 bg-blue-50 p-4 text-sm"><b>École</b><select className="input mt-2 w-full" aria-label="Filtrer par école" value={selectedSchoolId} onChange={(event) => setSelectedSchoolId(event.target.value)}><option value="">{user.role === "sub_coordination_admin" ? "Toutes mes écoles" : "Toutes les écoles"} ({activeSchools.length})</option>{activeSchools.map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}</select></div>}
-      {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-      {coordination && <KeptTab id="dashboard" active={tab} visited={visitedTabs}><CoordinationDashboard coordination={coordination} schools={dashboardSchools} selectedSchoolId={dashboardSchoolId} onSchoolChange={setSelectedSchoolId} user={user} model={supervisionModel} loading={supervisionLoading || loadedSupervisionScope !== supervisionScope} loadError={supervisionError} /></KeptTab>}
+      <ErrorNotice error={error} onRetry={errorRetry.retry} />
+      {coordination && <KeptTab id="dashboard" active={tab} visited={visitedTabs}><CoordinationDashboard coordination={coordination} schools={dashboardSchools} selectedSchoolId={dashboardSchoolId} onSchoolChange={setSelectedSchoolId} user={user} model={supervisionModel} loading={supervisionLoading || loadedSupervisionScope !== supervisionScope} loadError={supervisionError} onRetry={supervisionRetry.retry} /></KeptTab>}
       {coordination && <KeptTab id="students" active={tab} visited={visitedTabs}>
         <CoordinationStudents user={user} coordination={coordination} schools={studentsSchools} selectedSchoolId={studentsSchoolId} onSchoolChange={setSelectedSchoolId} refreshToken={studentsToken} active={tab === "students"}/>
       </KeptTab>}

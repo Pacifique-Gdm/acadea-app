@@ -1,7 +1,7 @@
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { listAllowedMessageRecipients, requireMessagingCaller } from "./_lib/messageRecipients.js";
 import { verifyActorIdToken } from "./_lib/activeUser.js";
-import { listPlatformRecipients, requireActiveSuperAdmin, sendPlatformMessage } from "./_lib/platformMessaging.js";
+import { requireActiveSuperAdmin, searchPlatformRecipients, sendPlatformMessage } from "./_lib/platformMessaging.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 
 function sendJson(res, statusCode, body) {
@@ -23,7 +23,8 @@ export default async function handler(req, res) {
       const admin = await requireActiveSuperAdmin(db, decoded);
       if (req.method === "GET") {
         await enforceApiRateLimit({ db, actorId: admin.uid, schoolId: "platform", action: "platform.message.recipients", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
-        return sendJson(res, 200, { recipients: await listPlatformRecipients(db) });
+        // Lot SA-6 : recherche par nom, page par page (plus de liste complète).
+        return sendJson(res, 200, await searchPlatformRecipients(db, req.query ?? {}));
       }
       const body = req.body && typeof req.body === "object" ? req.body : JSON.parse(typeof req.body === "string" ? req.body : "{}");
       const idempotencyKey = typeof req.headers["x-idempotency-key"] === "string" ? req.headers["x-idempotency-key"] : "";

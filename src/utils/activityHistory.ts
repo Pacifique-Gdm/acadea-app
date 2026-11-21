@@ -8,9 +8,11 @@ import { expenseCategoryLabel } from "./expenseCategory";
 
 export type ActivityHistoryItem = {
   id: string;
-  type: "activity" | "message" | "warning" | "payment" | "expense" | "discipline";
+  type: "activity" | "message" | "warning" | "payment" | "expense" | "discipline" | "student";
   title: string;
   actorName: string;
+  /** Compte qui a fait l'action, quand il est connu (filtre « Utilisateur »). */
+  actorId?: string;
   details: string;
   createdAt: string;
 };
@@ -128,7 +130,8 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
       const actor = usersById.get(log.actorId);
       const warningDetails = parseWarningDetails(log.details);
       if (warningDetails && role === "parent") return false;
-      if (role === "admin") return log.subjectUserId ? log.schoolId === user.schoolId : log.actorId === user.id || actor?.role === "cashier" || actor?.role === "discipline_director";
+      // Administrateur : toutes les activités des utilisateurs de son école (secrétaire, caissier, directeurs, enseignants…).
+      if (role === "admin") return log.schoolId === user.schoolId || log.actorId === user.id || actor?.role === "cashier" || actor?.role === "discipline_director";
       if (role === "study_director") return log.subjectUserId ? log.schoolId === user.schoolId : log.actorId === user.id;
       if (role === "teacher") return log.subjectUserId ? log.subjectUserId === user.id && log.schoolId === user.schoolId : log.actorId === user.id;
       if (role === "cashier" || role === "secretary") return log.actorId === user.id;
@@ -148,8 +151,22 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           createdAt: normalizeActivityTimestamp(log.createdAt),
         };
       }
+      if (log.eventType === "student.created" || log.eventType === "student.updated") {
+        const meta = log.metadata ?? {};
+        const who = [meta.student, meta.matricule ? `(${meta.matricule})` : ""].filter(Boolean).join(" ");
+        return {
+          id: `audit-${log.id}`,
+          type: "student",
+          title: action,
+          actorName: log.actorName || "Utilisateur",
+          actorId: log.actorId,
+          details: [who ? `Élève : ${who}` : "", typeof meta.changes === "string" && meta.changes ? meta.changes : meta.fields ? `Champs modifiés : ${meta.fields}` : ""].filter(Boolean).join(" · "),
+          createdAt: normalizeActivityTimestamp(log.createdAt),
+        };
+      }
       return {
         id: `audit-${log.id}`,
+        actorId: log.actorId,
         type: action.toLocaleLowerCase("fr").includes("sanction") ? "discipline" : "activity",
         title: action,
         actorName: log.actorName || "Utilisateur",
@@ -166,6 +183,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           const studentName = student ? `${student.nom} ${student.postnom} ${student.prenom}`.replace(/\s+/g, " ").trim() : "Élève non renseigné";
           return {
             id: `payment-${payment.id}`,
+            actorId: payment.createdBy,
             type: "payment",
             title: "Paiement",
             actorName: payment.cashierName || "Caissier",
@@ -180,6 +198,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
     role === "admin" || role === "cashier"
       ? visibleExpenseRecords.map<ActivityHistoryItem>((expense) => ({
           id: `expense-${expense.id}`,
+          actorId: expense.createdBy,
           type: "expense",
           title: "Dépense",
           actorName: expense.cashierName || "Caissier",
@@ -233,4 +252,36 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
   return [...auditItems, ...messageItems, ...paymentItems, ...expenseItems, ...disciplineItems].sort(
     (a, b) => activityTimestamp(b.createdAt) - activityTimestamp(a.createdAt),
   );
+}
+
+/** Nombre d'activités affichées par page dans le drawer « Historique » (bouton « Voir plus »). */
+export const ACTIVITY_HISTORY_PAGE_SIZE = 30;
+
+export type ActivityHistoryFilters = {
+  query?: string;
+  type?: "all" | ActivityHistoryItem["type"];
+  /** Nom de l'utilisateur ("" = tous). */
+  actor?: string;
+  /** Période, dates incluses, au format AAAA-MM-JJ ("" = sans borne). */
+  from?: string;
+  to?: string;
+};
+
+/** Filtres simples du drawer « Historique » : texte, type d'activité, utilisateur et période. */
+export function filterActivityHistoryItems(items: ActivityHistoryItem[], filters: ActivityHistoryFilters) {
+  const query = filters.query?.trim().toLowerCase() ?? "";
+  const fromTime = filters.from ? Date.parse(`${filters.from}T00:00:00`) : Number.NEGATIVE_INFINITY;
+  const toTime = filters.to ? Date.parse(`${filters.to}T23:59:59.999`) : Number.POSITIVE_INFINITY;
+  return items.filter((item) => {
+    if (filters.type && filters.type !== "all" && item.type !== filters.type) return false;
+    if (filters.actor && item.actorName !== filters.actor) return false;
+    const time = activityTimestamp(item.createdAt);
+    if ((filters.from || filters.to) && (!Number.isFinite(time) || time < fromTime || time > toTime)) return false;
+    return !query || `${item.title} ${item.actorName} ${item.details}`.toLowerCase().includes(query);
+  });
+}
+
+/** Utilisateurs présents dans l'historique, triés par nom, pour le filtre « Utilisateur ». */
+export function activityHistoryActors(items: ActivityHistoryItem[]) {
+  return [...new Set(items.map((item) => item.actorName).filter(Boolean))].sort((a, b) => a.localeCompare(b, "fr"));
 }

@@ -6,6 +6,9 @@ import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import { formatCurrencyMoney } from "../../utils/currency";
 import type { AppUser, PersonnelPayment, School } from "../../types";
 import { createOwnPayrollCache } from "./ownPayrollCache";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 const loadOwnPayroll = createOwnPayrollCache<PersonnelPayment[]>(listOwnPayroll);
 
@@ -15,6 +18,7 @@ export function OwnPayrollEntry({ user, school }: { user: AppUser; school: Schoo
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const errorRetry = useLoadRetry(Boolean(error), () => setError(""));
   const [payments, setPayments] = useState<PersonnelPayment[]>([]);
   const allowed = allowedRoles.has(user.role) && user.schoolId === school.id;
   // Lot 26b : préparation dès l'affichage du Menu (le serveur peut mettre ~5 s à répondre la première fois).
@@ -23,9 +27,9 @@ export function OwnPayrollEntry({ user, school }: { user: AppUser; school: Schoo
     if (!open) return;
     let current = true;
     setLoading(true); setError("");
-    void loadOwnPayroll(user.id).then((items) => { if (current) setPayments(items); }).catch((cause) => { if (current) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (current) setLoading(false); });
+    void loadOwnPayroll(user.id).then((items) => { if (current) setPayments(items); }).catch((cause) => { if (current) setError(userFacingError(cause, "Chargement impossible.")); }).finally(() => { if (current) setLoading(false); });
     return () => { current = false; };
-  }, [open, user.id]);
+  }, [open, user.id, errorRetry.token]);
   if (!allowed) return null;
   return <>
     <button
@@ -46,7 +50,7 @@ export function OwnPayrollEntry({ user, school }: { user: AppUser; school: Schoo
     </button>
     {open && <AdminDrawer title="Salaire/Prime" closeLabel="Fermer mes salaires et primes" onClose={() => setOpen(false)}>
       {loading && <p role="status">Chargement des paiements…</p>}
-      {error && <p role="alert" className="text-red-700">{error}</p>}
+      <ErrorNotice error={error} onRetry={errorRetry.retry} />
       {!loading && !error && payments.length === 0 && <p>Aucun salaire ou prime enregistré.</p>}
       <div className="grid gap-3">{payments.map((payment) => <article key={payment.id} className="grid min-w-0 gap-2 rounded border border-slate-200 p-3 text-sm">
         <strong>{payment.kind === "salary" ? "Salaire" : "Prime"} — {String(payment.periodMonth).padStart(2, "0")}/{payment.periodYear}</strong>

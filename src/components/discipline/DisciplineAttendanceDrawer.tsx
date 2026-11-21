@@ -5,6 +5,8 @@ import { canonicalOperationalClasses, studentBelongsToOperationalClass } from ".
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { attendanceSchoolDayFromDate, attendanceSchoolDayLabels, resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type ManualAttendanceInput = {
   studentId: string;
@@ -390,7 +392,7 @@ function DisciplineAttendanceView({ students, attendance, classRecords = noClass
       if (result.failed > 0) summaryParts.push(`${result.failed} échec(s)`);
       setSuccess(summaryParts.length > 0 ? `${summaryParts.join(". ")}.` : "Présence enregistrée avec succès.");
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Impossible d'enregistrer la présence manuelle.");
+      setError(userFacingError(saveError, "Impossible d'enregistrer la présence manuelle."));
     } finally {
       setSaving(false);
     }
@@ -572,7 +574,7 @@ function DisciplineAttendanceView({ students, attendance, classRecords = noClass
             </div>
           )}
         </div>
-        {error && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+        <ErrorNotice error={error} onRetry={() => void saveManualAttendance()} />
         {success && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{success}</p>}
         <p className="text-xs font-semibold text-slate-500">Source enregistrée : manuel. Aucune empreinte biométrique brute n'est stockée.</p>
       </section>

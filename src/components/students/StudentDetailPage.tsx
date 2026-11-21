@@ -17,6 +17,8 @@ import { isArchivedStudent } from "../../utils/studentUtils";
 import { applyParentLinkResult, applyParentUnlinkResult, isExactParentLinkConfirmation, isExactParentUnlinkConfirmation, PARENT_LINK_CONFIRMATION, PARENT_UNLINK_CONFIRMATION } from "../../utils/parentStudentLink";
 import type { AppData, AppUser, ParentProfile, School, SchoolYear } from "../../types";
 import { StudentPhoto } from "./StudentPhoto";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type StudentDetailYearData = Pick<AppData, "students" | "parents" | "feeTypes" | "payments" | "auditLogs">;
 
@@ -106,7 +108,7 @@ export function StudentDetailPage({
       setParentLinkError("");
       setParentFeedback("Le parent a été lié à cet élève.");
     } catch (error) {
-      setParentLinkError(error instanceof Error ? error.message : "Liaison du parent impossible.");
+      setParentLinkError(userFacingError(error, "Liaison du parent impossible."));
     } finally {
       setParentLinkBusy(false);
     }
@@ -211,7 +213,7 @@ export function StudentDetailPage({
       setParentUnlinkConfirmation("");
       setParentFeedback("Le parent a été délié de cet élève.");
     } catch (error) {
-      setParentUnlinkError(error instanceof Error ? error.message : "Déliaison du parent impossible.");
+      setParentUnlinkError(userFacingError(error, "Déliaison du parent impossible."));
     } finally {
       setParentUnlinkBusy(false);
     }
@@ -247,7 +249,7 @@ export function StudentDetailPage({
           <Metric label="Sexe" value={student.sexe} />
           <Metric label="Date de naissance" value={student.birthDate} />
           <Metric label="Adresse" value={student.address} />
-          {parentLoading ? <p role="status">Chargement du parent…</p> : parentError ? <p role="alert">{parentError}</p> : parent && canManageParentLink ? (
+          {parentLoading ? <p role="status">Chargement du parent…</p> : parentError ? <ErrorNotice error={parentError} /> : parent && canManageParentLink ? (
             <div className="min-w-0 rounded border border-slate-100 p-3">
               <p className="text-xs uppercase tracking-wide text-slate-400">Parent</p>
               <div className="mt-1 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -278,7 +280,7 @@ export function StudentDetailPage({
           )}
         </FormPanel>
 
-        {showPaymentSummary && (financialLoading ? <p role="status">Chargement des paiements…</p> : financialError ? <p role="alert">{financialError}</p> : <FormPanel title="Paiements">
+        {showPaymentSummary && (financialLoading ? <p role="status">Chargement des paiements…</p> : financialError ? <ErrorNotice error={financialError} /> : <FormPanel title="Paiements">
           <Metric label="Total frais" value={`$${balance.expected}`} />
           <Metric label="Total payé" value={`$${balance.paid}`} />
           <Metric label="Solde" value={`$${balance.remaining}`} />
@@ -288,7 +290,7 @@ export function StudentDetailPage({
         </FormPanel>)}
 
         {!financialLoading && !financialError && <FormPanel title="Historique des paiements">
-          {paymentDocumentError && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{paymentDocumentError}</p>}
+          <ErrorNotice error={paymentDocumentError} />
           <div className="max-h-80 space-y-2 overflow-y-auto pr-1 scrollbar-thin">
             {payments.length === 0 && <p className="text-sm text-slate-500">Aucun paiement enregistré.</p>}
             {payments.map((payment) => {
@@ -353,7 +355,7 @@ export function StudentDetailPage({
                     onChange={(event) => setParentLinkConfirmation(event.target.value)}
                   />
                 </label>
-                {parentLinkError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 font-semibold text-red-700">{parentLinkError}</p>}
+                <ErrorNotice error={parentLinkError} />
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" className="secondary-button justify-center" onClick={() => { setParentLinkTarget(null); setParentLinkConfirmation(""); setParentLinkError(""); }}>Annuler</button>
                   <button
@@ -394,7 +396,7 @@ export function StudentDetailPage({
                 onChange={(event) => setParentUnlinkConfirmation(event.target.value)}
               />
             </label>
-            {parentUnlinkError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentUnlinkError}</p>}
+            <ErrorNotice error={parentUnlinkError} onRetry={() => void confirmParentUnlink()} />
             <div className="grid grid-cols-2 gap-2">
               <button type="button" className="secondary-button justify-center" disabled={parentUnlinkBusy} onClick={closeParentUnlink}>Annuler</button>
               <button

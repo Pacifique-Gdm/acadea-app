@@ -52,8 +52,9 @@ describe("actions Contrôle partagées selon le rôle", () => {
     expect(source).toContain('cashierControlDrawer === "expense"');
   });
 
-  it("place les deux validations financières du drawer en pleine largeur", () => {
-    expect(source).toContain('disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center"');
+  it("place les deux validations financières du drawer en pleine largeur (paiement : partagée avec « Ajouter un élève »)", () => {
+    expect(source).toContain('disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button min-w-0 w-full justify-center whitespace-normal"');
+    expect(source).toContain('paymentStudentRecordRights.canCreate ? "grid min-w-0 grid-cols-2 gap-2" : "grid min-w-0"');
     expect(source).toContain('disabled={isExpenseEntryIncomplete || expenseRubricBlocked || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button w-full justify-center"');
   });
 

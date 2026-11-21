@@ -360,8 +360,10 @@ describe("API de provisionnement Acadéa", () => {
     expect(mocks.db.runTransaction).not.toHaveBeenCalled();
   });
 
+  // Lot C : le caissier a les droits du secrétaire sur la fiche élève (lien parent compris) ; l'enseignant reste refusé.
   it.each([
-    ["cashier", "school-1"],
+    ["teacher", "school-1"],
+    ["cashier", "school-2"],
     ["school_admin", "school-2"],
   ])("refuse le rôle ou l'école non autorisés (%s, %s)", async (role, callerSchoolId) => {
     configureParentUnlinkScenario({ callerRole: role, callerSchoolId });

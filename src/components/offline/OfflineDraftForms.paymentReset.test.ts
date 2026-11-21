@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { userFacingError } from "../../utils/userFacingError";
 
 const source = readFileSync(new URL("./OfflineDraftForms.tsx", import.meta.url), "utf8");
 function submit(captureOfflineDraft: () => Promise<void>) {
@@ -10,7 +11,7 @@ function submit(captureOfflineDraft: () => Promise<void>) {
   visit(ast);
   const state: Record<string, unknown> = { StudentId: "student-a", FeeTypeId: "fee-a", Amount: "20", Note: "note-a" };
   const setters = Object.fromEntries(["Saving", "Message", "StudentId", "FeeTypeId", "Confirmation", "Score", "Reason", "Amount", "Note"].map(k => [`set${k}`, (v: unknown) => { state[k] = v; }]));
-  const bindings = { ...setters, context: {}, savingRef: { current: false }, scope: { userId: "fictif" }, role: "cashier", studentId: "student-a", fee: { id: "fee-a", currency: "USD", amount: 100 }, amount: "20", note: "note-a", captureOfflineDraft };
+  const bindings = { ...setters, userFacingError, context: {}, savingRef: { current: false }, scope: { userId: "fictif" }, role: "cashier", studentId: "student-a", fee: { id: "fee-a", currency: "USD", amount: 100 }, amount: "20", note: "note-a", captureOfflineDraft };
   const js = ts.transpileModule(body, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   return { state, save: new Function(...Object.keys(bindings), `${js};return save;`)(...Object.values(bindings)) as () => Promise<void> };
 }

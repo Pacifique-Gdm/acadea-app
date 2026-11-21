@@ -17,6 +17,9 @@ import { userSectionIds } from "../../utils/userSections";
 import { printPersonnelListPdf, printPersonnelProfilePdf } from "../../utils/personnelPdf";
 import { PersonnelProfileReadOnly } from "../../components/personnel/PersonnelProfileReadOnly";
 import { PersonnelPaymentHistory } from "../../components/personnel/PersonnelPaymentHistory";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type ProfileForm = Partial<Omit<PersonnelProfile, "id" | "schoolId" | "personnelId" | "matricule" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy">>;
 
@@ -55,6 +58,8 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
   const [photoFile, setPhotoFile] = useState<File>();
   const [loading, setLoading] = useState(true), [serviceLoading, setServiceLoading] = useState(user.role === "school_admin"), [busy, setBusy] = useState(false);
   const [error, setError] = useState(""), [success, setSuccess] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const schoolSections = getSchoolSections(school);
   const sectionOptions = schoolSections.map((section) => ({ value: section, label: schoolSectionLabels[section] }));
 
@@ -63,14 +68,14 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
 
   useEffect(() => subscribeToSchoolPersonnel({
     user, schoolId: school.id,
-    onData: (items) => { setPersonnel(items); setSelected((current) => current && !isServicePersonnel(current) ? items.find((item) => item.id === current.id) : current); setLoading(false); setError(""); },
-    onError: () => { setLoading(false); setError("Impossible d’actualiser les personnels."); },
-  }), [school.id, user]);
+    onData: (items) => { setPersonnel(items); setSelected((current) => current && !isServicePersonnel(current) ? items.find((item) => item.id === current.id) : current); setLoading(false); setErrorLoad(""); },
+    onError: () => { setLoading(false); setErrorLoad("Impossible d’actualiser les personnels."); },
+  }), [school.id, user, errorLoadRetry.token]);
   useEffect(() => subscribeToServicePersonnel({
     user, schoolId: school.id,
     onData: (items) => { setServicePersonnel(items); setSelected((current) => current && isServicePersonnel(current) ? items.find((item) => item.id === current.id) : current); setServiceLoading(false); },
-    onError: () => { setServiceLoading(false); setError("Impossible d’actualiser les fiches de service."); },
-  }), [school.id, user]);
+    onError: () => { setServiceLoading(false); setErrorLoad("Impossible d’actualiser les fiches de service."); },
+  }), [school.id, user, errorLoadRetry.token]);
   const selectedId = selected?.id;
   useEffect(() => {
     if (!selectedId) {
@@ -84,9 +89,9 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
       schoolId: school.id,
       personnelId: selectedId,
       onData: (nextProfile) => { setProfile(nextProfile); setProfileReady(true); },
-      onError: () => { setProfileReady(true); setError("Impossible d’actualiser la fiche administrative."); },
+      onError: () => { setProfileReady(true); setErrorLoad("Impossible d’actualiser la fiche administrative."); },
     });
-  }, [school.id, selectedId, user]);
+  }, [school.id, selectedId, user, errorLoadRetry.token]);
 
   const visible = useMemo(() => ([...personnel, ...servicePersonnel] as PersonnelRecord[])
     .filter((item) => !allowedRoles || !isServicePersonnel(item) && allowedRoles.includes(item.role))
@@ -124,7 +129,7 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
       setEditing(false); setSuccess("Personnel modifié avec succès.");
     } catch (cause) {
       if (uploaded.photoPath) await deletePersonnelPhoto(uploaded.photoPath);
-      setError(cause instanceof Error ? cause.message : "Modification impossible.");
+      setError(userFacingError(cause, "Modification impossible."));
     } finally { setBusy(false); }
   }
 
@@ -138,13 +143,13 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
       if (isServicePersonnel(selected)) await changeServicePersonnelStatus({ schoolId: school.id, personnelId: selected.id, archive: confirming === "archive" });
       else if (confirming === "archive") await archivePersonnel({ schoolId: school.id, personnelId: selected.id }); else await reactivatePersonnel({ schoolId: school.id, personnelId: selected.id });
       setConfirming(undefined); setStatusConfirmation(""); setSelected(undefined); setSuccess(confirming === "archive" ? "Personnel archivé avec succès." : "Personnel réactivé avec succès.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Changement de statut impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Changement de statut impossible.")); }
     finally { setBusy(false); }
   }
 
   return <div className="grid gap-4">
     <div className={`grid min-w-0 ${onCreatePersonnel ? "grid-cols-3" : "grid-cols-2"} gap-2`}>{onCreatePersonnel && <button type="button" className="secondary-button min-w-0 w-full justify-center break-words px-1 text-center text-xs sm:px-3 sm:text-sm" onClick={onCreatePersonnel} >{createButtonLabel}</button>}<div ref={statusDropdownRef} className="relative min-w-0"><button type="button" className="secondary-button min-w-0 w-full justify-center break-words px-1 text-center text-xs sm:px-3 sm:text-sm" aria-haspopup="listbox" aria-expanded={statusOpen} onClick={() => setStatusOpen((current) => !current)}>Statut : {view === "active" ? "Actifs" : "Archivés"} <ChevronDown className="h-4 w-4 shrink-0"/></button>{statusOpen && <div role="listbox" aria-label="Filtrer les personnels" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="option" aria-selected={view === "active"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("active"); setStatusOpen(false); }}>Actifs</button><button role="option" aria-selected={view === "archived"} type="button" className="min-h-10 rounded px-3 text-left hover:bg-slate-50" onClick={() => { setView("archived"); setStatusOpen(false); }}>Archivés</button></div>}</div><button type="button" className="primary-button min-w-0 w-full justify-center break-words px-1 text-center text-xs sm:px-3 sm:text-sm" disabled={loading || serviceLoading || visible.length === 0} onClick={() => void printPersonnelListPdf(school, visible, view)}><Printer className="h-4 w-4 shrink-0"/> Imprimer</button></div>
-    {error && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}{success && <p role="status" aria-live="polite" className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">{success}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />{success && <p role="status" aria-live="polite" className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">{success}</p>}
     {loading || serviceLoading ? <p className="py-8 text-center text-sm text-slate-500">Chargement des personnels…</p> : <div className="grid gap-2">{visible.map((item) => <article key={item.id} className="grid gap-2 rounded border border-slate-200 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"><div className="min-w-0"><button type="button" className="break-words text-left font-semibold text-blue-700 hover:underline focus-visible:ring-2 focus-visible:ring-blue-600" onClick={() => { setSelected(item); setProfile(undefined); clearFeedback(); }}>{item.name}</button><p className="text-sm text-slate-600">{isServicePersonnel(item) ? item.jobTitle : personnelRoleLabels[item.role as keyof typeof personnelRoleLabels]}</p><p className="break-all text-xs text-slate-500">{item.phone || "Non renseigné"}{!isServicePersonnel(item) && ` · ${item.email}`}</p></div><span className={`w-fit rounded-full px-2 py-1 text-xs font-semibold ${isArchivedPersonnel(item) ? "bg-slate-200 text-slate-700" : "bg-green-100 text-green-800"}`}>{isArchivedPersonnel(item) ? "Archivé" : "Actif"}</span></article>)}{visible.length === 0 && <p className="rounded bg-slate-50 p-6 text-sm text-slate-500">Aucun personnel {view === "active" ? "actif" : "archivé"}.</p>}</div>}
 
     {selected && <AdminDrawer title={`Personnel — ${selected.name}`} closeLabel="Fermer la fiche Personnel" onClose={closeSelected}>
@@ -171,7 +176,7 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
         <EditSection title="5. INFORMATIONS COMPLÉMENTAIRES"><div className="grid min-w-0 gap-3 sm:grid-cols-2"><Field label="Personne à contacter" value={profileForm.emergencyContactName ?? ""} onChange={(emergencyContactName) => setProfileForm((current) => ({ ...current, emergencyContactName }))}/><Field label="Lien avec la personne" value={profileForm.emergencyContactRelationship ?? ""} onChange={(emergencyContactRelationship) => setProfileForm((current) => ({ ...current, emergencyContactRelationship }))}/><Field label="Téléphone de la personne à contacter" value={profileForm.emergencyContactPhone ?? ""} onChange={(emergencyContactPhone) => setProfileForm((current) => ({ ...current, emergencyContactPhone }))}/></div></EditSection>
         <EditSection title="6. OBSERVATIONS"><label className="grid min-w-0 gap-1 text-sm font-semibold">Observations<textarea className="input min-h-32 min-w-0 resize-y" value={profileForm.observations ?? ""} onChange={(event) => setProfileForm((current) => ({ ...current, observations: event.target.value }))}/></label></EditSection>
         <EditSection title="7. INFORMATIONS SYSTÈME — LECTURE SEULE"><NativeField label="Date d’établissement de la fiche" value={dateShown(selected.createdAt)} readOnly/></EditSection>
-        {error && <p role="alert" aria-live="assertive" className="text-sm text-red-700">{error}</p>}
+        <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
         <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={closeEdit}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void saveEdit()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
       </div>
     </AdminDrawer>}

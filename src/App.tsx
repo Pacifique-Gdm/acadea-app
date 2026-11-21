@@ -67,6 +67,7 @@ import { markAuthStep, measureAuthStep } from "./utils/authPerformance";
 import { getPlatformSchoolStats } from "./utils/platformSchoolStats";
 import { firebaseErrorCode, logRefreshError, refreshErrorMessage, retryableRefreshError } from "./utils/refreshErrors";
 import { userFacingError } from "./utils/userFacingError";
+import { RECONNECT_EVENT } from "./components/ui/reconnect";
 import { runRefreshTask } from "./utils/refreshTask";
 import { resolveSchoolCurrency, schoolWithYearCurrency } from "./utils/currency";
 import { filterByAllowedSections } from "./utils/userSections";
@@ -661,7 +662,7 @@ export default function App() {
           logoutInProgress: logoutInProgressRef.current,
         }));
         if (!logoutInProgressRef.current) {
-          setAuthError(userFacingError(error, "Session Firebase invalide."));
+          setAuthError(userFacingError(error, "Session invalide."));
         }
         setOfflineAccess(null);
         setUser(null);
@@ -679,7 +680,7 @@ export default function App() {
       .catch((error) => {
         if (cancelled) return;
         console.error("[Acadéa auth] Firebase indisponible.", { code: firebaseErrorCode(error) });
-        setAuthError(userFacingError(error, "Configuration Firebase indisponible."));
+        setAuthError(userFacingError(error, "Service Acadéa indisponible pour le moment."));
         setAuthReady(true);
       });
 
@@ -718,7 +719,7 @@ export default function App() {
           setData(firestoreData);
         } catch (error) {
           if (cancelled || logoutInProgressRef.current) return;
-          console.warn("Chargement Firestore indisponible.", error);
+          console.warn("Chargement des données indisponible.", error);
           setData({ ...loadInitialData(), users: [bootstrapUser] });
           setPlatformLoadError("Impossible de charger les écoles. Réessayez après actualisation.");
           setAuthError(userFacingError(error, "Chargement des données impossible après connexion."));
@@ -887,7 +888,7 @@ export default function App() {
         })
         .catch((error) => {
           if (requestVersion !== yearRequestVersion.current) return;
-          console.warn("Chargement Firestore indisponible pour cette année scolaire.", error);
+          console.warn("Chargement des données indisponible pour cette année scolaire.", error);
           setRefreshError(refreshErrorMessage(error));
         })
         .finally(() => {
@@ -992,7 +993,7 @@ export default function App() {
         applySecondaryRefreshResult(section, error ? refreshErrorMessage(error) : "");
         if (error) logRefreshError({ module: section, error });
       });
-      if (!next) throw new Error("Actualisation Firestore indisponible.");
+      if (!next) throw new Error("Actualisation des données indisponible.");
       return next;
     }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); setRefreshError(""); }, onError: (error) => {
       if (requestVersion !== yearRequestVersion.current) return;
@@ -1010,12 +1011,22 @@ export default function App() {
     return () => window.removeEventListener("online", retry);
   }, [hasSchoolRefreshIssue, user?.role, refreshCurrentYearData]);
 
+  // Bouton « Se reconnecter » d'un message d'erreur (session expirée) : même
+  // chemin que « Déconnexion », puis écran de connexion.
+  const reconnectRef = useRef(logout);
+  useEffect(() => { reconnectRef.current = logout; });
+  useEffect(() => {
+    const onReconnect = () => { void reconnectRef.current(); };
+    window.addEventListener(RECONNECT_EVENT, onReconnect);
+    return () => window.removeEventListener(RECONNECT_EVENT, onReconnect);
+  }, []);
+
   async function refreshDisciplineData() {
     if (refreshInFlightRef.current || !user || !selectedYearId || !canUseFirestoreData()) return;
     const requestVersion = yearRequestVersion.current;
     return runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, retryOnError: retryableRefreshError, load: async () => {
       const next = await loadDisciplineYearData(user, selectedYearId);
-      if (!next) throw new Error("Actualisation Firestore indisponible.");
+      if (!next) throw new Error("Actualisation des données indisponible.");
       return next;
     }, apply: (next) => { if (requestVersion !== yearRequestVersion.current) return; setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); setRefreshError(""); }, onError: (error) => {
       if (requestVersion !== yearRequestVersion.current) return;
@@ -1028,7 +1039,7 @@ export default function App() {
     if (refreshInFlightRef.current || !user || !canUseFirestoreData()) return;
     return runRefreshTask({ lock: refreshInFlightRef, setRefreshing: setIsRefreshing, retryOnError: retryableRefreshError, load: async () => {
       const next = await loadParentPortalData(user);
-      if (!next) throw new Error("Actualisation Firestore indisponible.");
+      if (!next) throw new Error("Actualisation des données indisponible.");
       return next;
     }, apply: (next) => { setData((previous) => ({ ...previous, ...next })); setDataRefreshToken((value) => value + 1); setRefreshError(""); }, onError: (error) => {
       logRefreshError({ module: "parent", error });

@@ -71,11 +71,11 @@ describe("3 à 11. présentation", () => {
     expect(social).toContain("<div className=\"text-justify\" data-justified>");
     expect(sharing).toContain("grid gap-1 text-justify text-sm");
   });
-  it("9. « Actualiser » : bouton icône à droite de l'action, même ligne", () => {
+  it("9. « Actualiser » : bouton icône, à droite de la ligne du statut (21/11)", () => {
     expect(activation).not.toContain(">Actualiser</Action>");
     expect(activation).toContain("<RefreshCw aria-hidden");
     expect(activation).toContain("<span className=\"sr-only\">Actualiser</span>");
-    expect(activation).toContain("{node}{refreshButton}</div>");
+    expect(activation).toContain("</h3>{view && refreshButton}</div>");
   });
   it("10. « Annuler » et « Enregistrer la répartition » moitié-moitié", () => {
     expect(drawer).toContain("<div className=\"mt-4 grid w-full grid-cols-2 gap-2\" data-editor-actions>");

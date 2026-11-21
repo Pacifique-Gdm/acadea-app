@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import type { PedagogicalAssignment } from "../studies/studyTypes";
 import { loadTeacherGradingRoster, type TeacherGradingData } from "./teacherGradingService";
+import { userFacingError } from "../../utils/userFacingError";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 export function useTeacherGradingRoster(assignment: PedagogicalAssignment | undefined, schoolId: string, schoolYearId: string) {
   const [roster, setRoster] = useState<{ assignmentId: string; students: TeacherGradingData["students"] }>();
   const [error, setError] = useState("");
+  const { token: loadRetryToken, retry } = useLoadRetry(Boolean(error));
 
   useEffect(() => {
     if (!assignment) return;
@@ -17,7 +20,7 @@ export function useTeacherGradingRoster(assignment: PedagogicalAssignment | unde
         const next = await loadTeacherGradingRoster({ schoolId, schoolYearId, assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId });
         if (active) { setRoster(next); setError(""); }
       } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : "Actualisation des élèves impossible.");
+        if (active) setError(userFacingError(cause, "Actualisation des élèves impossible."));
       } finally { inFlight = false; }
     };
     void refreshRoster();
@@ -25,7 +28,7 @@ export function useTeacherGradingRoster(assignment: PedagogicalAssignment | unde
     const onVisibilityChange = () => { if (document.visibilityState === "visible") void refreshRoster(); };
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () => { active = false; window.clearInterval(interval); document.removeEventListener("visibilitychange", onVisibilityChange); };
-  }, [assignment, schoolId, schoolYearId]);
+  }, [assignment, schoolId, schoolYearId, loadRetryToken]);
 
-  return { roster, error };
+  return { roster, error, retry };
 }
