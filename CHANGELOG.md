@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.18.4] — 2026-11-21 — Correction
+- Changement de classe refusé (écran et serveur) pour un élève qui a déjà des paiements cette année, en attendant le remboursement automatique du trop-perçu ; sans paiement, le changement reste possible
+
 ## [1.18.3] — 2026-11-21 — Correction
 - Aucune donnée d'un compte visible pour le suivant quand la session se termine toute seule (compte désactivé, session expirée) ou quand un autre compte se connecte dans un autre onglet (P4 lot 3)
 
