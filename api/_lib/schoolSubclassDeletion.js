@@ -15,7 +15,7 @@ export async function deleteSchoolSubclass({ db, caller, body }) {
   const subclassId = typeof body.subclassId === "string" ? body.subclassId.trim() : "";
   if (!schoolId || !schoolYearId || !subclassId) reject("École, année et sous-classe requises.", 400, "invalid-argument");
   if (body.confirmation !== confirmationText) reject("Confirmation de suppression invalide.", 400, "invalid-confirmation");
-  if (!["school_admin", "secretary"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) {
+  if (!["school_admin", "secretary", "cashier"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) {
     reject("Suppression de sous-classe non autorisée.", 403, "permission-denied");
   }
   await requireActiveSchoolYear(db, schoolId, schoolYearId);

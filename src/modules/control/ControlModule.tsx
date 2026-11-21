@@ -1,7 +1,7 @@
 import { useAdSuppression } from "../../services/adSuppression";
 import { supportBalance } from "../../../api/_lib/socialSupportMath.js";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
+import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, UserPlus, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
 import { AllocationRubricSelect, formatRubricAmount, rubricSpendCheck, useAllocationSpendOptions } from "../../components/AllocationRubricSelect";
@@ -34,12 +34,16 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { resolveSchoolCurrency } from "../../utils/currency";
 import { remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
+import { showNoPaymentStudentFound } from "../../utils/paymentStudentSearch";
 import { formatCount } from "../../utils/numberFormat";
 import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
 import type { AppData, AppUser, AuditLog, CashInflow, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
+import { StudentRecordDrawer, type StudentRecordTarget } from "../../components/students/StudentRecordDrawer";
+import { cashierStudentRecordCapabilities } from "../../utils/cashierStudentRecords";
+import { getSchoolClassChoices } from "../../utils/schoolConfig";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
@@ -120,6 +124,9 @@ export function ControlModule({
   const [recordedPersonnelPayment, setRecordedPersonnelPayment] = useState<PersonnelPayment>();
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | "inflow" | null>(null);
+  // Fiche élève officielle ouverte depuis « Enregistrer un paiement » (création ou modification).
+  const [paymentStudentRecord, setPaymentStudentRecord] = useState<StudentRecordTarget | null>(null);
+  const paymentStudentRecordRights = cashierStudentRecordCapabilities(user, year);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [financialMutationId, setFinancialMutationId] = useState("");
@@ -1619,7 +1626,7 @@ export function ControlModule({
                 {paymentStudentQuery.trim() === "" && (
                   <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez un nom ou un matricule pour afficher les élèves.</p>
                 )}
-                {paymentStudentQuery.trim() !== "" && paymentStudentResults.length === 0 && (
+                {showNoPaymentStudentFound(paymentStudentQuery, paymentStudentResults.length, Boolean(selectedPaymentStudent)) && (
                   <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élève trouvé.</p>
                 )}
                 {!selectedPaymentStudent && paymentStudentResults.length > 0 && (
@@ -1642,6 +1649,7 @@ export function ControlModule({
                 {selectedPaymentStudent && (
                   <div className="flex min-w-0 items-center gap-2 rounded bg-mint/10 py-1.5 pl-3 pr-1.5 text-sm font-semibold text-mint">
                     <span className="min-w-0 flex-1 break-words">Élève sélectionné : {selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}</span>
+                    {paymentStudentRecordRights.canEdit && <button type="button" aria-label="Modifier la fiche de l’élève" title="Modifier la fiche de l’élève" onClick={() => setPaymentStudentRecord({ mode: "edit", student: selectedPaymentStudent })} disabled={paymentSubmitting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint disabled:opacity-50"><Edit3 className="h-4 w-4" aria-hidden="true" /></button>}
                     <button type="button" aria-label="Effacer l’élève sélectionné" title="Effacer l’élève sélectionné" onClick={clearPaymentStudent} disabled={paymentSubmitting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint disabled:opacity-50"><X className="h-4 w-4" aria-hidden="true" /></button>
                   </div>
                 )}
@@ -1670,7 +1678,32 @@ export function ControlModule({
                 Description
                 <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description du paiement (facultatif)" />
               </label>
-              <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              <div className={paymentStudentRecordRights.canCreate ? "grid min-w-0 grid-cols-2 gap-2" : "grid min-w-0"}>
+                {paymentStudentRecordRights.canCreate && <button type="button" onClick={() => setPaymentStudentRecord({ mode: "create" })} disabled={paymentSubmitting} className="secondary-button min-w-0 justify-center whitespace-normal disabled:opacity-50"><UserPlus className="h-4 w-4 shrink-0" aria-hidden="true" /> Ajouter un élève</button>}
+                <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button min-w-0 w-full justify-center whitespace-normal" type="button"><Plus className="h-4 w-4 shrink-0" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              </div>
+              {paymentStudentRecord && (paymentStudentRecordRights.canCreate || paymentStudentRecordRights.canEdit) && (
+                <StudentRecordDrawer
+                  data={data}
+                  school={school}
+                  year={year}
+                  updateData={updateData}
+                  uid={createId}
+                  target={paymentStudentRecord}
+                  capabilities={paymentStudentRecordRights}
+                  studentRecords={data.students}
+                  parents={yearData.parents}
+                  classChoices={getSchoolClassChoices(school)}
+                  onClose={() => setPaymentStudentRecord(null)}
+                  onSaved={(student) => {
+                    // Retour au paiement : l'élève enregistré est sélectionné, ses montants se recalculent.
+                    setPaymentStudentRecord(null);
+                    selectPaymentStudent(student);
+                    setCashierControlFeedback("Élève enregistré. Vous pouvez enregistrer son paiement.");
+                    setCashierControlFeedbackDrawer("payment");
+                  }}
+                />
+              )}
             </>
           )}
           {cashierControlDrawer === "former" && <FormerStudentPaymentForm school={school} year={year} students={yearData.students} payments={yearData.payments} onRecorded={() => { void refreshExpenseCashBalance().catch(() => {}); }} />}
