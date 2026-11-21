@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.18.3] — 2026-11-21 — Correction
+- Aucune donnée d'un compte visible pour le suivant quand la session se termine toute seule (compte désactivé, session expirée) ou quand un autre compte se connecte dans un autre onglet (P4 lot 3)
+
 ## [1.18.2] — 2026-11-21 — Correction
 - Historique : ajouts et modifications d'élèves (qui, quand, avant / après) dans le drawer « Historique » de l'administrateur, avec toutes les activités des utilisateurs de l'école, filtres utilisateur, type et période, et « Voir plus » ; bouton « Ajouter un élève » du caissier sur une seule ligne, avec l'icône de l'onglet Élèves ; bandeau de l'élève sélectionné avec le nom seul
 
