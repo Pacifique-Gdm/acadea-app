@@ -5,6 +5,7 @@ Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/vers
 
 ## [1.17.1] — 2026-11-21 — Correction
 - Répartition des frais : boutons « Enregistrer » et « Ajouter », champ « Nouvelle rubrique » assez large, icône « Actualiser » à droite du statut
+- Répartition des frais : sans répartition configurée, ni tableaux ni « Non affecté » (écran et PDF), seulement « Aucune répartition n'est encore configurée. Cliquez sur « + Ajouter » pour commencer. »
 
 ## [1.17.0] — 2026-11-21 — Fonctionnalité
 - Super administrateur : les destinataires des messages se cherchent par nom, page par page, et la messagerie ne se recharge plus à chaque ouverture (lot 6)

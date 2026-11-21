@@ -16,6 +16,9 @@ export type AllocationRow = { key: string; schoolId: string; schoolName: string;
     formerMinor: number } };
 export type AllocationFinancialField = keyof NonNullable<AllocationRow["financial"]>;
 export const unavailableAllocation = "Indisponible — répartition en préparation";
+/** Lot du 21/11 : sans répartition configurée (école et année actives), ni tableaux ni « Non affecté », à l'écran comme dans le PDF. */
+export const noAllocationConfigured = "Aucune répartition n'est encore configurée. Cliquez sur « + Ajouter » pour commencer.";
+export const allocationConfigured = (workspaces: Pick<AllocationWorkspace, "configs">[]) => workspaces.some((w) => w.configs.length > 0);
 export const allocationFeeKey = (schoolId: string, feeId: string) => JSON.stringify([schoolId, feeId]);
 export const allocationClassKey = (schoolId: string, classKey: string) => JSON.stringify([schoolId, classKey]);
 export const allocationClassLabel = (value: string) => value.replace("::option::", " — ");
