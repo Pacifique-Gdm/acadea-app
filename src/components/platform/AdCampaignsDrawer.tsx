@@ -33,6 +33,9 @@ import {
   saveAdCampaign,
   saveAdRotationSeconds,
 } from "../../services/adCampaigns";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type View = "list" | "form" | "stats";
 
@@ -82,6 +85,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
   const [rotationInput, setRotationInput] = useState(String(AD_DEFAULT_ROTATION_SECONDS));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const errorRetry = useLoadRetry(Boolean(error), () => setError(""));
   const [feedback, setFeedback] = useState("");
   const [busy, setBusy] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -105,11 +109,12 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
         setCampaigns(result.campaigns);
         setRotationSeconds(result.rotationSeconds);
         setRotationInput(String(result.rotationSeconds));
+        setError("");
       })
-      .catch((loadError) => { if (active) setError(loadError instanceof Error ? loadError.message : "Chargement impossible."); })
+      .catch((loadError) => { if (active) setError(userFacingError(loadError, "Chargement impossible.")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [errorRetry.token]);
 
   const sorted = useMemo(() => {
     const order: Record<AdPhase, number> = { running: 0, scheduled: 1, draft: 2, stopped: 3, ended: 4 };
@@ -166,7 +171,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
       setFormErrors([]);
       setView("form");
     } catch (openError) {
-      setFeedback(openError instanceof Error ? openError.message : "Ouverture impossible.");
+      setFeedback(userFacingError(openError, "Ouverture impossible."));
     } finally {
       setBusy(false);
     }
@@ -210,7 +215,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
       setFeedback(status === "scheduled" ? `Campagne « ${campaign.brand} » programmée.` : `Brouillon « ${campaign.brand} » enregistré.`);
       setView("list");
     } catch (saveError) {
-      setFormErrors([saveError instanceof Error ? saveError.message : "Enregistrement impossible."]);
+      setFormErrors([userFacingError(saveError, "Enregistrement impossible.")]);
     } finally {
       setBusy(false);
     }
@@ -224,7 +229,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
       setCampaigns(updated);
       setFeedback(`Campagne « ${campaign.brand} » arrêtée.`);
     } catch (stopError) {
-      setFeedback(stopError instanceof Error ? stopError.message : "Arrêt impossible.");
+      setFeedback(userFacingError(stopError, "Arrêt impossible."));
     } finally {
       setBusy(false);
     }
@@ -237,7 +242,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
       setCampaigns(await deleteAdCampaign({ campaignId: campaign.id, allCampaigns: campaigns, rotationSeconds }));
       setFeedback(`Campagne « ${campaign.brand} » supprimée.`);
     } catch (removeError) {
-      setFeedback(removeError instanceof Error ? removeError.message : "Suppression impossible.");
+      setFeedback(userFacingError(removeError, "Suppression impossible."));
     } finally {
       setBusy(false);
     }
@@ -256,7 +261,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
       setRotationInput(String(settings.rotationSeconds));
       setFeedback(`Les bannières changent maintenant toutes les ${settings.rotationSeconds} secondes.`);
     } catch (rotationError) {
-      setFeedback(rotationError instanceof Error ? rotationError.message : "Enregistrement impossible.");
+      setFeedback(userFacingError(rotationError, "Enregistrement impossible."));
     } finally {
       setBusy(false);
     }
@@ -269,7 +274,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
     try {
       setStats(summarizeAdStats(await loadAdStatsDocuments(campaign.id)));
     } catch (statsError) {
-      setFeedback(statsError instanceof Error ? statsError.message : "Statistiques indisponibles.");
+      setFeedback(userFacingError(statsError, "Statistiques indisponibles."));
     }
   }
 
@@ -304,7 +309,7 @@ export function AdCampaignsDrawer({ schools, coordinations, userId }: { schools:
       </div>
 
       {feedback && <p role="status" className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-800">{feedback}</p>}
-      {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <ErrorNotice error={error} onRetry={errorRetry.retry} />
 
       {view === "list" && (
         <div className="grid gap-3">

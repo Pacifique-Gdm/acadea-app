@@ -2,6 +2,8 @@ import { useRef, useState, type ReactNode } from "react";
 import { AdminDrawer, PasswordField } from "../../components/ui";
 import type { AppUser, Coordination } from "../../types";
 import { createCoordinator, setCoordinatorStatus, updateCoordinationAsSuperAdmin, updateCoordinator } from "../../services/coordinationService";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 export function CoordinationAdminActions({ coordination, coordinators, children, onClose }: { coordination: Coordination; coordinators: AppUser[]; children: ReactNode; onClose: () => void }) {
   const [panel, setPanel] = useState<"edit" | "coordinators" | "add-coordinator" | null>(null);
@@ -17,7 +19,7 @@ export function CoordinationAdminActions({ coordination, coordinators, children,
     if (inFlight.current) return false;
     inFlight.current = true; setBusy(true); setError(""); setMessage("");
     try { await action(); setMessage(success); setEditor(null); setIdentity({ name: "", email: "", phone: "", password: "" }); setRemoveTarget(null); setConfirmation(""); return true; }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Opération impossible."); return false; }
+    catch (cause) { setError(userFacingError(cause, "Opération impossible.")); return false; }
     finally { inFlight.current = false; setBusy(false); }
   }
   function editUser(user: "new" | AppUser) {
@@ -37,7 +39,7 @@ export function CoordinationAdminActions({ coordination, coordinators, children,
     </div>
     {children}
     </>}
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={error} />
     {message && <p role="status" className="rounded bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
     {panel === "edit" && <form className="grid min-w-0 gap-3" onSubmit={(event) => { event.preventDefault(); void run(() => updateCoordinationAsSuperAdmin(coordination.id, values), "Coordination modifiée.").then((saved) => { if (saved) setPanel(null); }); }}>
       {([ ["name", "Nom"], ["code", "Code / sigle"], ["phone", "Téléphone"], ["email", "E-mail institutionnel"], ["address", "Adresse"] ] as const).map(([key, label]) => <label key={key} className="grid min-w-0 gap-1 text-sm">{label}<input className="input min-w-0" disabled={busy} required={key === "name"} type={key === "email" ? "email" : "text"} value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })}/></label>)}

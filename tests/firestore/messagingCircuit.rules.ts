@@ -4,8 +4,9 @@ import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
 import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
-import { listPlatformRecipients, resolveReplyTarget, sendCoordinationReply, sendPlatformMessage, sendPlatformReply } from "../../api/_lib/platformMessaging.js";
+import { resetRecipientCaches, resolveReplyTarget, searchPlatformRecipients, sendCoordinationReply, sendPlatformMessage, sendPlatformReply } from "../../api/_lib/platformMessaging.js";
 import { allowedRecipientRoles } from "../../api/_lib/messageRecipients.js";
+import { schoolSearchEntry } from "../../api/_lib/schoolSearchIndex.js";
 import { sendMessage as sendCoordinationRequest } from "../../api/coordination-message-recipients.js";
 import { canReplyToMessage } from "../../src/utils/messageReplies";
 
@@ -62,8 +63,18 @@ describe("chemins autorisés (aller)", () => {
 
 describe("Super administrateur → coordinations, sous-coordinations, administrateurs (et retour)", () => {
   it("liste uniquement les destinataires prévus", async () => {
-    const roles = new Set((await listPlatformRecipients(db)).map((item) => item.role));
-    expect([...roles].sort()).toEqual(["coordination_admin", "school_admin"]);
+    // Lot SA-6 : recherche page par page, par rôle ; avec et sans liste de recherche des écoles.
+    resetRecipientCaches();
+    const entries = [{ id: "school-a", name: "École A" }, { id: "school-b", name: "École B" }].map((school) => ({ id: school.id, ...schoolSearchEntry(school) }));
+    const found = new Map<string, string>();
+    for (const schoolEntries of [async () => entries, async () => null]) {
+      for (const role of ["coordination_admin", "sub_coordination_admin", "school_admin"]) {
+        const page = await searchPlatformRecipients(db, { role }, { schoolEntries });
+        for (const item of page.recipients) { expect(item.role).toBe(role); found.set(item.uid, item.role); }
+      }
+    }
+    expect([...new Set(found.values())].sort()).toEqual(["coordination_admin", "school_admin"]);
+    expect([...found.keys()].sort()).toEqual(["coord", "school_admin-school-a", "school_admin-school-b"]);
   });
 
   it("arrive chez le bon destinataire seulement, en-tête nom + rôle, badge (notification non lue) puis lu", async () => {

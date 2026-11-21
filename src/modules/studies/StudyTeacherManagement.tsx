@@ -8,6 +8,9 @@ import type { AppData, AppUser, School, SchoolSection, SchoolYear } from "../../
 import { isValidProvisioningPhone, nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 export function StudyTeacherCreateContent({ user, school, year, appData, updateData }: {
   user: AppUser;
@@ -28,6 +31,8 @@ export function StudyTeacherCreateContent({ user, school, year, appData, updateD
   const [passwordVisible, setPasswordVisible] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [success, setSuccess] = useState("");
   const schoolSections = getSchoolSections(school);
   const generatedEmail = useMemo(
@@ -41,8 +46,8 @@ export function StudyTeacherCreateContent({ user, school, year, appData, updateD
     user,
     schoolId: school.id,
     onData: (items) => { setTeacherAccounts(items); setAccountsLoaded(true); },
-    onError: () => { setAccountsLoaded(true); setError("Impossible d’actualiser les comptes enseignants."); },
-  }), [school.id, user]);
+    onError: () => { setAccountsLoaded(true); setErrorLoad("Impossible d’actualiser les comptes enseignants."); },
+  }), [school.id, user, errorLoadRetry.token]);
   useEffect(() => {
     if (!emailEdited) setEmail(generatedEmail);
   }, [emailEdited, generatedEmail]);
@@ -91,14 +96,14 @@ export function StudyTeacherCreateContent({ user, school, year, appData, updateD
       setPasswordVisible(false);
       setSuccess("Compte enseignant créé avec succès.");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Création du compte enseignant impossible.");
+      setError(userFacingError(caught, "Création du compte enseignant impossible."));
     } finally {
       setBusy(false);
     }
   }
 
   return <div className="grid min-w-0 gap-4">
-    {error && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     {success && <p role="status" aria-live="polite" className="rounded border border-green-200 bg-green-50 p-3 text-sm font-semibold text-green-800">{success}</p>}
     <Field label="Type d’utilisateur" value="Enseignant" onChange={() => undefined} disabled />
     <MultiSelectDropdown label="Sections" options={schoolSections.map((section) => ({ value: section, label: schoolSectionLabels[section] }))} values={sectionIds} onChange={(values) => setSectionIds(values as SchoolSection[])} placeholder={schoolSections.length ? "Non renseignée" : "Aucune section disponible"} />

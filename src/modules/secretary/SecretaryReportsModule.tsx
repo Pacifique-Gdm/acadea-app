@@ -17,6 +17,8 @@ import { SignatoriesEditor } from "./SignatoriesEditor";
 import { SecretaryDocumentFormActions } from "./SecretaryDocumentFormActions";
 import { SecretaryViewActionButton } from "./SecretaryViewActionButton";
 import { SecretaryDocumentDeleteDialog } from "./SecretaryDocumentDeleteDialog";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 const reportFields: Record<SecretaryReportType, string[]> = {
   meeting_minutes: MEETING_MINUTES_SECTION_ORDER.filter((field) => field !== "signatures"),
@@ -73,7 +75,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
     setBusy(true); setMessage(""); setFormError("");
     const structuredContent = type === "meeting_minutes" ? Object.fromEntries(Object.entries(content).filter(([key]) => key !== "signatures")) : content;
     try { if (selected) await updateSecretaryReport(user, selected, { type, title, documentDate: date, startTime, endTime, structuredContent, signatories: type === "meeting_minutes" ? preparedSignatories.items : selected.signatories, pdfSettings }); else await createSecretaryReport({ user, schoolId: school.id, schoolYearId: year.id, type, title, documentDate: date, startTime, endTime, structuredContent, pdfSettings, ...(type === "meeting_minutes" ? { signatories: preparedSignatories.items } : {}) }); setSelected(null); setType("meeting_minutes"); setTitle(""); setDate(new Date().toISOString().slice(0, 10)); setStartTime(""); setEndTime(""); setContent({}); setSignatories([]); setPdfSettings(DEFAULT_PDF_SETTINGS); setOpen(false); setMessage("Rapport généré et enregistré en brouillon."); }
-    catch (error) { console.error("Échec de la génération du rapport", error); setFormError(error instanceof Error ? error.message : "Génération du rapport impossible."); } finally { setBusy(false); }
+    catch (error) { console.error("Échec de la génération du rapport", error); setFormError(userFacingError(error, "Génération du rapport impossible.")); } finally { setBusy(false); }
   }
   async function preview(report: SecretaryReport) {
     const reportSignatories = normalizeReportSignatories(report.signatories, report.structuredContent.signatures);
@@ -86,7 +88,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
     if (pdfBusyId) return;
     setPdfBusyId(report.id); setMessage("");
     try { await preview(report); }
-    catch (error) { console.error("Échec de génération du PDF du rapport", error); setMessage(error instanceof Error ? error.message : "Impossible d'afficher le PDF du rapport."); }
+    catch (error) { console.error("Échec de génération du PDF du rapport", error); setMessage(userFacingError(error, "Impossible d'afficher le PDF du rapport.")); }
     finally { setPdfBusyId(""); }
   }
 
@@ -95,7 +97,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
     setExportBusy(true); setMessage("");
     const filters = [queryText.trim() ? `Recherche : ${queryText.trim()}` : "", typeFilter && typeFilter !== "all" ? `Type : ${labels[typeFilter]}` : ""].filter(Boolean).join(" · ");
     try { await exportSecretaryReportListPdf({ rows: visible, school, year, filters, typeLabels: labels }); }
-    catch (error) { console.error("Échec de l'export PDF des rapports", error); setMessage(error instanceof Error ? error.message : "Export PDF des rapports impossible."); }
+    catch (error) { console.error("Échec de l'export PDF des rapports", error); setMessage(userFacingError(error, "Export PDF des rapports impossible.")); }
     finally { setExportBusy(false); }
   }
 
@@ -110,7 +112,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
       setDeleteConfirmation("");
     } catch (error) {
       console.error("Échec de la suppression définitive du rapport", error);
-      setMessage(error instanceof Error ? error.message : "Suppression du rapport impossible.");
+      setMessage(userFacingError(error, "Suppression du rapport impossible."));
     } finally {
       setDeleteBusy(false);
     }
@@ -122,7 +124,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
     try {
       await restoreSecretaryReport(user, report);
       setMessage("Rapport restauré.");
-    } catch (error) { console.error("Échec de l’archivage du rapport", error); setMessage(error instanceof Error ? error.message : "Action impossible."); }
+    } catch (error) { console.error("Échec de l’archivage du rapport", error); setMessage(userFacingError(error, "Action impossible.")); }
     finally { setDeleteBusy(false); }
   }
 
@@ -138,7 +140,7 @@ export function SecretaryReportsModule({ user, school, year }: { user: AppUser; 
       {reportFields[type].map((field) => <label className="report-form-section grid gap-1 pt-2 text-sm font-semibold first:pt-0" key={field}><span>{type === "meeting_minutes" ? meetingMinutesFormLabels[field] : field}</span><textarea className={`input ${type === "meeting_minutes" && (field === "lieu" || field === "objet") ? "min-h-12" : "min-h-20"}`} style={editorStyle} disabled={readOnly} value={content[field] ?? ""} onChange={(event) => setContent({ ...content, [field]: event.target.value })} /></label>)}
       {type === "meeting_minutes" && <div className="report-form-section pt-2"><SignatoriesEditor value={signatories} onChange={setSignatories} readOnly={readOnly} title="Signataires" /></div>}
       <PdfSettingsFields value={pdfSettings} onChange={setPdfSettings} disabled={readOnly || busy} />
-      {formError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{formError}</p>}
+      <ErrorNotice error={formError} onRetry={() => void save()} />
       <SecretaryDocumentFormActions generateLabel={selected ? "Enregistrer" : "Générer rapport"} busyLabel={selected ? "Enregistrement en cours…" : "Génération en cours…"} busy={busy} disabled={readOnly} onCancel={() => setOpen(false)} />
     </form></AdminDrawer>}
     {deleteTarget && <SecretaryDocumentDeleteDialog kind="report" value={deleteConfirmation} busy={deleteBusy} onValueChange={setDeleteConfirmation} onCancel={() => { if (!deleteBusy) { setDeleteTarget(null); setDeleteConfirmation(""); } }} onConfirm={() => void confirmPermanentDelete()} />}

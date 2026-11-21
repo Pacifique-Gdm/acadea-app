@@ -59,7 +59,7 @@ describe("sous-classes structurées", () => {
     expect(subclassCreationScopeIsValid(base("parent"), "school-a", "year-b")).toBe(false);
     expect(subclassCreationScopeIsValid(base("parent"), "school-b", "year-a")).toBe(false);
   });
-  it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8"); expect(form).toContain("resolveStudentParentClass(structuredClasses, form)"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain("nextSubclassLetters(existingSubclassLabels"); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
+  it("branche le bouton partagé dans l'ordre classe puis option puis sous-classe", () => { const form = fs.readFileSync("src/components/students/StudentForm.tsx", "utf8"); const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8") + fs.readFileSync("src/components/students/StudentRecordDrawer.tsx", "utf8"); expect(form).toContain("resolveStudentParentClass(structuredClasses, form)"); expect(form).toContain("schoolClassRecordId("); expect(form.indexOf("Option")).toBeLessThan(form.indexOf("Ajouter sous-classe")); expect(form).toContain("Sélectionnez d’abord une option."); expect(form).toContain("subClassId: undefined"); expect(form).toContain("nextSubclassLetters(existingSubclassLabels"); expect(form).toContain("Sous-classe ${index + 1}"); expect(module).toContain("subscribeToSchoolClasses"); expect(module).toContain("createSchoolSubclasses"); });
 
   it("résout le parent tenanté d'un formulaire legacy sans classId", () => {
     const parent = base("cteb-7", { name: "7ème CTEB" });
@@ -105,7 +105,7 @@ describe("sous-classes structurées", () => {
   });
 
   it("la sauvegarde canonise classId avant de persister subClassId", () => {
-    const module = fs.readFileSync("src/modules/students/StudentsModule.tsx", "utf8");
+    const module = fs.readFileSync("src/components/students/StudentRecordDrawer.tsx", "utf8");
     expect(module).toContain("const selectedClass = resolveStudentParentClass(structuredClasses, form)");
     expect(module).toContain("if (selectedClass) student.classId = selectedClass.id");
   });

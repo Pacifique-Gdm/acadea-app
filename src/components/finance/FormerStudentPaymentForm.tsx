@@ -7,6 +7,9 @@ import { toMoneyMinor } from "../../utils/money";
 import { generateReceiptPdf } from "../../utils/pdf";
 import type { Payment, School, SchoolYear, Student } from "../../types";
 import { formerStudentsRefreshKey, searchFormerStudentsLocally, visibleFormerStudents } from "../../utils/formerStudents";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 /** Lot 21/22 — « Paiement anciens élèves » : seuls les élèves archivés ayant une
  * dette (année en cours ou années passées) apparaissent ; contrôle final côté serveur. */
@@ -21,6 +24,8 @@ export function FormerStudentPaymentForm({ school, year, students, payments, onR
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [busy, setBusy] = useState(false);
   const [recorded, setRecorded] = useState<{ payment: Payment; student: FormerStudentDebts } | null>(null);
   const [reload, setReload] = useState(0);
@@ -33,14 +38,14 @@ export function FormerStudentPaymentForm({ school, year, students, payments, onR
     // Relecture discrète (pas plus d'une fois par seconde) : uniquement la liste des anciens élèves.
     const timer = window.setTimeout(() => {
       void listFormerStudents({ schoolYearId: year.id })
-        .then((next) => { if (active) { setList(next); setError(""); } })
-        .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Liste des anciens élèves indisponible."); })
+        .then((next) => { if (active) { setList(next); setErrorLoad(""); } })
+        .catch((cause) => { if (active) setErrorLoad(userFacingError(cause, "Liste des anciens élèves indisponible.")); })
         .finally(() => { if (active) setLoading(false); });
     }, reload === 0 && list.length === 0 ? 0 : 800);
     return () => { active = false; window.clearTimeout(timer); };
     // La liste est relue quand l'année, les archivages ou les paiements concernés changent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year.id, refreshKey, reload]);
+  }, [year.id, refreshKey, reload, errorLoadRetry.token]);
 
   const visible = useMemo(() => visibleFormerStudents(list, students), [list, students]);
   const selected = visible.find((item) => item.id === selectedId);
@@ -77,7 +82,7 @@ export function FormerStudentPaymentForm({ school, year, students, payments, onR
       onRecorded(payment);
       setReload((value) => value + 1);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Enregistrement impossible.");
+      setError(userFacingError(cause, "Enregistrement impossible."));
     } finally { submitting.current = false; setBusy(false); }
   }
 
@@ -120,6 +125,6 @@ export function FormerStudentPaymentForm({ school, year, students, payments, onR
       <span>Paiement enregistré : reçu {recorded.payment.receiptNumber}</span>
       <button type="button" className="secondary-button" onClick={() => receipt(recorded)}><Download className="h-4 w-4" /> Reçu PDF</button>
     </div>}
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} onRetry={() => void submit()} />
   </div>;
 }

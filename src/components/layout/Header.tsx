@@ -12,6 +12,8 @@ import { offlineAccessEligible } from "../../services/offlineAccess";
 import { useSchoolLogo } from "../../hooks/useSchoolLogo";
 import { HeaderAdBanner } from "../ads/HeaderAd";
 import { useHeaderAd } from "../../hooks/useHeaderAd";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type HeaderYearData = Pick<AppData, "auditLogs" | "messages" | "notifications" | "parents" | "students" | "users">;
 
@@ -132,13 +134,8 @@ export function Header({
         Notifications chargées par pages de 30 éléments, du plus récent au plus ancien.
       </p>
       {notificationHistory.isInitialLoading && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement des notifications...</p>}
-      {notificationHistory.loadError && (
-        <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          <p className="font-semibold">{notificationHistory.loadError}</p>
-          <button onClick={() => void notificationHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
-        </div>
-      )}
-      {realtimeMessages.error && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-700">{realtimeMessages.error}</p>}
+      <ErrorNotice error={notificationHistory.loadError} onRetry={() => void notificationHistory.loadFirstPage()} />
+      {realtimeMessages.error && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-700">{userFacingError(realtimeMessages.error, realtimeMessages.error)}</p>}
       {notificationHistory.hasMore && (
         <button
           onClick={() => void notificationHistory.loadMore()}
@@ -169,7 +166,7 @@ export function Header({
       </button>
       {refreshStatus && (
         <span className={`text-xs font-semibold ${refreshError ? "text-red-600" : "text-slate-500"}`}>
-          {refreshStatus}
+          {userFacingError(refreshStatus, refreshStatus)}
         </span>
       )}
       {messagingEnabled && <button onClick={onToggleNotifications} className="relative inline-flex h-8 w-8 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">

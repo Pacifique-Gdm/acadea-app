@@ -5,11 +5,15 @@ type DocumentData = Record<string, unknown>;
 import { db } from "../firebase";
 import { loadSchoolMessageRecipients, type SchoolMessageRecipient } from "../services/schoolMessaging";
 import type { AppUser, School } from "../types";
+import { userFacingError } from "../utils/userFacingError";
+import { useLoadRetry } from "./useLoadRetry";
 
 type DirectoryState = {
   recipients: SchoolMessageRecipient[];
   loading: boolean;
   error: string;
+  /** Relance la lecture (bouton « Réessayer »). */
+  retry: () => void;
   /** Vrai dès que l'école est rattachée à une Coordination (connu tout de suite, sans attendre la liste). */
   hasCoordination: boolean;
 };
@@ -57,11 +61,15 @@ export function useSchoolMessageRecipients(user: AppUser, school: School, school
       const next = await fetchSchoolMessageRecipients(key, schoolYearId);
       if (mounted.current) { setRecipients((current) => JSON.stringify(current) === JSON.stringify(next) ? current : next); setError(""); }
     } catch (cause) {
-      if (mounted.current) setError(cause instanceof Error ? cause.message : "Destinataires indisponibles. Veuillez réessayer.");
+      if (mounted.current) setError(userFacingError(cause, "Destinataires indisponibles. Veuillez réessayer."));
     } finally {
       if (mounted.current) setLoading(false);
     }
   }, [key, schoolYearId]);
+
+  // Échec : relance par « Réessayer », au retour du réseau ou après quelques secondes.
+  const { token: loadRetryToken, retry } = useLoadRetry(Boolean(error));
+  useEffect(() => { if (loadRetryToken) void reload(); }, [loadRetryToken, reload]);
 
   useEffect(() => {
     const kept = peekSchoolMessageRecipients(key);
@@ -127,7 +135,7 @@ export function useSchoolMessageRecipients(user: AppUser, school: School, school
     return () => stops.forEach((stop) => stop());
   }, [coordinationKey, watch, user.role]);
 
-  return { recipients, loading, error, hasCoordination: Boolean(coordinationId) };
+  return { recipients, loading, error, retry, hasCoordination: Boolean(coordinationId) };
 }
 
 /** Préparation discrète pour l'Administrateur d'école : la liste est prête quand il ouvre Messages. */

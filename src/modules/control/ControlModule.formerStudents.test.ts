@@ -46,6 +46,6 @@ describe("lot 22 : « Paiement anciens élèves » cherche comme « Enregistrer 
     expect(formerStudentsRefreshKey(archived, [])).not.toBe(key);
     expect(formerStudentsRefreshKey(archived, [{ id: "p", studentId: "a", amount: 5 } as Payment])).not.toBe(formerStudentsRefreshKey(archived, []));
     expect(formerStudentsRefreshKey(base, [{ id: "p", studentId: "a", amount: 5 } as Payment])).toBe(key);
-    expect(form).toContain("[year.id, refreshKey, reload]");
+    expect(form).toContain("[year.id, refreshKey, reload, errorLoadRetry.token]");
   });
 });

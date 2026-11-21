@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from "react";
+import { userFacingError } from "../utils/userFacingError";
 
 /** Immediate ref lock prevents duplicate clicks before React commits the busy state. */
 export function useAsyncAction() {
@@ -11,7 +12,7 @@ export function useAsyncAction() {
     setPending([...locks.current]);
     setError("");
     try { await action(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : fallback); }
+    catch (cause) { setError(userFacingError(cause, fallback)); }
     finally { locks.current.delete(key); setPending([...locks.current]); }
   }, []);
   return { run, error, pending, isPending: (key: string) => pending.includes(key) };

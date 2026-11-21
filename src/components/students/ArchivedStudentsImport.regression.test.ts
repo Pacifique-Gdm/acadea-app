@@ -11,6 +11,7 @@ vi.mock("react", async (original) => ({
   useState: (initial: unknown) => [harness.stateIndex < harness.values.length ? harness.values[harness.stateIndex++] : initial, vi.fn()],
   useRef: (initial: unknown) => ({ current: initial }),
   useEffect: () => undefined,
+  useCallback: (callback: unknown) => callback,
 }));
 vi.mock("../../services/firestoreData", () => ({ loadFirestoreYearData: harness.refresh }));
 vi.mock("../../services/provisioning", () => ({ requestArchivedStudentsImport: harness.request }));

@@ -171,7 +171,8 @@ service firebase.storage {
     }
 
     function studentPhotoWriter(schoolId) {
-      return signedIn() && role() in ["school_admin", "secretary"] && tenantSchoolId() == schoolId;
+      // Lot C : le caissier dépose la photo depuis la fiche élève, comme le secrétaire.
+      return signedIn() && role() in ["school_admin", "secretary", "cashier"] && tenantSchoolId() == schoolId;
     }
 
     function validStudentPhoto(fileName, schoolId, studentId) {

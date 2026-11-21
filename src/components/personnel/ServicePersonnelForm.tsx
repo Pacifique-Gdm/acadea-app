@@ -2,6 +2,8 @@ import { useState, type FormEvent } from "react";
 import { Field } from "../ui";
 import { createServicePersonnel } from "../../services/personnel";
 import { isValidProvisioningPhone } from "../../utils/schoolAccountCredentials";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 export const SERVICE_PERSONNEL_FUNCTIONS = [
   "Vigile", "Gardien", "Agent de sécurité", "Agent d'entretien", "Personnel de ménage",
@@ -32,7 +34,7 @@ export function ServicePersonnelForm({ schoolId, onCreated }: { schoolId: string
       setSuccess("Fiche du personnel créée sans compte Acadéa.");
       onCreated?.();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Création du personnel impossible.");
+      setError(userFacingError(cause, "Création du personnel impossible."));
     } finally { setBusy(false); }
   }
 
@@ -43,7 +45,7 @@ export function ServicePersonnelForm({ schoolId, onCreated }: { schoolId: string
       <select className="input min-w-0" value={jobTitle} onChange={(event) => setJobTitle(event.target.value)}>{SERVICE_PERSONNEL_FUNCTIONS.map((title) => <option key={title} value={title}>{title}</option>)}</select>
     </label>
     {jobTitle === "Autre fonction" && <Field label="Préciser la fonction" value={otherJobTitle} onChange={setOtherJobTitle}/>}
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={error} />
     {success && <p role="status" className="rounded border border-green-200 bg-green-50 p-3 text-sm text-green-800">{success}</p>}
     <button type="submit" className="primary-button justify-center" disabled={busy}>{busy ? "Création…" : "Créer le personnel sans compte"}</button>
   </form>;

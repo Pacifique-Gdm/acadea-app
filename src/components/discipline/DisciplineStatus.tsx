@@ -2,6 +2,7 @@ import { Download, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import type { DisciplineSanction, Student } from "../../types";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type DisciplineStatusProps = {
   sanctions: DisciplineSanction[];
@@ -124,7 +125,7 @@ export function DisciplineStatus({ sanctions, students, onNewSanction, onOpenStu
         </div>
       </div>
 
-      {pdf.error && <p role="alert" className="text-sm text-red-700">{pdf.error}</p>}
+      <ErrorNotice error={pdf.error} />
       <div className="grid min-w-0 gap-3">
         {sanctionedStudents.length === 0 && (
           <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-500">Aucun élève ne correspond aux filtres.</p>

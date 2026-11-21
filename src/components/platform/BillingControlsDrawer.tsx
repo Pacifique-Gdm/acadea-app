@@ -1,10 +1,14 @@
 import { useState } from "react";
 import type { BillingControls } from "../../services/billingControls";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type BillingControlsDrawerProps = {
   controls: BillingControls;
   loading: boolean;
   error: string;
+  /** Relance la lecture des contrôles (bouton « Réessayer »). */
+  onRetry?: () => void;
   updatedBy?: string;
   onSetValvesUploadsEnabled: (enabled: boolean, updatedBy?: string) => Promise<void>;
 };
@@ -16,6 +20,7 @@ export function BillingControlsDrawer({
   controls,
   loading,
   error,
+  onRetry,
   updatedBy,
   onSetValvesUploadsEnabled,
 }: BillingControlsDrawerProps) {
@@ -36,7 +41,7 @@ export function BillingControlsDrawer({
       setMode(null);
       setConfirmation("");
     } catch (saveError) {
-      setFeedback(saveError instanceof Error ? saveError.message : "Action impossible. Veuillez réessayer.");
+      setFeedback(userFacingError(saveError, "Action impossible. Veuillez réessayer."));
     } finally {
       setSaving(false);
     }
@@ -52,7 +57,7 @@ export function BillingControlsDrawer({
         {controls.updatedAt && <p className="mt-1 text-xs text-slate-500">Dernière mise à jour : {new Date(controls.updatedAt).toLocaleString("fr-FR")}</p>}
       </div>
 
-      {error && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+      <ErrorNotice error={error} onRetry={onRetry} />
       {feedback && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{feedback}</p>}
 
       <div className="grid gap-2">

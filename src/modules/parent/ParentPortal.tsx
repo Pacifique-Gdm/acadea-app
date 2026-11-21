@@ -34,6 +34,9 @@ import { LibraryDrawer } from "../library/LibraryDrawer";
 import { ParentPublishedGradesDrawer, prefetchParentPublishedGrades } from "./ParentPublishedGradesDrawer";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
 import { StudentPhoto } from "../../components/students/StudentPhoto";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type ParentTab = "children" | "messages" | "menu";
 
@@ -115,12 +118,14 @@ export function ParentPortal({
   const [childArrears, setChildArrears] = useState<HistoricalDebt[]>([]);
   const [childArrearsLoading, setChildArrearsLoading] = useState(false);
   const [childArrearsError, setChildArrearsError] = useState("");
+  const childArrearsErrorRetry = useLoadRetry(Boolean(childArrearsError), () => setChildArrearsError(""));
   const [parentMessageQuota, setParentMessageQuota] = useState<ParentMessageQuota | null>(null);
   const [isParentMessageQuotaLoading, setIsParentMessageQuotaLoading] = useState(false);
   const [isSendingParentMessage, setIsSendingParentMessage] = useState(false);
   const [parentMedicalOpen, setParentMedicalOpen] = useState(false);
   const [parentMedicalRecords, setParentMedicalRecords] = useState<StudentMedicalRecord[]>([]);
   const [parentMedicalError, setParentMedicalError] = useState("");
+  const parentMedicalErrorRetry = useLoadRetry(Boolean(parentMedicalError), () => setParentMedicalError(""));
   const parent = yearData.parents.find((item) => item.id === user.parentId);
   const unread = yearData.notifications.filter((notification) => !notification.read).length;
   const scopedMessageRecipients = filterRecipientsByDirectoryKind(messageRecipients, messageRecipientKind);
@@ -144,10 +149,10 @@ export function ParentPortal({
     void loadStudentArrears({ schoolYearId: year.id, studentId: selectedParentChildArrearsId }).then((result) => {
       if (!cancelled) setChildArrears([...result.debts, ...result.settled]);
     }).catch((error) => {
-      if (!cancelled) setChildArrearsError(error instanceof Error ? error.message : "Chargement des arriérés impossible.");
+      if (!cancelled) setChildArrearsError(userFacingError(error, "Chargement des arriérés impossible."));
     }).finally(() => { if (!cancelled) setChildArrearsLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedParentChildArrearsId, year.id, year.status]);
+  }, [selectedParentChildArrearsId, year.id, year.status, childArrearsErrorRetry.token]);
   const selectedMessageRecipients = scopedMessageRecipients.filter((recipient) => resolvedMessageRecipientIds.includes(recipient.uid));
 
   function progressBarTone(percent: number) {
@@ -208,7 +213,7 @@ export function ParentPortal({
         setMessageRecipients(recipients);
         setMessageRecipientIds((current) => current.filter((id) => recipients.some((recipient) => recipient.uid === id)));
       })
-      .catch((error) => { if (!cancelled) setMessageRecipientsError(error instanceof Error ? error.message : "Destinataires indisponibles."); })
+      .catch((error) => { if (!cancelled) setMessageRecipientsError(userFacingError(error, "Destinataires indisponibles.")); })
       .finally(() => { if (!cancelled) setMessageRecipientsLoading(false); });
     return () => { cancelled = true; };
   }, [activeParentTab, user.id]);
@@ -224,7 +229,7 @@ export function ParentPortal({
       onData: setParentMedicalRecords,
       onError: (error) => setParentMedicalError(medicalRecordReadErrorMessage(error)),
     });
-  }, [parentMedicalOpen, school.id, user, year.id, yearData.students]);
+  }, [parentMedicalOpen, school.id, user, year.id, yearData.students, parentMedicalErrorRetry.token]);
 
   useEffect(() => {
     if (!parentMessageQuota?.windowExpiresAt || !user.parentId || !year.id) return undefined;
@@ -386,7 +391,7 @@ export function ParentPortal({
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">
       {renderEnvironmentBanner()}
-      {receiptAction.error && <p role="alert" className="text-sm text-red-700">{receiptAction.error}</p>}
+      <ErrorNotice error={receiptAction.error} />
       {receiptAction.pending.length > 0 && <p role="status">Préparation du reçu PDF…</p>}
       {renderHeader({
         unreadNotifications: unread,
@@ -450,7 +455,7 @@ export function ParentPortal({
                     <div className="mb-4 min-w-0 rounded border border-amber-200 bg-amber-50 p-3">
                       <h3 className="font-semibold text-ink">Arriérés des années antérieures</h3>
                       {childArrearsLoading && <BlockSkeleton className="mt-2 h-12 bg-white" label="Arriérés des années antérieures" />}
-                      {childArrearsError && <p role="alert" className="mt-2 text-sm text-red-700">{childArrearsError}</p>}
+                      <ErrorNotice error={childArrearsError} onRetry={childArrearsErrorRetry.retry} />
                       {!childArrearsLoading && !childArrearsError && year.status === "active" && childArrears.length === 0 && <p className="mt-2 text-sm">Aucun arriéré.</p>}
                       {year.status !== "active" && <p className="mt-2 text-sm">Consultation disponible depuis l'année scolaire active.</p>}
                       {!childArrearsLoading && <div className="mt-2 grid gap-2">
@@ -705,7 +710,7 @@ export function ParentPortal({
       {parentMedicalOpen && (
         <AdminDrawer title="Fiche médicale" onClose={() => setParentMedicalOpen(false)} closeLabel="Fermer les fiches médicales">
           <div className="grid min-w-0 gap-4">
-            {parentMedicalError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentMedicalError}</p>}
+            <ErrorNotice error={parentMedicalError} onRetry={parentMedicalErrorRetry.retry} />
             {yearData.students.map((student) => {
               const record = parentMedicalRecords.find((item) => item.studentId === student.id && item.schoolId === school.id && item.schoolYearId === year.id);
               return <section key={student.id} className="grid min-w-0 gap-3 rounded border border-slate-200 bg-slate-50 p-4"><div><h3 className="break-words text-lg font-bold text-ink">{student.nom} {student.postnom} {student.prenom}</h3><p className="text-sm text-slate-500">{formatStudentClassName(student)}</p></div>{record ? medicalRecordSections.map((section) => <section className="rounded border bg-white p-4" key={section.title}><h4 className="font-bold">{section.title}</h4><dl className="mt-3 grid gap-3 sm:grid-cols-2">{section.fields.map((field) => <div className="min-w-0" key={field.key}><dt className="text-xs font-semibold uppercase text-slate-500">{field.label}</dt><dd className="mt-1 whitespace-pre-wrap break-words text-slate-700">{formatMedicalRecordValue(record[field.key])}</dd></div>)}</dl></section>) : <p className="rounded border border-dashed bg-white p-4 text-sm text-slate-500">Aucune fiche médicale disponible pour cet enfant.</p>}</section>;

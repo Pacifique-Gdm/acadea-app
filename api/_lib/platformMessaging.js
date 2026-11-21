@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { cachedSchoolSearchEntries, normalizeSearchText, searchSchoolEntries, searchWords } from "./schoolSearchIndex.js";
 
 /** Messagerie du Super administrateur et réponses (lot 23, décisions du propriétaire du 16/11) :
  * - le Super administrateur écrit aux coordinations, sous-coordinations et administrateurs d'école ;
@@ -55,13 +56,99 @@ async function activeSchoolYear(db, schoolId) {
   return school?.status === "active" && typeof school.activeSchoolYearId === "string" && school.activeSchoolYearId ? school.activeSchoolYearId : "";
 }
 
-/** Destinataires du Super administrateur : coordinations, sous-coordinations, administrateurs d'école actifs. */
-export async function listPlatformRecipients(db) {
-  const snapshot = await db.collection("users").where("role", "in", ["coordination_admin", "sub_coordination_admin", "school_admin", "admin"]).get();
-  return snapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
-    .filter(active)
-    .map((profile) => ({ uid: profile.id, name: displayName(profile, profile.role), role: role(profile.role), schoolId: profile.schoolId ?? null, coordinationId: profile.coordinationId ?? null }))
-    .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+/** Lot SA-6 : destinataires du Super administrateur cherchés par nom, page par page.
+ * - Administrateurs d'école : on cherche l'ÉCOLE (nom, sigle, ville, e-mail) dans la liste de recherche
+ *   des écoles du lot 2a (16 petits documents, gardés 20 s), puis on lit seulement les administrateurs
+ *   des 25 écoles de la page. Plus aucune lecture de tous les administrateurs de la plateforme.
+ * - Coordinations et sous-coordinations (peu nombreuses) : lues une fois, gardées 60 s dans le serveur,
+ *   puis cherchées par nom de la personne ou de la coordination.
+ * Si la liste de recherche des écoles n'est pas prête, la recherche des administrateurs reste possible
+ * par leur nom (ancienne lecture complète, seulement dans ce cas). */
+export const RECIPIENT_PAGE_SIZE = 25;
+export const COORDINATOR_CACHE_MS = 60_000;
+const RECIPIENT_ROLES = ["coordination_admin", "sub_coordination_admin", "school_admin"];
+const SCHOOL_ADMIN_ROLES = ["school_admin", "admin"];
+/** Firestore : 30 combinaisons au plus par requête « in » ; 15 écoles × 2 rôles = 30. */
+const SCHOOL_CHUNK = 15;
+
+const recipientRow = (profile, place) => ({
+  uid: profile.id, name: displayName(profile, profile.role), role: role(profile.role),
+  schoolId: profile.schoolId ?? null, coordinationId: profile.coordinationId ?? null, place: place ?? "",
+});
+const byName = (a, b) => a.name.localeCompare(b.name, "fr") || a.uid.localeCompare(b.uid);
+const matches = (words, ...values) => {
+  const haystack = values.map((value) => normalizeSearchText(value)).join(" | ");
+  const compact = haystack.replace(/ /g, "");
+  return words.every((word) => haystack.includes(word) || compact.includes(word));
+};
+const pageOf = (rows, page) => rows.slice(page * RECIPIENT_PAGE_SIZE, (page + 1) * RECIPIENT_PAGE_SIZE);
+
+export function parseRecipientSearch(query = {}) {
+  const pick = (value) => (Array.isArray(value) ? value[0] : value);
+  const requestedRole = pick(query.role);
+  const requestedPage = Number(pick(query.page));
+  return {
+    role: RECIPIENT_ROLES.includes(requestedRole) ? requestedRole : "coordination_admin",
+    query: typeof pick(query.q) === "string" ? pick(query.q).slice(0, 120) : "",
+    page: Number.isInteger(requestedPage) && requestedPage >= 0 && requestedPage < 10_000 ? requestedPage : 0,
+  };
+}
+
+const coordinatorCache = new Map();
+export function resetRecipientCaches() { coordinatorCache.clear(); }
+
+/** Coordinateurs (ou sous-coordinateurs) actifs, avec le nom de leur coordination. Gardés 60 s. */
+async function coordinatorRows(db, roleKey, now) {
+  const cached = coordinatorCache.get(roleKey);
+  if (cached && now - cached.at < COORDINATOR_CACHE_MS) return cached.rows;
+  const snapshot = await db.collection("users").where("role", "==", roleKey).get();
+  const profiles = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter(active);
+  const coordinationIds = [...new Set(profiles.map((profile) => profile.coordinationId).filter((id) => typeof id === "string" && id && !id.includes("/")))];
+  const names = new Map();
+  if (coordinationIds.length) {
+    const coordinations = await db.getAll(...coordinationIds.map((id) => db.doc(`coordinations/${id}`)));
+    for (const item of coordinations) if (item.exists) names.set(item.id, text(item.data()?.name, 160));
+  }
+  const rows = profiles.map((profile) => recipientRow(profile, names.get(profile.coordinationId) ?? "")).sort(byName);
+  coordinatorCache.set(roleKey, { at: now, rows });
+  return rows;
+}
+
+/** Administrateurs actifs des écoles données (2 requêtes au plus pour 25 écoles). */
+async function schoolAdminsOf(db, schoolIds) {
+  const profiles = [];
+  for (let start = 0; start < schoolIds.length; start += SCHOOL_CHUNK) {
+    const snapshot = await db.collection("users").where("schoolId", "in", schoolIds.slice(start, start + SCHOOL_CHUNK)).where("role", "in", SCHOOL_ADMIN_ROLES).get();
+    profiles.push(...snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter(active));
+  }
+  return profiles;
+}
+
+export async function searchPlatformRecipients(db, request, { schoolEntries = cachedSchoolSearchEntries, now = Date.now() } = {}) {
+  const { role: roleKey, query, page } = parseRecipientSearch(request);
+  const words = searchWords(query);
+  if (roleKey !== "school_admin") {
+    const rows = (await coordinatorRows(db, roleKey, now)).filter((row) => matches(words, row.name, row.place));
+    return { role: roleKey, page, pageSize: RECIPIENT_PAGE_SIZE, total: rows.length, unit: "recipients", recipients: pageOf(rows, page) };
+  }
+  const entries = await schoolEntries(db);
+  if (!entries) {
+    // Liste de recherche des écoles absente : ancienne lecture, filtrée sur le nom de la personne.
+    const snapshot = await db.collection("users").where("role", "in", SCHOOL_ADMIN_ROLES).get();
+    const rows = snapshot.docs.map((item) => ({ id: item.id, ...item.data() })).filter(active)
+      .map((profile) => recipientRow(profile, "")).filter((row) => matches(words, row.name)).sort(byName);
+    return { role: roleKey, page, pageSize: RECIPIENT_PAGE_SIZE, total: rows.length, unit: "recipients", recipients: pageOf(rows, page) };
+  }
+  const result = searchSchoolEntries(entries, { query, sort: "az", page, pageSize: RECIPIENT_PAGE_SIZE });
+  const profiles = await schoolAdminsOf(db, result.schools.map((school) => school.id));
+  const recipients = [];
+  const emptySchools = [];
+  for (const school of result.schools) {
+    const admins = profiles.filter((profile) => profile.schoolId === school.id).map((profile) => recipientRow(profile, school.name)).sort(byName);
+    if (admins.length) recipients.push(...admins);
+    else emptySchools.push({ id: school.id, name: school.name });
+  }
+  return { role: roleKey, page, pageSize: RECIPIENT_PAGE_SIZE, total: result.total, unit: "schools", recipients, emptySchools };
 }
 
 /** Document de message + notification, dans la portée qui permet au destinataire de les lire. */

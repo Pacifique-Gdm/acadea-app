@@ -5,6 +5,7 @@ import type { School, SchoolYear } from "../../types";
 import { userFacingError } from "../../utils/userFacingError";
 import { gradingSlotLabels, type EditableGradingSlot } from "../teacher/teacherGrading";
 import { listParentPublishedGrades, readParentPublishedGrade, type PublishedChild, type PublishedIndividualResult } from "../teacher/gradePublicationService";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 const percent = new Intl.NumberFormat("fr", { maximumFractionDigits: 2 });
 // Lot 26b : le serveur des cotes peut mettre ~4 s à se réveiller ; la liste est préparée dès l'affichage du Menu.
@@ -44,7 +45,7 @@ export function ParentPublishedGradesDrawer({ school, year, onClose, initialStud
 
   return <AdminDrawer title="Côtes de mes enfants" closeLabel="Fermer les cotes de mes enfants" onClose={onClose}>
     {selected && <button type="button" className="secondary-button mb-3 w-full justify-center" onClick={() => setSelected(undefined)}>Retour aux enfants</button>}
-    {error && <p role="alert" className="mb-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}<button type="button" className="secondary-button mt-2 w-full justify-center" onClick={() => void refresh()}>Réessayer</button></p>}
+    <ErrorNotice className="mb-3" error={error} onRetry={() => void refresh()} />
     {(loading || reading) && <p role="status">Chargement…</p>}
     {!loading && !selected && !reading && children.length === 0 && !error && <p className="rounded bg-slate-50 p-4 text-sm text-slate-700">Aucune fiche de cotes disponible.<br /><br />Les fiches consolidées de vos enfants apparaîtront ici dès leur publication par la direction des études.</p>}
     {!selected && <div className="grid gap-3">{children.map((child) => <article key={child.studentId} className="grid gap-2 rounded border bg-white p-4">

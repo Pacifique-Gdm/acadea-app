@@ -74,7 +74,7 @@ describe("Drawer Personnels", () => {
     expect(source).toContain("useAutoDismissMessage(error");
     expect(source).toContain("useAutoDismissMessage(success");
     expect(source).toContain("function closeSelected()");
-    expect(source).toContain('role="alert" aria-live="assertive"');
+    expect(source).toMatch(/role="alert" aria-live="assertive"|<ErrorNotice error=/);
     expect(source).toContain('role="status" aria-live="polite"');
   });
 
