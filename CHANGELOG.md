@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.18.0] — 2026-11-21 — Fonctionnalité
+- Caissier : fiche élève depuis « Enregistrer un paiement » (stylo, « Ajouter un élève », retour au paiement), mêmes droits que le secrétaire sur la fiche élève, historique des modifications visible par l'administrateur, et correction de « Aucun élève trouvé. »
+
 ## [1.17.1] — 2026-11-21 — Correction
 - PDF : nom de l'école et titre du document à nouveau en gras ; la date de génération reste dans son cadre (reçu, dépense et tous les PDF à bandeau)
 
