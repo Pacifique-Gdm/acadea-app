@@ -31,7 +31,7 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
       await form.getByRole('button', { name: 'Enregistrer', exact: true }).click();
       await expect.poll(async () => (await f.db.collection('payments').where('schoolId', '==', f.school).get()).size).toBe(1);
       await expect(search).toHaveValue(''); await expect(amount).toHaveValue('');
-      await expect(form.getByText(/Élève sélectionné/)).toHaveCount(0);
+      await expect(form.getByRole('group', { name: 'Élève sélectionné' })).toHaveCount(0);
       await expect(description).toHaveValue('');
       await search.fill('BETA'); await form.getByRole('button', { name: /BETA FICTIF TEST/ }).click();
       await expect(form.getByText(/ALPHA/)).toHaveCount(0);
@@ -47,7 +47,7 @@ test('Caissier : formulaire neuf après confirmation, seconde saisie indépendan
       await expect.poll(() => dropped).toBe(true);
       await expect(form.getByRole('button', { name: 'Enregistrer', exact: true })).toBeEnabled();
       await expect(amount).toHaveValue('12'); await expect(description).toHaveValue('SECOND');
-      await expect(form.getByText(/Élève sélectionné : BETA/)).toBeVisible();
+      await expect(form.getByRole('group', { name: 'Élève sélectionné' }).filter({ hasText: /^BETA/ })).toBeVisible();
       expect((await f.db.collection('payments').where('schoolId', '==', f.school).get()).size).toBe(1);
       await form.getByRole('button', { name: 'Enregistrer', exact: true }).click();
       await expect.poll(async () => (await f.db.collection('payments').where('schoolId', '==', f.school).get()).size).toBe(2);

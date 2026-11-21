@@ -50,7 +50,11 @@ describe("lot C : fiche élève enregistrée par le caissier", () => {
     expect(log).toMatchObject({ action: "create", actorId: "cashier-a", actorRole: "cashier", actorName: "Caissier A", studentId: base.id, schoolId: "school-a" });
     expect(log.after).toMatchObject({ nom: "KABILA", className: "1ère Primaire" });
     expect(log.before).toEqual({});
-    expect([...rows.keys()].some((path) => path.startsWith("auditLogs/audit_stu_"))).toBe(true);
+    const [, audit] = [...rows].find(([path]) => path.startsWith("auditLogs/audit_stu_"));
+    // Résumé en français simple : pas de matricule répété, pas de code technique.
+    expect(audit.metadata.changes).toContain("Sexe : Fille");
+    expect(audit.metadata.changes).toContain("Statut : Actif");
+    expect(audit.metadata.changes).not.toMatch(/Matricule|ACTIVE/);
   });
 
   it("le caissier modifie la fiche : seuls les champs changés sont notés, avec l'avant et l'après", async () => {
@@ -60,6 +64,10 @@ describe("lot C : fiche élève enregistrée par le caissier", () => {
     expect(log.action).toBe("update");
     expect(log.before).toEqual({ className: "1ère Primaire", classId: "class-a", phone: "" });
     expect(log.after).toEqual({ className: "2ème Primaire", classId: "class-b", phone: "0990000000" });
+    // Correction 1.18 : le résumé lisible part dans le journal d'activité, que le drawer « Historique » de l'administrateur affiche.
+    const [, audit] = [...rows].find(([path]) => path.startsWith("auditLogs/audit_stu_"));
+    expect(audit.metadata).toMatchObject({ student: "KABILA Mbuyi Anne", matricule: "ACD-26-0001",
+      changes: "Téléphone : vide → 0990000000 · Classe : 1ère Primaire → 2ème Primaire" });
   });
 
   it("une fiche enregistrée sans changement n'ajoute aucune ligne", async () => {

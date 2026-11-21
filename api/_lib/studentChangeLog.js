@@ -48,3 +48,26 @@ export function buildStudentChangeLog({ id, actor, previous, student, now }) {
     createdAt: now,
   };
 }
+
+const FIELD_LABELS = Object.freeze({
+  matricule: "Matricule", nom: "Nom", postnom: "Postnom", prenom: "Prénom", sexe: "Sexe", birthDate: "Date de naissance",
+  address: "Adresse", phone: "Téléphone", className: "Classe", classId: "Classe (référence)", subClassId: "Sous-classe",
+  classOptionKey: "Option (référence)", section: "Section", option: "Option", parentId: "Parent", status: "Statut", photo: "Photo",
+});
+// Les références internes ne disent rien à l'administrateur : seuls les champs lisibles sont résumés.
+// Le matricule est déjà affiché avec le nom de l'élève.
+const HIDDEN_IN_SUMMARY = new Set(["classId", "classOptionKey", "subClassId", "parentId", "matricule"]);
+const STATUS_LABELS = Object.freeze({ ACTIVE: "Actif", TRANSFERRED: "Transféré", DROPPED: "Abandon", EXCLUDED: "Exclu", DECEASED: "Décédé", GRADUATED: "Fin de scolarité", ARCHIVED: "Archivé" });
+const SEX_LABELS = Object.freeze({ M: "Garçon", F: "Fille" });
+const readable = (field, value) => (!value ? "vide" : field === "status" ? STATUS_LABELS[value] ?? value : field === "sexe" ? SEX_LABELS[value] ?? value : value);
+
+/** Résumé lisible pour l'historique de l'administrateur : « Adresse : vide → Avenue 2 · Classe : 1ère → 2ème ». */
+export function summarizeStudentChanges(changeLog, maxLength = 900) {
+  const parts = changeLog.fields.filter((field) => !HIDDEN_IN_SUMMARY.has(field)).map((field) => {
+    const label = FIELD_LABELS[field] ?? field;
+    const after = readable(field, changeLog.after[field]);
+    return changeLog.action === "update" ? `${label} : ${readable(field, changeLog.before[field])} → ${after}` : `${label} : ${after}`;
+  });
+  const summary = parts.join(" · ") || (changeLog.fields.length ? "Références internes mises à jour" : "");
+  return summary.length > maxLength ? `${summary.slice(0, maxLength - 1)}…` : summary;
+}
