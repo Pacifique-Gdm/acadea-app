@@ -1647,8 +1647,8 @@ export function ControlModule({
                   </div>
                 )}
                 {selectedPaymentStudent && (
-                  <div className="flex min-w-0 items-center gap-2 rounded bg-mint/10 py-1.5 pl-3 pr-1.5 text-sm font-semibold text-mint">
-                    <span className="min-w-0 flex-1 break-words">Élève sélectionné : {selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}</span>
+                  <div role="group" aria-label="Élève sélectionné" className="flex min-w-0 items-center gap-2 rounded bg-mint/10 py-1.5 pl-3 pr-1.5 text-sm font-semibold text-mint">
+                    <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}</span>
                     {paymentStudentRecordRights.canEdit && <button type="button" aria-label="Modifier la fiche de l’élève" title="Modifier la fiche de l’élève" onClick={() => setPaymentStudentRecord({ mode: "edit", student: selectedPaymentStudent })} disabled={paymentSubmitting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint disabled:opacity-50"><Edit3 className="h-4 w-4" aria-hidden="true" /></button>}
                     <button type="button" aria-label="Effacer l’élève sélectionné" title="Effacer l’élève sélectionné" onClick={clearPaymentStudent} disabled={paymentSubmitting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint disabled:opacity-50"><X className="h-4 w-4" aria-hidden="true" /></button>
                   </div>

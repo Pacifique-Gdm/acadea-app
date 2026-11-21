@@ -177,7 +177,7 @@ test("Admin/Secrétaire anti-doublon et Caissier A → × → B, fixtures Stagin
       expect(await paymentDrawer.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
       await paymentDrawer.getByRole("button", { name: "Effacer l’élève sélectionné" }).click();
       await expect(search).toHaveValue("");
-      await expect(paymentDrawer.getByText(/Élève sélectionné/)).toHaveCount(0);
+      await expect(paymentDrawer.getByRole("group", { name: "Élève sélectionné" })).toHaveCount(0);
       await expect(feeSelect).toBeDisabled();
       await expect(paymentDrawer.getByPlaceholder("Montant")).toHaveValue("");
       await expect(paymentDrawer.getByPlaceholder("Écrivez la description")).toHaveValue("");

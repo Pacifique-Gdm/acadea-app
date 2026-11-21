@@ -22,9 +22,16 @@ describe("lot B : fiche élève officielle depuis « Enregistrer un paiement »"
   it("place le stylo à gauche de la croix du bandeau « Élève sélectionné »", () => {
     const pen = control.indexOf('aria-label="Modifier la fiche de l’élève"');
     const cross = control.indexOf('aria-label="Effacer l’élève sélectionné"');
-    expect(pen).toBeGreaterThan(control.indexOf("Élève sélectionné : {selectedPaymentStudent.nom}"));
+    expect(pen).toBeGreaterThan(control.indexOf('<div role="group" aria-label="Élève sélectionné"'));
     expect(pen).toBeLessThan(cross);
     expect(control).toContain('setPaymentStudentRecord({ mode: "edit", student: selectedPaymentStudent })');
+  });
+
+  it("le bandeau vert ne montre que le nom de l'élève ; un nom long passe à la ligne sans pousser le stylo ni la croix", () => {
+    const banner = control.slice(control.indexOf('<div role="group" aria-label="Élève sélectionné"'), control.indexOf('aria-label="Effacer l’élève sélectionné"'));
+    expect(banner).toContain('<span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}</span>');
+    expect(control).not.toContain("Élève sélectionné : {selectedPaymentStudent.nom}");
+    expect(banner).toContain("flex h-9 w-9 shrink-0");
   });
 
   it("met « Ajouter un élève » à gauche de « Enregistrer », sur deux colonnes égales", () => {
