@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.17.1] — 2026-11-21 — Correction
+- Répartition des frais : boutons « Enregistrer » et « Ajouter », champ « Nouvelle rubrique » assez large, icône « Actualiser » à droite du statut
+
 ## [1.17.0] — 2026-11-21 — Fonctionnalité
 - Super administrateur : les destinataires des messages se cherchent par nom, page par page, et la messagerie ne se recharge plus à chaque ouverture (lot 6)
 

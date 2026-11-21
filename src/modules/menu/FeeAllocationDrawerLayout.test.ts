@@ -36,4 +36,17 @@ describe("drawer « Répartition des frais » (lot du 19/11)", () => {
     expect(catalog.match(/className=\{BUTTON_ROW\}/g)).toHaveLength(2);
     expect(sharing).toContain('className="secondary-button w-full justify-center" aria-expanded={revoking === viewer.id}');
   });
+  it("formulaire « Ajouter une répartition » : libellés courts et champ « Nouvelle rubrique » assez large (21/11)", () => {
+    expect(drawer).not.toMatch(/Enregistrer la répartition|Ajouter à la liste|Nom de la nouvelle rubrique/);
+    expect(drawer).toContain(': "Enregistrer"}</Action>');
+    expect(drawer).toContain("onClick={() => void createNamed(index)}>Ajouter</button>");
+    expect(drawer).toContain('placeholder="Nouvelle rubrique" aria-label="Nouvelle rubrique"');
+    expect(drawer).toContain('className="input min-w-[11rem] flex-1"');
+    expect(drawer).toContain("sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-start");
+  });
+  it("icône « Actualiser » à l'extrémité droite de la ligne du statut, plus sous le statut (21/11)", () => {
+    const activation = read("FeeAllocationActivation.tsx");
+    expect(activation).toMatch(/justify-between[^>]*data-allocation-status-row><h3[^]*?<\/h3>\{view && refreshButton\}<\/div>/);
+    expect(activation).not.toContain("{node}{refreshButton}");
+  });
 });
