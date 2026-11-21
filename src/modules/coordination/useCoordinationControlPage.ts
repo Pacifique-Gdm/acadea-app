@@ -1,3 +1,4 @@
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 import { useEffect, useMemo, useState } from "react";
 import type { AppUser, FeeType, School, SchoolClassRecord, SchoolYear } from "../../types";
 import { COORDINATION_ACTIVE_YEAR, coordinationYearChoices, loadCoordinationStudentYears, type CoordinationStudentFilters } from "../../services/coordinationStudentPagination";
@@ -28,6 +29,7 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [errorKey, setErrorKey] = useState("");
+  const { token: loadRetryToken, retry } = useLoadRetry(Boolean(error || metadataError || classMetadataError));
   const schoolKey = schools.map((school) => school.id).sort().join("|");
   const activeYearKey = schools.map((school) => `${school.id}:${school.activeSchoolYearId ?? ""}`).sort().join("|");
   const contextKey = `${schoolKey}:${activeYearKey}:${refreshToken}`;
@@ -39,7 +41,7 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
       .then(([nextYears, nextFees]) => { if (!cancelled) { setYears(nextYears); setFees(nextFees); setMetadataKey(contextKey); } })
       .catch(() => { if (!cancelled) setMetadataError("Impossible de charger les années et frais du contrôle."); });
     return () => { cancelled = true; };
-  }, [contextKey, schoolKey, user.role]);
+  }, [contextKey, schoolKey, user.role, loadRetryToken]);
   useEffect(() => {
     let cancelled = false;
     setClassMetadataKey(""); setClassMetadataError(""); setClasses([]);
@@ -49,7 +51,7 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
       .then((nextClasses) => { if (!cancelled) { setClasses(nextClasses); setClassMetadataKey(contextKey); } })
       .catch(() => { if (!cancelled) setClassMetadataError("Impossible de charger les choix de classes du contrôle."); });
     return () => { cancelled = true; };
-  }, [contextKey, schoolKey]);
+  }, [contextKey, schoolKey, loadRetryToken]);
   const sections = useMemo(() => user.sectionIds?.length ? user.sectionIds : user.section ? [user.section] : [], [user.sectionIds, user.section]);
   const choices = useMemo(() => coordinationFilterChoices(schools, years, classes, selectedSchoolId, selectedYearId, sections, classKey), [schools, years, classes, selectedSchoolId, selectedYearId, sections, classKey]);
   const classChoices = choices.classes;
@@ -76,13 +78,13 @@ export function useCoordinationControlPage(user: AppUser, schools: School[], sel
       .catch(() => { if (!cancelled) { setError("Impossible de charger la page du contrôle."); setErrorKey(currentPageKey); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [metadataKey, contextKey, classFilterReady, pageIndex, cursors, currentPageKey, filters, fees, amountFilter, arrearsFilter]);
+  }, [metadataKey, contextKey, classFilterReady, pageIndex, cursors, currentPageKey, filters, fees, amountFilter, arrearsFilter, loadRetryToken]);
   // Contrôle est un écran financier : jamais « Toutes les années » (montants de plusieurs années mélangés).
   useEffect(() => { if (!selectedYearId) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [selectedYearId]);
   useEffect(() => { if (metadataKey === contextKey && selectedYearId && selectedYearId !== COORDINATION_ACTIVE_YEAR && !coordinationYearChoices(years, schools.filter((school) => !selectedSchoolId || school.id === selectedSchoolId)).some((year) => year.value === selectedYearId)) setSelectedYearId(COORDINATION_ACTIVE_YEAR); }, [contextKey, metadataKey, schools, selectedSchoolId, selectedYearId, years]);
   useEffect(() => { if (classChoicesReady && option && !options.includes(option)) setOption(""); }, [classChoicesReady, option, options]);
   const pagePending = pageKey !== currentPageKey && errorKey !== currentPageKey;
-  return { years, fees, classChoices, options, filters, amountFilter, filterKey, metadataReady: classChoicesReady, classChoicesReady, selectedYearId, setSelectedYearId, status, setStatus, option, setOption,
+  return { retry, years, fees, classChoices, options, filters, amountFilter, filterKey, metadataReady: classChoicesReady, classChoicesReady, selectedYearId, setSelectedYearId, status, setStatus, option, setOption,
     rows: pageKey === currentPageKey ? page.rows : [], loading: loading || (!metadataError && !classMetadataError && (metadataKey !== contextKey || !classFilterReady || pagePending)), error: metadataError || classMetadataError || (errorKey === currentPageKey ? error : ""), pageIndex,
     hasNext: pageKey === currentPageKey && Boolean(page.nextCursor),
     previous: () => setPageIndex((value) => Math.max(0, value - 1)),

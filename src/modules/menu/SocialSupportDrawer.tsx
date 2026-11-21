@@ -32,6 +32,7 @@ import {
 import { pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { coordinationActiveYearLabel } from "../../services/coordinationStudentPagination";
 import { SUPPORT_ACTIVE_YEAR, supportActiveYearOf, supportDecisionMatchesYear } from "./socialSupportYearFilter";
+import { userFacingError } from "../../utils/userFacingError";
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -125,7 +126,7 @@ export function SocialSupportDrawer({
   useEffect(() => {
     if (readOnly) return;
     void reconcileSupport().catch((e) =>
-      setError(e instanceof Error ? e.message : "Actualisation impossible."),
+      setError(userFacingError(e, "Actualisation impossible.")),
     );
   }, [school.id, readOnly]);
   useEffect(() => {
@@ -135,16 +136,16 @@ export function SocialSupportDrawer({
       snapshots.set(id, rows);
       setDecisions([...snapshots.values()].flat());
       if (snapshots.size === scopeKey.split("|").filter(Boolean).length) setLoading(false);
-    }, (cause) => { setError(cause.message); setLoading(false); }));
+    }, (cause) => { setError(userFacingError(cause, "Chargement impossible. Veuillez réessayer.")); setLoading(false); }));
     return () => stops.forEach((stop) => stop());
   }, [scopeKey]);
   useEffect(() => {
     if (readOnly) return;
     if (user.role === "cashier" || user.role === "secretary") {
-      void loadSupportPersonnel().then(setAccounts).catch((cause) => setError(cause instanceof Error ? cause.message : "Personnel indisponible."));
+      void loadSupportPersonnel().then(setAccounts).catch((cause) => setError(userFacingError(cause, "Personnel indisponible.")));
       return;
     }
-    const onError = (e: Error) => setError(e.message);
+    const onError = (e: Error) => setError(userFacingError(e, "Chargement impossible. Veuillez réessayer."));
     const a = subscribeToSchoolPersonnel({
       user,
       schoolId: school.id,
@@ -175,7 +176,7 @@ export function SocialSupportDrawer({
       },
       (e) => {
         setContextReady(false);
-        setError(e.message);
+        setError(userFacingError(e, "Chargement impossible. Veuillez réessayer."));
       },
     );
   }, [school.id, readOnly]);
@@ -250,7 +251,7 @@ export function SocialSupportDrawer({
           amount: 0,
           net: balance.net,
           remaining: balance.remaining,
-          error: e instanceof Error ? e.message : "Valeur invalide.",
+          error: userFacingError(e, "Valeur invalide."),
         };
       }
     });
@@ -368,7 +369,7 @@ export function SocialSupportDrawer({
           completed++;
         } catch (cause) {
           failedIds.push(id);
-          failures.push(`${pupil ? `${pupil.nom} ${pupil.prenom}` : "Élève indisponible"} : ${cause instanceof Error ? cause.message : "Confirmation indisponible"}`);
+          failures.push(`${pupil ? `${pupil.nom} ${pupil.prenom}` : "Élève indisponible"} : ${userFacingError(cause, "Confirmation indisponible")}`);
         }
       }
       setSuccess(`${completed} décision(s) confirmée(s) par le serveur.`);
@@ -404,7 +405,7 @@ export function SocialSupportDrawer({
       setTab("Bénéficiaires");
       request.current = { fingerprint: "", id: "" };
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Enregistrement impossible.");
+      setError(userFacingError(e, "Enregistrement impossible."));
     } finally {
       setBusy(false);
       savingRef.current = false;
@@ -497,7 +498,7 @@ export function SocialSupportDrawer({
         ],
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Export impossible.");
+      setError(userFacingError(e, "Export impossible."));
     } finally {
       setBusy(false);
     }

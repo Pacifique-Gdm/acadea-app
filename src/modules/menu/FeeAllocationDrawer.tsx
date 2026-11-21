@@ -19,6 +19,9 @@ import { FeeAllocationActivation } from "./FeeAllocationActivation";
 import { useAllocationChangeCounters } from "../../services/feeAllocationChangeCounter";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
 import { SocialPartEditor } from "./FeeAllocationSocialPart";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 /** Version 1.15.2 : description sous le bouton du Menu, comme les autres entrées. */
 export const FEE_ALLOCATION_MENU_DESCRIPTION = "Parts des frais par rubrique, encaissements et dépenses.";
@@ -41,7 +44,7 @@ function useHasSharedRubrics(user: AppUser) {
   return shared;
 }
 const newId = () => crypto.randomUUID().replaceAll("-", "");
-const message = (cause: unknown) => cause instanceof Error ? cause.message : "Répartition indisponible.";
+const message = (cause: unknown) => userFacingError(cause, "Répartition indisponible.");
 type Props = { user: AppUser; schools: School[]; selectedSchoolId?: string; onSchoolChange?: (id: string) => void; institution?: School };
 export function FeeAllocationEntry({ user, schools, selectedSchoolId = "", onSchoolChange, institution }: Props) {
   const [open, setOpen] = useState(false);
@@ -232,7 +235,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
     {ready && hasConfiguration && !projection.rows.length && <p role="status">Aucun résultat pour ce filtre. Les autres répartitions sont conservées.</p>}
     </>}
     {detail && <AdminDrawer title={detail.rubricName} closeLabel="Fermer le détail de rubrique" onClose={() => setDetail(null)}><div className="text-justify" data-justified>
-      {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
+      <ErrorNotice error={error} />
       <dl className="grid gap-2 text-sm">{[["Établissement", detail.schoolName], ["Périmètre du prévu", filterLabel], ["Année", detail.yearName], ["Prévu total de l’année", formatCurrencyMoney(detail.amountMinor / 100, detail.currency)], ["Statut", detail.financial ? "Registre rapproché" : "Préparatoire — non actif"]].map(([label, value]) => <div key={label}><dt className="font-semibold">{label}</dt><dd className="break-words">{value}</dd></div>)}</dl>
       <p className="my-3 text-sm">{detail.financial ? "Les montants proviennent du registre rapproché. Le disponible est commun à cette rubrique dans l'établissement ; aucune attribution artificielle à un frais ou à une classe." : "Aucun mouvement financier ni historique d'encaissement n'est créé par ce brouillon. Les références d'origine restent conservées pour les phases suivantes."}</p>
       {detailConfigs.map(config => <section key={config.id} className="my-3 rounded border p-3"><h3 className="mb-2 text-sm font-semibold">{detailWorkspace?.fees.find(f => f.id === config.feeTypeId)?.name ?? 'Frais'} · {allocationClassLabel(config.classOptionKey || config.className)}</h3><div className="flex flex-wrap gap-2"><Action busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(config)}>Consulter les versions</Action>{config.currentVersionId && <button type="button" className="secondary-button" onClick={() => setSocialPart(config)}>Partie 2 — cas sociaux{config.socialVersionId ? " (publiée)" : ""}</button>}{configurable && !config.currentVersionId && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy} onClick={() => void showVersions(config, true)}>Préparer une version</Action></>}</div></section>)}
@@ -251,15 +254,17 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
   const [selected, setSelected] = useState<string[]>(config ? [config.feeTypeId] : []);
   const [rubrics, setRubrics] = useState<RubricInput[]>(config?.draft?.rubrics.map((rubric) => ({ id: rubric.id, name: rubric.name, mode: rubric.mode, value: String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100) })) ?? [{ id: "", name: "", mode: "percent", value: "" }]);
   const [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false), [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   // Lot 27b : rubriques de l'école et de l'année (liste déroulante, « + Nouvelle rubrique… »).
   const [catalog, setCatalog] = useState<AllocationCatalogRubric[] | null>(null);
   const [newName, setNewName] = useState<{ index: number; value: string } | null>(null);
   const [creating, setCreating] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
-    void loadRubricCatalog(workspace.school.id, controller.signal).then((result) => setCatalog(result.rubrics)).catch((cause) => { if (!controller.signal.aborted) setError(message(cause)); });
+    void loadRubricCatalog(workspace.school.id, controller.signal).then((result) => setCatalog(result.rubrics)).catch((cause) => { if (!controller.signal.aborted) setErrorLoad(message(cause)); });
     return () => controller.abort();
-  }, [workspace.school.id]);
+  }, [workspace.school.id, errorLoadRetry.token]);
   const request = useRef<SaveAllocationDrafts | null>(null);
   const locked = useRef(false);
   const eligibleFees = workspace.fees.filter(f => !workspace.ledger || !workspace.configs.some(c => c.feeTypeId === f.id && c.currentVersionId));
@@ -333,7 +338,7 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
     </fieldset>
     <h3 className="mt-4 font-bold">Aperçu par classe</h3>{preview.error && <p role="status" className="text-sm text-amber-800">{preview.error}</p>}
     {preview.rows.map((row) => <section key={row.fee.id} className="my-2 rounded border p-3 text-sm"><h4 className="font-semibold">{allocationClassLabel(row.fee.classOptionKey || row.fee.className)} · {formatCurrencyMoney(row.fee.amount, workspace.currency)}</h4><ul>{row.shares.map((share) => <li key={share.rubricId}>{row.rubrics.find((rubric) => rubric.id === share.rubricId)?.name ?? "Non affecté"} : {formatCurrencyMoney(share.amountMinor / 100, workspace.currency)} · {(share.amountMinor / toMoneyMinor(row.fee.amount) * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %</li>)}</ul></section>)}
-    {error && <p role="alert" className="my-3 text-sm text-red-700">{error}</p>}{uncertain && <p className="my-2 text-sm">L'enregistrement a peut-être abouti. La vérification renvoie exactement la même demande, sans nouvelle répartition.</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />{uncertain && <p className="my-2 text-sm">L'enregistrement a peut-être abouti. La vérification renvoie exactement la même demande, sans nouvelle répartition.</p>}
     {/* Version 1.15.2 : les deux boutons se partagent toute la largeur, moitié-moitié. */}
     <div className="mt-4 grid w-full grid-cols-2 gap-2" data-editor-actions><button type="button" className="secondary-button w-full justify-center" disabled={busy} onClick={onClose}>Annuler</button><Action className="primary-button w-full justify-items-center" busy={busy} disabled={!uncertain && !!preview.error} onClick={() => void save()}>{uncertain ? "Vérifier la même demande" : "Enregistrer la répartition"}</Action></div>
   </div></AdminDrawer>;

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { FileText, X } from "lucide-react";
 import { classifyValveAttachmentReference } from "../../utils/valvesMedia";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 export type ValveAttachmentViewerItem = {
   name: string;
@@ -41,6 +43,7 @@ export function AttachmentViewer({
   const [pdfObjectUrl, setPdfObjectUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const errorRetry = useLoadRetry(Boolean(error), () => setError(""));
 
   const kind = attachment ? getAttachmentKind(attachment) : "unsupported";
   const referenceKind = attachment ? classifyValveAttachmentReference(attachment) : "blocked";
@@ -84,7 +87,7 @@ export function AttachmentViewer({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [attachment, kind, shouldUseNativeMobileDocumentViewer, trustedPreview]);
+  }, [attachment, kind, shouldUseNativeMobileDocumentViewer, trustedPreview, errorRetry.token]);
 
   if (!attachment) return null;
 
@@ -106,7 +109,7 @@ export function AttachmentViewer({
 
         <div className="min-h-0 flex-1 overflow-auto bg-slate-50 p-4">
           {loading && <p className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-600">Chargement du document...</p>}
-          {error && <p className="rounded border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">{error}</p>}
+          <ErrorNotice error={error} onRetry={errorRetry.retry} />
 
           {referenceKind === "blocked" && <p role="alert" className="rounded border border-red-100 bg-red-50 p-4 text-sm font-semibold text-red-700">Ce lien de pièce jointe est invalide ou non sécurisé.</p>}
 

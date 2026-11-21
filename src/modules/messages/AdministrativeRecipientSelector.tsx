@@ -9,6 +9,7 @@ import {
   type AdministrativeRecipientMode,
   type RecipientDirectoryKind,
 } from "./administrativeRecipientSelection";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 type AdministrativeRecipientSelectorProps = {
   mode: AdministrativeRecipientMode;
@@ -20,6 +21,8 @@ type AdministrativeRecipientSelectorProps = {
   onSelectedIdsChange: (ids: string[]) => void;
   isLoading: boolean;
   error: string;
+  /** Relance la lecture des destinataires (bouton « Réessayer »). */
+  onRetry?: () => void;
   showLabel?: boolean;
   kind?: RecipientDirectoryKind;
   showRecipientsWithoutSearch?: boolean;
@@ -35,6 +38,7 @@ export function AdministrativeRecipientSelector({
   onSelectedIdsChange,
   isLoading,
   error,
+  onRetry,
   showLabel = true,
   kind = "administrative",
   showRecipientsWithoutSearch = false,
@@ -96,7 +100,7 @@ export function AdministrativeRecipientSelector({
       )}
       {isLoading && <p className="text-sm text-slate-500">Chargement des {label}s…</p>}
       {!isLoading && !scopedRecipients.length && !error && <p className="text-sm text-slate-500">Aucun {label} actif disponible.</p>}
-      {error && <p role="alert" className="rounded bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
+      <ErrorNotice error={error} onRetry={onRetry} />
     </>
   );
 }

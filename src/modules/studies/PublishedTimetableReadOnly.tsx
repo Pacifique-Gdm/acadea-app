@@ -7,6 +7,9 @@ import { subscribeToActivePublishedTimetable } from "./publishedTimetableService
 import type { PublishedTimetableSnapshot } from "./publishedTimetableService";
 import { studyDayLabel } from "./studySchedule";
 import { emptyPublishedTimetableFilters, exportPublishedTimetablePdf, filterPublishedTimetable, type PublishedTimetableFilters, type PublishedTimetableFilterType } from "./publishedTimetableView";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 
 export function PublishedTimetableReadOnly({ user, school, year, footerNode }: { user: AppUser; school: School; year: SchoolYear; footerNode?: HTMLDivElement | null }) {
@@ -18,6 +21,7 @@ export function PublishedTimetableReadOnly({ user, school, year, footerNode }: {
   const [value, setValue] = useState<PublishedTimetableSnapshot>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const errorRetry = useLoadRetry(Boolean(error), () => setError(""));
   const [tableWidth, setTableWidth] = useState(0);
   const tableScrollRef = useRef<HTMLDivElement>(null);
   const footerScrollRef = useRef<HTMLDivElement>(null);
@@ -39,14 +43,14 @@ export function PublishedTimetableReadOnly({ user, school, year, footerNode }: {
         schoolId: school.id,
         schoolYearId: year.id,
         onData: (next) => { setValue(next); setError(""); setLoading(false); },
-        onError: (cause) => { setError(`Impossible d’actualiser l’horaire publié : ${cause.message}`); setLoading(false); },
+        onError: (cause) => { setError(`Impossible d’actualiser l’horaire publié : ${userFacingError(cause, "erreur inconnue")}`); setLoading(false); },
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Consultation impossible.");
+      setError(userFacingError(cause, "Consultation impossible."));
       setLoading(false);
     }
     return unsubscribe;
-  }, [school.id, user.id, user.role, user.schoolId, year.id]);
+  }, [school.id, user.id, user.role, user.schoolId, year.id, errorRetry.token]);
 
   useEffect(() => {
     const container = tableScrollRef.current;
@@ -66,7 +70,7 @@ export function PublishedTimetableReadOnly({ user, school, year, footerNode }: {
 
   return <section className="grid gap-4" aria-label="Horaire publié">
     <div><h2 className="text-xl font-bold text-ink">Horaire publié</h2><p className="text-sm text-slate-600">Consultation en lecture seule pour l’année scolaire {year.name}.</p></div>
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={error} onRetry={errorRetry.retry} />
     {loading ? <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">Chargement de l’horaire publié…</p> : !value ? <p className="rounded border border-slate-200 bg-white p-4 text-sm text-slate-500">Aucun horaire publié pour cette année scolaire.</p> : <div className="min-w-0 rounded border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-sm"><strong>Version {value.version}</strong> · publiée</div>
       <div className="min-w-0 border-b border-slate-200 p-2 sm:p-3" aria-label="Filtres de l’horaire publié">

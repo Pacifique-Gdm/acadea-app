@@ -5,6 +5,9 @@ import { listPayrollHistoryPage, updatePersonnelPayment, type PayrollHistoryCurs
 import { formatCurrencyMoney } from "../../utils/currency";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
 import type { School } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 const months = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
 
@@ -14,6 +17,8 @@ export function PersonnelPayrollHistory({ schoolId = "", schools = [], refreshTo
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [busyId, setBusyId] = useState("");
   const [editTarget, setEditTarget] = useState<PayrollHistoryEntry | null>(null);
   const [nextAmount, setNextAmount] = useState("");
@@ -45,7 +50,7 @@ export function PersonnelPayrollHistory({ schoolId = "", schools = [], refreshTo
     if (!school || !canPrint(payment)) { setError("Bulletin indisponible : données historiques incomplètes ou école hors périmètre."); return; }
     setBusyId(payment.id); setError("");
     try { await printPersonnelPaymentPdf(payment, school); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Téléchargement du bulletin impossible."); }
+    catch (cause) { setError(userFacingError(cause, "Téléchargement du bulletin impossible.")); }
     finally { setBusyId(""); }
   }
 
@@ -71,20 +76,20 @@ export function PersonnelPayrollHistory({ schoolId = "", schools = [], refreshTo
       setPayments((items) => items.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
       correctionAttempt.current = null;
       setEditTarget(null); setFeedback("Modification enregistrée. Le bulletin et les montants ont été actualisés.");
-    } catch (cause) { setFeedback(cause instanceof Error ? cause.message : "Modification impossible."); }
+    } catch (cause) { setFeedback(userFacingError(cause, "Modification impossible.")); }
     finally { setBusyId(""); }
   }
 
   useEffect(() => {
     const id = ++requestId.current;
-    setPayments([]); setCursor(null); setLoading(true); setError("");
+    setPayments([]); setCursor(null); setLoading(true); setErrorLoad("");
     void listPayrollHistoryPage(schoolId, undefined, { startDate, endDate }).then((page) => {
       if (requestId.current === id) { setPayments(page.payments); setCursor(page.nextCursor); }
     }).catch((cause) => {
-      if (requestId.current === id) setError(cause instanceof Error ? cause.message : "Historique indisponible.");
+      if (requestId.current === id) setErrorLoad(userFacingError(cause, "Historique indisponible."));
     }).finally(() => { if (requestId.current === id) setLoading(false); });
     return () => { requestId.current = id + 1; };
-  }, [schoolId, startDate, endDate, refreshToken]);
+  }, [schoolId, startDate, endDate, refreshToken, errorLoadRetry.token]);
 
   async function loadMore() {
     if (!cursor || loadingMore) return;
@@ -96,13 +101,13 @@ export function PersonnelPayrollHistory({ schoolId = "", schools = [], refreshTo
         setPayments((current) => [...current, ...page.payments.filter((item) => !current.some((existing) => existing.id === item.id))]);
         setCursor(page.nextCursor);
       }
-    } catch (cause) { if (requestId.current === id) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }
+    } catch (cause) { if (requestId.current === id) setError(userFacingError(cause, "Chargement impossible.")); }
     finally { if (requestId.current === id) setLoadingMore(false); }
   }
 
   return <div className="grid min-w-0 gap-3">
     {loading && <p role="status">Chargement de l’historique Salaire/prime…</p>}
-    {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     {!loading && !error && payments.length === 0 && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun salaire ou prime versé dans ce périmètre.</p>}
     {feedback && <p role="status" className="rounded bg-slate-50 p-3 text-sm">{feedback}</p>}
     {payments.map((payment) => <article key={payment.id} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded border border-slate-200 p-3 text-sm">

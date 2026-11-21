@@ -293,7 +293,7 @@ export function ValvesDrawerContent({
         const valvesPersisted = await persistFirestorePatch({ valves: [publication] }, { throwOnError: true,
           createIds: { valves: existingPublication ? [] : [publication.id] } });
         if (!valvesPersisted) {
-          throw new Error("Firestore indisponible.");
+          throw new Error("Service indisponible. Veuillez réessayer.");
         }
       } catch (error) {
         if (uploadedAttachmentPathsToRollback.length > 0) {
@@ -301,7 +301,7 @@ export function ValvesDrawerContent({
             console.warn("Rollback de la pièce jointe Valves indisponible.", deleteError);
           });
         }
-        setFeedback(getValvePublicationErrorMessage(error, "Erreur Firestore pendant l'enregistrement de la publication. Veuillez réessayer."));
+        setFeedback(getValvePublicationErrorMessage(error, "Erreur pendant l'enregistrement de la publication. Veuillez réessayer."));
         return;
       }
       const valveNotifications: AppNotification[] = existingPublication
@@ -351,7 +351,7 @@ export function ValvesDrawerContent({
           auditLogs: [auditLog],
         }, { throwOnError: true, createIds: { notifications: valveNotifications.map((item) => item.id), auditLogs: [auditLog.id] } });
         if (!sideEffectsPersisted) {
-          throw new Error("Firestore indisponible.");
+          throw new Error("Service indisponible. Veuillez réessayer.");
         }
       } catch (error) {
         if (existingPublication) {
@@ -368,7 +368,7 @@ export function ValvesDrawerContent({
             console.warn("Rollback de la pièce jointe Valves indisponible.", deleteError);
           });
         }
-        setFeedback(getValvePublicationErrorMessage(error, "Erreur Firestore pendant l'enregistrement des notifications Valves. Veuillez réessayer."));
+        setFeedback(getValvePublicationErrorMessage(error, "Erreur pendant l'enregistrement des notifications Valves. Veuillez réessayer."));
         return;
       }
       const nextAttachmentPaths = new Set(publicationAttachments.map((attachment) => attachment.path));

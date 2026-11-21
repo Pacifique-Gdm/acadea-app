@@ -1,12 +1,13 @@
 import type { FeeAllocationRubric, FeeAllocationVersion } from "../../types/feeAllocation";
 import { UNALLOCATED_RUBRIC_ID, socialCaseShares, socialCumulativeLines, validateFeeAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
 import { toMoneyMinor } from "../../utils/money";
+import { userFacingError } from "../../utils/userFacingError";
 
 /** Lot 27c-4 : calculs de l'écran de la partie 2 (cas sociaux), identiques à ceux du registre. */
 export type SocialPartLine = { id: string; name: string; mode: "percent" | "fixed"; value: string };
 type Line = SocialPartLine;
 const decimal = /^[0-9]+(?:[.,][0-9]{1,2})?$/;
-const message = (cause: unknown) => cause instanceof Error ? cause.message : "Partie 2 indisponible.";
+const message = (cause: unknown) => userFacingError(cause, "Partie 2 indisponible.");
 
 /** Rubriques de la partie 2 saisies, ou une erreur lisible. */
 export function socialPartRubrics(lines: Line[]): { rubrics: FeeAllocationRubric[]; error: string } {

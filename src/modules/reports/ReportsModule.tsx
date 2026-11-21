@@ -17,6 +17,8 @@ import { buildStats } from "../../utils/stats";
 import { sumMoney } from "../../utils/money";
 import { getClassSection } from "../../utils/studentClasses";
 import type { CashInflow, Expense, FeeType, ParentProfile, Payment, School, SchoolSection, SchoolYear, Student } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 type ReportsYearData = {
   students: Student[];
@@ -88,7 +90,7 @@ export function ReportsModule({ yearData, school, year, refreshing = false, refr
       const classContext = await loadReportClassContext({ schoolId: school.id, schoolYearId: year.id, students: yearData.students, payments: reportPayments });
       await exportReportPdf(school, year, startDate, endDate, sectionLabels[sectionFilter], usesSectionFilter, paidTotals, spentTotals, recovery, reportPayments, expenses, yearData.students, arrearsPayments, cashInflows, formerTotals, classContext);
     } catch (error) {
-      setExportError(error instanceof Error ? error.message : "La génération du PDF a échoué.");
+      setExportError(userFacingError(error, "La génération du PDF a échoué."));
     }
   }
   const netTotals = { CDF: sumMoney([paidTotals.CDF, -formerTotals.CDF, inflowTotals.CDF, -spentTotals.CDF]),
@@ -113,7 +115,7 @@ export function ReportsModule({ yearData, school, year, refreshing = false, refr
             <Download className="h-4 w-4" /> Export PDF
           </button>
         </div>
-        {exportError && <p role="alert" className="mt-3 rounded bg-red-50 p-3 text-sm font-semibold text-red-700">{exportError}</p>}
+        <ErrorNotice error={exportError} onRetry={() => void exportPdf()} />
         {hasUnknownCurrency && <p className="mt-3 rounded bg-red-50 p-3 text-sm font-semibold text-red-700">Rapport et export bloqués : des opérations historiques sans devise exigent une réconciliation.</p>}
         {(refreshing || refreshError) && <p role="status" className="mt-3 rounded bg-amber-50 p-3 text-sm">{refreshing ? "Vérification des données financières auprès du serveur…" : refreshError} Les chiffres affichés sont conservés ; export suspendu jusqu’à confirmation.</p>}
         {usesSectionFilter && (

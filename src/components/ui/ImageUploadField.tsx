@@ -1,5 +1,7 @@
 import { useId, useState } from "react";
 import type { ChangeEvent } from "react";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "./ErrorNotice";
 
 const acceptedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const acceptedImageExtensions = "JPG, JPEG, PNG, WEBP";
@@ -120,7 +122,7 @@ export function ImageUploadField({
       onChange(dataUrl);
       onValidityChange?.(true);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Image impossible à traiter.");
+      setError(userFacingError(error, "Image impossible à traiter."));
       onValidityChange?.(false);
     } finally {
       setProcessing(false);
@@ -156,7 +158,7 @@ export function ImageUploadField({
           )}
         </div>
         <p className="text-xs font-medium text-slate-500">{acceptedExtensions} uniquement. Largeur max {maxWidth}px, objectif {Math.round(maxBytes / 1024)} Ko.</p>
-        {error && <p className="rounded bg-red-50 p-2 text-xs font-semibold text-red-700">{error}</p>}
+        <ErrorNotice error={error} />
       </div>
     </div>
   );

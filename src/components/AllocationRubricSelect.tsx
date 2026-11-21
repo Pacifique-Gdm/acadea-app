@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { allocationRequest } from "../services/feeAllocation";
+import { userFacingError } from "../utils/userFacingError";
+import { ErrorNotice } from "./ui/ErrorNotice";
 
 export type SpendRubric = { id: string; name: string; availableMinor?: number };
 export type SpendOptions = { required: boolean; paused?: boolean; rubrics: SpendRubric[]; currency?: string };
@@ -16,7 +18,7 @@ export function useAllocationSpendOptions(schoolId: string, schoolYearId: string
     setError("");
     void allocationRequest<SpendOptions>("spend-options", { schoolId, schoolYearId }, controller.signal)
       .then(result => { if (!controller.signal.aborted) setOptions(result); })
-      .catch(cause => { if (!controller.signal.aborted) { setOptions(undefined); setError(cause instanceof Error ? cause.message : "Rubriques indisponibles."); } });
+      .catch(cause => { if (!controller.signal.aborted) { setOptions(undefined); setError(userFacingError(cause, "Rubriques indisponibles.")); } });
     return () => controller.abort();
   }, [schoolId, schoolYearId, round, enabled]);
   useEffect(() => { setOptions(undefined); }, [schoolId, schoolYearId]);
@@ -49,7 +51,7 @@ export function AllocationRubricSelect({ schoolId, schoolYearId, value, onChange
 }) {
   const own = useAllocationSpendOptions(schoolId, schoolYearId, !spend);
   const { options, error, reload } = spend ?? own;
-  if (error) return <p role="alert">{error} <button type="button" className="secondary-button" onClick={reload}>Réessayer les rubriques</button></p>;
+  if (error) return <ErrorNotice error={error} onRetry={reload} />;
   if (!options) return <p role="status">Vérification de la répartition…</p>;
   if (!options.required) return null;
   return <label className="grid gap-1 text-sm font-semibold">Rubrique d'imputation obligatoire

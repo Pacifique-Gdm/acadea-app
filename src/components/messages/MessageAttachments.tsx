@@ -5,6 +5,7 @@ import { app } from "../../firebase";
 import type { Message } from "../../types";
 import { formatMessageAttachmentSize } from "../../utils/messageAttachments";
 import { getDisplayableMessageAttachments } from "../../utils/messageAttachmentDisplay";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 export function MessageAttachments({ message, inverse = false }: { message: Message; inverse?: boolean }) {
   const attachments = getDisplayableMessageAttachments(message);
@@ -56,7 +57,7 @@ export function MessageAttachments({ message, inverse = false }: { message: Mess
           </div>
         );
       })}
-      {error && <p role="alert" className="text-xs font-semibold text-red-600">{error}</p>}
+      <ErrorNotice error={error} />
     </div>
   );
 }

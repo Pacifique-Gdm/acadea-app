@@ -5,6 +5,9 @@ import { db } from "../../firebase";
 import { addCoordinationSchool, removeCoordinationSchool } from "../../services/coordinationService";
 import type { AppUser, Coordination, CoordinationSchool, School } from "../../types";
 import { CoordinationAdminActions } from "./CoordinationAdminActions";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 const ADD_CONFIRMATION = "AJOUTER CETTE ECOLE";
 const REMOVE_CONFIRMATION = "RETIRER CETTE ECOLE";
@@ -24,6 +27,8 @@ export function CoordinationManagement({ schools, coordinations, coordinationErr
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [message, setMessage] = useState("");
   const confirmationRef = useRef<HTMLDivElement>(null);
 
@@ -46,10 +51,10 @@ export function CoordinationManagement({ schools, coordinations, coordinationErr
 
   useEffect(() => {
     if (!db) return undefined;
-    const stopRelations = onSnapshot(collection(db, "coordinationSchools"), (snapshot) => setRelations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CoordinationSchool))), () => setError("Impossible de charger les rattachements."));
-    const stopCoordinators = onSnapshot(query(collection(db, "users"), where("role", "==", "coordination_admin")), (snapshot) => setCoordinators(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AppUser))), () => setError("Impossible de charger les Coordinateurs."));
+    const stopRelations = onSnapshot(collection(db, "coordinationSchools"), (snapshot) => setRelations(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as CoordinationSchool))), () => setErrorLoad("Impossible de charger les rattachements."));
+    const stopCoordinators = onSnapshot(query(collection(db, "users"), where("role", "==", "coordination_admin")), (snapshot) => setCoordinators(snapshot.docs.map((item) => ({ id: item.id, ...item.data() } as AppUser))), () => setErrorLoad("Impossible de charger les Coordinateurs."));
     return () => { stopRelations(); stopCoordinators(); };
-  }, []);
+  }, [errorLoadRetry.token]);
 
   const selected = coordinations.find((item) => item.id === selectedId) ?? null;
   const selectedRelations = useMemo(() => relations.filter((item) => item.coordinationId === selectedId), [relations, selectedId]);
@@ -85,7 +90,7 @@ export function CoordinationManagement({ schools, coordinations, coordinationErr
         if (updatedSchool.exists()) onSchoolUpdated({ ...updatedSchool.data(), id: updatedSchool.id } as School);
       }
       setPendingRelation(null); setConfirmation(""); setMessage(pendingRelation.action === "add" ? "École rattachée." : "École retirée du périmètre. L’école et ses données sont conservées.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Modification impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Modification impossible.")); }
     finally { setBusy(false); }
   }
 
@@ -98,7 +103,7 @@ export function CoordinationManagement({ schools, coordinations, coordinationErr
       {coordinations.map((item) => { const count = relations.filter((relation) => relation.coordinationId === item.id && relation.active).length; return <button key={item.id} type="button" onClick={() => { setSelectedId(item.id); cancelRelation(); }} className="flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-3 text-left hover:border-blue-400 hover:bg-blue-50"><span className="min-w-0"><strong className="block truncate">{item.name}</strong><span className="text-xs text-slate-500">{item.status === "active" ? "Active" : item.status} · {count} école{count > 1 ? "s" : ""}</span></span><ChevronRight className="h-4 w-4 shrink-0 text-slate-400" /></button>; })}
     </div></div>
     {selected && <CoordinationAdminActions key={selected.id} coordination={selected} coordinators={coordinators} onClose={() => { setSelectedId(""); cancelRelation(); }}><div className="grid min-w-0 gap-4">
-      {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
       {message && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-700">{message}</p>}
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3">{selected.logoUrl && <img src={selected.logoUrl} alt={`Logo ${selected.name}`} className="h-12 w-12 rounded object-contain" />}<div><h3 className="text-xl font-bold">{selected.name}</h3><p className="text-sm text-slate-500">{selected.code || "Sans sigle"} · {selected.status}</p></div></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{coordinator?.name || selected.principalCoordinatorUserId || "Coordinateur non chargé"}</span></div>
       <div className="grid gap-2 text-sm sm:grid-cols-2"><p><b>E-mail :</b> {selected.email || "—"}</p><p><b>Téléphone :</b> {selected.phone || "—"}</p><p><b>Adresse :</b> {selected.address || "—"}</p><p><b>Créée le :</b> {dateLabel(selected.createdAt)}</p></div>

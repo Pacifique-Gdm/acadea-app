@@ -7,6 +7,8 @@ import { downloadTeacherDocument, uploadTeacherDocument } from "./teacherDocumen
 import type { TeacherPortalData } from "./teacherPortalData";
 import { useTeacherLearning } from "./useTeacherLearning";
 import { useAsyncAction } from "../../hooks/useAsyncAction";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 export function TeacherDocumentsDrawer({ user, school, year, data, onClose }: { user: AppUser; school: School; year: SchoolYear; data: TeacherPortalData; onClose: () => void }) {
   const learning = useTeacherLearning(user, school.id, year.id, data.teacher?.id);
@@ -31,22 +33,22 @@ export function TeacherDocumentsDrawer({ user, school, year, data, onClose }: { 
       const now = new Date().toISOString();
       await savePedagogicalDocument(user, { id, schoolId: school.id, schoolYearId: year.id, teacherId: data.teacher.id, assignmentId, classId: view.assignment.classId, subjectId: view.assignment.subjectId, category, title: title.trim(), description: description.trim() || undefined, chapter: chapter.trim() || undefined, storagePath: uploaded.path, originalFileName: file.name, mimeType: file.type, size: file.size, archived: false, createdAt: now, createdBy: user.id, updatedAt: now, updatedBy: user.id });
       setTitle(""); setDescription(""); setChapter(""); setFile(undefined);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Ajout impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Ajout impossible.")); }
     finally { setBusy(false); }
   }
 
   async function download(storagePath: string, originalFileName: string) {
     setError("");
     try { await downloadTeacherDocument({ storagePath, originalFileName }); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Téléchargement impossible."); }
+    catch (cause) { setError(userFacingError(cause, "Téléchargement impossible.")); }
   }
 
   return <AdminDrawer title="Documents pédagogiques" closeLabel="Fermer" onClose={() => !busy && action.pending.length === 0 && onClose()}>
     <p className="text-sm text-slate-600">Préparations et ressources</p>
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    {action.error && <p role="alert" className="text-sm text-red-700">{action.error}</p>}
+    <ErrorNotice error={error} />
+    <ErrorNotice error={action.error} />
     {learning.loading && <p role="status">Chargement des documents…</p>}
-    {learning.error && <div role="alert"><p>{learning.error}</p><button type="button" className="secondary-button" onClick={learning.retry}>Réessayer</button></div>}
+    <ErrorNotice error={learning.error} onRetry={learning.retry} />
     {!views.length ? <p className="rounded bg-slate-50 p-4">Aucun cours ne vous a encore été affecté.</p> : <div className="grid gap-3 rounded border border-slate-200 p-4">
       <select className="input" value={assignmentId} onChange={(event) => setAssignmentId(event.target.value)}>{views.map((item) => <option key={item.assignment.id} value={item.assignment.id}>{item.subject?.name ?? "Matière"} — {item.schoolClass?.name ?? "Classe"}</option>)}</select>
       <select className="input" value={category} onChange={(event) => setCategory(event.target.value as PedagogicalDocumentCategory)}>{pedagogicalDocumentCategories.map((item) => <option key={item} value={item}>{pedagogicalDocumentCategoryLabels[item]}</option>)}</select>

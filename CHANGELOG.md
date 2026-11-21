@@ -3,8 +3,17 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
-## [1.16.7] — 2026-11-20 — Correction
+## [1.17.1] — 2026-11-21 — Correction
 - PDF : nom de l'école et titre du document à nouveau en gras ; la date de génération reste dans son cadre (reçu, dépense et tous les PDF à bandeau)
+
+## [1.17.0] — 2026-11-21 — Fonctionnalité
+- Super administrateur : les destinataires des messages se cherchent par nom, page par page, et la messagerie ne se recharge plus à chaque ouverture (lot 6)
+
+## [1.16.8] — 2026-11-20 — Correction
+- Messages d'erreur clairs en français partout (réseau, délai, session, autorisation), bouton « Réessayer » qui relance vraiment, relance automatique des chargements au retour du réseau (jamais pour l'argent)
+
+## [1.16.7] — 2026-11-20 — Correction
+- Écran de connexion : retrait du rappel « téléphone partagé » ajouté avec la 1.16.6
 
 ## [1.16.6] — 2026-11-20 — Correction
 - Déconnexion : nettoyage complet de l'appareil (mémoires, devises des dépenses, copies hors ligne, notifications affichées), puis page rechargée ; les brouillons non envoyés restent

@@ -3,6 +3,7 @@ import type { AppUser, Message } from "../../types";
 import { sendMessageReply } from "../../services/schoolMessaging";
 import { replyAsCoordination } from "../../services/coordinationMessaging";
 import { canReplyToMessage } from "../../utils/messageReplies";
+import { userFacingError } from "../../utils/userFacingError";
 
 /** Lot 23 : « Répondre » sous un message de la Coordination, de la Sous-coordination
  * ou du Super administrateur, pour les seuls rôles autorisés (jamais les parents). */
@@ -26,7 +27,7 @@ export function MessageReplyBox({ message, user, schoolYearId }: { message: Mess
       else await sendMessageReply({ ...input, schoolYearId });
       attempt.current = null; setBody(""); setOpen(false); setStatus("Réponse envoyée.");
     } catch (cause) {
-      setStatus(cause instanceof Error ? cause.message : "Réponse non envoyée.");
+      setStatus(userFacingError(cause, "Réponse non envoyée."));
     } finally { setSending(false); }
   }
 

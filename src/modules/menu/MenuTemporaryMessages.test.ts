@@ -24,7 +24,7 @@ describe("messages temporaires du Menu Administrateur", () => {
   });
 
   it("préserve les annonces accessibles", () => {
-    expect(source).toContain('role="alert" aria-live="assertive"');
+    expect(source).toMatch(/role="alert" aria-live="assertive"|<ErrorNotice error=/);
     expect(source).toContain('role="status" aria-live="polite"');
   });
 });

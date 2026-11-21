@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { DocumentSnapshot } from "@firebase/firestore";
 import { loadControlHistoryPage } from "../services/controlHistory";
 import type { ControlHistoryItem, ControlHistoryKind } from "../services/controlHistory";
+import { useLoadRetry } from "./useLoadRetry";
 
 type UsePaginatedControlHistoryOptions = {
   kind: ControlHistoryKind;
@@ -31,6 +32,9 @@ export function usePaginatedControlHistory<T extends ControlHistoryItem>({
   const [isInitialLoading, setIsInitialLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState("");
+  // Première page en échec : effacer le message relance la lecture (effet ci-dessous),
+  // au retour du réseau ou après quelques secondes.
+  useLoadRetry(Boolean(loadError) && !hasLoaded, () => setLoadError(""));
 
   const loadFirstPage = useCallback(async () => {
     if (!enabled || !schoolId || !schoolYearId || isInitialLoading) return;
