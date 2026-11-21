@@ -37,10 +37,10 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       // Lot 27b : la rubrique se choisit dans le catalogue ; « + Nouvelle rubrique… » la crée et la sélectionne.
       if (index) await editor.getByRole("button", { name: "+ Ajouter une ligne", exact: true }).click();
       await editor.getByLabel(`Rubrique ${index + 1}`, { exact: true }).selectOption("__new__");
-      await editor.getByLabel("Nom de la nouvelle rubrique", { exact: true }).fill(name);
+      await editor.getByLabel("Nouvelle rubrique", { exact: true }).fill(name);
       // Lot « Deux onglets » : la rubrique est seulement ajoutée à la liste ; elle sera créée avec la répartition.
-      await editor.getByRole("button", { name: "Ajouter à la liste", exact: true }).click();
-      await expect(editor.getByLabel("Nom de la nouvelle rubrique", { exact: true })).toHaveCount(0);
+      await editor.getByRole("button", { name: "Ajouter", exact: true }).click();
+      await expect(editor.getByLabel("Nouvelle rubrique", { exact: true })).toHaveCount(0);
       await expect(editor.getByLabel(`Rubrique ${index + 1}`, { exact: true }).locator("option:checked")).toHaveText(name);
       await editor.getByRole("combobox", { name: "Mode", exact: true }).nth(index).selectOption(mode);
       await editor.locator('input[inputmode="decimal"]').nth(index).fill(value);
@@ -56,7 +56,7 @@ test("répartition préparatoire : quatre rôles authentifiés, transaction, ver
       const result = await invoke(handler, route.request().headers().authorization, input);
       expect(result.status).toBe(200); await route.abort("connectionreset");
     });
-    await editor.getByRole("button", { name: "Enregistrer la répartition", exact: true }).click();
+    await editor.getByRole("button", { name: "Enregistrer", exact: true }).click();
     await expect(editor.getByRole("button", { name: "Vérifier la même demande", exact: true })).toBeVisible();
     await expect(editor.getByLabel("Frais existant")).toBeDisabled();
     await editor.getByRole("button", { name: "Vérifier la même demande", exact: true }).click();
