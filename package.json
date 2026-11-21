@@ -1,7 +1,7 @@
 {
   "name": "acadea",
   "private": true,
-  "version": "1.17.2",
+  "version": "1.18.1",
   "type": "module",
   "scripts": {
     "dev": "npm run dev:staging",

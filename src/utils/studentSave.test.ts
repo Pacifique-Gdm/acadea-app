@@ -59,7 +59,8 @@ describe("payload Firestore élève", () => {
 
 describe("flux de soumission du formulaire élève", () => {
   const formSource = readFileSync(new URL("../components/students/StudentForm.tsx", import.meta.url), "utf8");
-  const moduleSource = readFileSync(new URL("../modules/students/StudentsModule.tsx", import.meta.url), "utf8");
+  const moduleSource = readFileSync(new URL("../modules/students/StudentsModule.tsx", import.meta.url), "utf8")
+    + readFileSync(new URL("../components/students/StudentRecordDrawer.tsx", import.meta.url), "utf8");
 
   it("utilise une vraie soumission et désactive les actions pendant l'écriture", () => {
     expect(formSource).toContain("onSubmit={(event) =>");
@@ -74,7 +75,9 @@ describe("flux de soumission du formulaire élève", () => {
     expect(moduleSource).toContain("studentRecords.map((item) => (item.id === student.id ? persistedStudent : item))");
     expect(moduleSource).toContain("[...studentRecords, persistedStudent]");
     expect(moduleSource).toContain("setForm(emptyCurrentStudent());");
-    expect(moduleSource).toContain("setShowForm(false);");
+    // La fiche se ferme par onSaved (écran Élèves : setRecordTarget(null) ; paiement : retour au paiement).
+    expect(moduleSource).toContain('onSaved(persistedStudent, exists ? "Élève modifié avec succès." : "Élève enregistré avec succès.");');
+    expect(moduleSource).toContain("onSaved={(_student, message) => { setRecordTarget(null); setSaveMessage(message); }}");
   });
 
   it("laisse le serveur attribuer le matricule à la création", () => {
