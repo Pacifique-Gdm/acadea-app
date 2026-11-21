@@ -32,6 +32,7 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { orderSchoolYears } from "../../utils/schoolYears";
 import { SchoolInformationEditDrawer } from "./SchoolInformationEditDrawer";
 import { primeSchoolLogo } from "../../services/schoolLogo";
+import { createLogoThumbnail } from "../../services/logoThumbnail";
 import { SchoolAcronymEditDrawer } from "./SchoolAcronymEditDrawer";
 import { schoolInformationPatch } from "./schoolInformation";
 import type { SchoolInformationDraft } from "./schoolInformation";
@@ -548,6 +549,8 @@ export function PlatformModule({
     setSchoolEditSaving(true);
     try {
       const patch = schoolInformationPatch(draft, schoolEditTarget);
+      // Nouveau logo : la vignette des listes (environ 4 Ko) part avec lui.
+      if (patch.logoUrl !== undefined) patch.logoThumbUrl = patch.logoUrl ? await createLogoThumbnail(patch.logoUrl) : "";
       const payload = await manageSchool({
         action: "update",
         schoolId: schoolEditTarget.id,
@@ -1513,7 +1516,7 @@ export function PlatformModule({
         <AdminDrawer title={drawerSchool.name} onClose={closeSchoolDrawer} closeLabel="Fermer les informations de l'école">
           <div className="grid gap-4">
             <div className="flex min-w-0 items-start gap-3 rounded border border-slate-200 bg-slate-50 p-4">
-              <SchoolLogo school={drawerSchool} />
+              <SchoolLogo school={drawerSchool} full />
               <div className="min-w-0">
                 <h2 className="break-words text-lg font-bold text-ink">{drawerSchool.name}</h2>
                 <div className="mt-2 flex flex-wrap gap-2">

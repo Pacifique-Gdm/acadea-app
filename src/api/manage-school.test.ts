@@ -256,6 +256,24 @@ describe("API SEC-004 manage-school", () => {
     expect(denied.statusCode).toBe(400);
   });
 
+  it("range la vignette du nouveau logo dans l'école (listes du Super administrateur)", async () => {
+    const logoThumbUrl = `data:image/webp;base64,${"A".repeat(3000)}`;
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch: { logoUrl: "data:image/png;base64,AAAA", logoThumbUrl } }), res);
+    expect(res.statusCode).toBe(200);
+    expect(mocks.batchUpdate.mock.calls[0]?.[1].logoThumbUrl).toBe(logoThumbUrl);
+    expect(mocks.batchSet).toHaveBeenCalledWith(expect.objectContaining({ path: "schoolLogos/school-a" }), expect.not.objectContaining({ logoThumbUrl }));
+  });
+
+  it.each([
+    [{ logoUrl: "data:image/png;base64,AAAA", logoThumbUrl: `data:image/webp;base64,${"A".repeat(8001)}` }],
+    [{ logoUrl: "data:image/png;base64,AAAA", logoThumbUrl: "https://exemple.test/vignette.png" }],
+    [{ logoThumbUrl: "data:image/webp;base64,AAAA" }],
+  ])("refuse une vignette trop lourde, mal formée ou sans logo %#", async (patch) => {
+    const res = response(); await handler(request({ action: "update", schoolId: "school-a", confirmation: "MODIFIER INFORMATIONS ÉCOLE", patch }), res);
+    expect(res.statusCode).toBe(400);
+    expect(mocks.batchCommit).not.toHaveBeenCalled();
+  });
+
   it.each([
     "data:image/gif;base64,AAAA",
     "javascript:alert(1)",

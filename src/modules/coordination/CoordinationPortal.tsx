@@ -28,6 +28,7 @@ import { useHeaderAd } from "../../hooks/useHeaderAd";
 import { useAdSuppression } from "../../services/adSuppression";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
+import { useCoordinationLogoThumbnail } from "../../hooks/useCoordinationLogo";
 
 type CoordinationTab = "dashboard" | "students" | "control" | "messages" | "menu";
 const emptySupervisionModel: CoordinationDashboardReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [] };
@@ -43,6 +44,8 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
   useAdSuppression(tab === "control");
   const headerAd = useHeaderAd({ role: user.role, coordinationId: user.coordinationId ?? "" });
   const [coordination, setCoordination] = useState<Coordination | null>(null);
+  // En-tête : la vignette suffit (environ 4 Ko), le logo complet reste à part.
+  const coordinationLogo = useCoordinationLogoThumbnail(coordination);
   const [subCoordination, setSubCoordination] = useState<SubCoordination | null>(null);
   const [relations, setRelations] = useState<Array<CoordinationSchool | SubCoordinationSchool>>([]);
   const [schools, setSchools] = useState<School[]>([]);
@@ -222,7 +225,7 @@ export function CoordinationPortal({ user, onLogout }: { user: AppUser; onLogout
     <header data-testid="coordination-institution-band" className="sticky top-0 z-20 w-full border-b border-slate-200 bg-white py-4 shadow-sm" style={headerAd ? { paddingTop: 6, paddingBottom: 8 } : undefined}>
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4">
         <div className={`flex min-w-0 flex-1 gap-3 ${headerAd ? "items-center" : "items-start"}`}>
-          <div data-testid="coordination-institution-logo" className={`flex ${headerAd ? "h-6 w-6" : "h-12 w-12"} shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100`}>{coordination?.logoUrl ? <img src={coordination.logoUrl} alt={`Logo ${coordination.name}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
+          <div data-testid="coordination-institution-logo" className={`flex ${headerAd ? "h-6 w-6" : "h-12 w-12"} shrink-0 items-center justify-center overflow-hidden rounded bg-slate-100`}>{coordinationLogo ? <img src={coordinationLogo} alt={`Logo ${coordination?.name ?? ""}`} className="h-full w-full object-contain"/> : <Building2 className="h-6 w-6 text-blue-700"/>}</div>
           <div className="min-w-0 flex-1">
             <h1 className="break-words text-base font-bold leading-tight sm:text-lg">{institutionName}</h1>
             {!headerAd && <>{isSubCoordinator && coordination?.name && <p className="break-words text-xs font-semibold text-slate-600">Coordination : {coordination.name}</p>}

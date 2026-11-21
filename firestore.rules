@@ -475,6 +475,7 @@ service cloud.firestore {
           "email",
           "logoUrl",
           "logoVersion",
+          "logoThumbUrl",
           "acronym",
           "educationLevels",
           "schoolOptions",
@@ -482,7 +483,18 @@ service cloud.firestore {
           "activeSchoolYearId",
           "updatedAt",
           "updatedBy"
-        ]);
+        ])
+        && logoThumbnailOk(request.resource.data);
+    }
+
+    // Vignette du logo pour les listes (environ 4 Ko, 8 000 caractères au plus).
+    // Absente : permis (logo retiré, ou ancienne version de l'application).
+    function logoThumbnailOk(data) {
+      return !("logoThumbUrl" in data)
+        || (data.logoThumbUrl is string
+          && data.logoThumbUrl.size() > 0
+          && data.logoThumbUrl.size() <= 8000
+          && data.logoThumbUrl.matches("^data:image/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$"));
     }
 
     function superAdminAiAssistantUpdate() {
@@ -1051,6 +1063,13 @@ service cloud.firestore {
     match /coordinations/{coordinationId} {
       allow read: if superAdmin() || coordinatorOwnsCoordination(coordinationId) || schoolAdminRelatedCoordination(coordinationId);
       allow create, update, delete: if superAdmin();
+    }
+
+    // Logo complet de la coordination rangé à part (comme schoolLogos) : mêmes
+    // lecteurs que la coordination ; seul le serveur écrit.
+    match /coordinationLogos/{coordinationId} {
+      allow read: if superAdmin() || coordinatorOwnsCoordination(coordinationId) || schoolAdminRelatedCoordination(coordinationId);
+      allow write: if false;
     }
 
     match /coordinationSchools/{relationId} {

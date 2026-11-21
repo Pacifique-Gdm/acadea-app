@@ -6,6 +6,8 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { listScopedStudentArrears, listScopedStudentArrearsBatch } from "./_lib/financialTransactions.js";
 import { manageCoordinationAdministrator } from "./_lib/coordinationAdministrators.js";
 import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
+import { stageCoordinationLogoWrite } from "./_lib/coordinationLogo.js";
+import { isValidLogoThumbnail } from "./_lib/logoThumbnail.js";
 
 export const maxDuration = 300;
 
@@ -394,18 +396,23 @@ export default async function handler(req, res) {
         phone: text(input.phone),
         email: text(input.email).toLowerCase(),
         address: text(input.address),
-        logoUrl: text(input.logoUrl),
       };
+      // Le logo n'est envoyé que s'il a changé ; absent, le logo actuel reste en place.
+      const logoChanged = input.logoUrl !== undefined;
+      const logoUrl = logoChanged ? text(input.logoUrl) : "";
       if (!values.name || (values.email && !values.email.includes("@"))) throw coordinationHttpError(400, "invalid-argument", "Nom et e-mail valides requis.");
-      if (values.logoUrl && values.logoUrl.length > 2_000_000) throw coordinationHttpError(400, "invalid-argument", "Le logo est trop volumineux.");
+      if (logoUrl && logoUrl.length > 2_000_000) throw coordinationHttpError(400, "invalid-argument", "Le logo est trop volumineux.");
+      if (logoChanged && input.logoThumbUrl !== undefined && input.logoThumbUrl !== "" && !isValidLogoThumbnail(input.logoThumbUrl)) throw coordinationHttpError(400, "invalid-argument", "La vignette du logo est invalide.");
       const now = new Date().toISOString();
       const coordinationRef = db.doc(`coordinations/${caller.coordinationId}`);
       const auditRef = db.collection("auditLogs").doc();
       const batch = db.batch();
-      batch.update(coordinationRef, { ...values, updatedAt: now, updatedBy: caller.uid });
-      batch.create(auditRef, { id: auditRef.id, eventType: "coordination.settings_updated", coordinationId: caller.coordinationId, actorId: caller.uid, actorRole: caller.role, actorName: caller.profile?.name ?? "Coordinateur", action: "Paramètres Coordination modifiés", result: "success", resourceType: "coordination", resourceId: caller.coordinationId, source: "server", createdAt: now, metadata: { fields: Object.keys(values) } });
+      // Logo complet rangé à part (coordinationLogos) ; la coordination garde logoVersion et la vignette.
+      const logoFields = logoChanged ? stageCoordinationLogoWrite(db, batch, { coordinationId: caller.coordinationId, logoUrl, logoThumbUrl: input.logoThumbUrl, updatedAt: now, updatedBy: caller.uid }) : {};
+      batch.update(coordinationRef, { ...values, ...logoFields, updatedAt: now, updatedBy: caller.uid });
+      batch.create(auditRef, { id: auditRef.id, eventType: "coordination.settings_updated", coordinationId: caller.coordinationId, actorId: caller.uid, actorRole: caller.role, actorName: caller.profile?.name ?? "Coordinateur", action: "Paramètres Coordination modifiés", result: "success", resourceType: "coordination", resourceId: caller.coordinationId, source: "server", createdAt: now, metadata: { fields: [...Object.keys(values), ...(logoChanged ? ["logoUrl"] : [])] } });
       await batch.commit();
-      return sendJson(res, 200, { coordinationId: caller.coordinationId, updatedAt: now });
+      return sendJson(res, 200, { coordinationId: caller.coordinationId, updatedAt: now, ...(logoChanged ? { logoVersion: logoFields.logoVersion } : {}) });
     }
     const caller = await requireSuperAdmin(auth, db, token);
     await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: `coordination.${action}`, ...API_RATE_LIMITS.PROVISION_SCHOOL });

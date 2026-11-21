@@ -1,5 +1,7 @@
 import { getCurrentFirebaseIdToken } from "./auth";
 import { resolveApiUrl } from "../config/apiUrl";
+import { createLogoThumbnail } from "./logoThumbnail";
+import { primeCoordinationLogo } from "./coordinationLogo";
 import type { Coordination, AppUser, ParentProfile, PersonnelProfile, SchoolClassRecord } from "../types";
 import type { HistoricalDebt } from "./financialTransactions";
 import { validateArrearsTotals, type ArrearsTotals } from "../utils/arrearsFilter";
@@ -25,7 +27,17 @@ async function call(input: Record<string, unknown>) {
 export async function createCoordination(input: CoordinationInput) { return call({ action: "create", ...input }) as Promise<CoordinationResponse>; }
 export async function addCoordinationSchool(coordinationId: string, schoolId: string) { return call({ action: "add-school", coordinationId, schoolId }); }
 export async function removeCoordinationSchool(coordinationId: string, schoolId: string) { return call({ action: "remove-school", coordinationId, schoolId }); }
-export async function updateCoordinationSettings(settings: CoordinationSettingsInput) { return call({ action: "update-settings", ...settings }); }
+/**
+ * Paramètres de la coordination. `logoUrl` n'est envoyé que si le logo a changé :
+ * la vignette des listes (environ 4 Ko) est alors fabriquée ici, et le serveur
+ * range le logo complet à part (coordinationLogos).
+ */
+export async function updateCoordinationSettings(settings: CoordinationSettingsInput) {
+  const logoThumbUrl = settings.logoUrl ? await createLogoThumbnail(settings.logoUrl) : "";
+  const payload = await call({ action: "update-settings", ...settings, ...(settings.logoUrl !== undefined ? { logoThumbUrl } : {}) }) as { coordinationId?: string; logoVersion?: string };
+  if (settings.logoUrl !== undefined && payload.coordinationId && payload.logoVersion) primeCoordinationLogo(payload.coordinationId, payload.logoVersion, settings.logoUrl);
+  return payload;
+}
 export async function loadCoordinationStudentArrears(studentId: string) {
   return call({ action: "read-student-arrears", studentId }) as Promise<{ debts: HistoricalDebt[]; settled: HistoricalDebt[] }>;
 }

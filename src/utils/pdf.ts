@@ -4,6 +4,7 @@ import { formatRecordedOperation } from "./operationCurrency";
 import { expenseCategoryLabel } from "./expenseCategory";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 import { loadSchoolLogo } from "../services/schoolLogo";
+import { COORDINATION_PDF_ID_PREFIX, loadCoordinationLogo } from "../services/coordinationLogo";
 
 type PdfDoc = InstanceType<typeof jsPDF>;
 
@@ -161,7 +162,7 @@ export async function renderAcadPdfPreview({ filename, title, school, year, subt
   const doc = new jsPDF({ unit: "mm", format: layout.jsPdfFormat, orientation, compress: true });
   const engineReadyAt = performance.now();
   const viewer = openPdfViewerShell({ filename, title });
-  const logoDataUrl = await loadLogoDataUrl(await loadSchoolLogo(school));
+  const logoDataUrl = await loadLogoDataUrl(await loadInstitutionLogo(school));
   const resourcesReadyAt = performance.now();
   const element = document.createElement("div");
   element.className = "acadea-pdf";
@@ -1656,6 +1657,14 @@ async function fetchLogoDataUrl(logoUrl: string) {
     reader.onerror = () => resolve("");
     reader.readAsDataURL(blob);
   });
+}
+
+/** Logo complet de l'établissement du PDF : une école, ou une coordination (`coordination:{id}`). */
+function loadInstitutionLogo(school: School) {
+  if (school.id.startsWith(COORDINATION_PDF_ID_PREFIX)) {
+    return loadCoordinationLogo({ id: school.id.slice(COORDINATION_PDF_ID_PREFIX.length), logoUrl: school.logoUrl, logoVersion: school.logoVersion });
+  }
+  return loadSchoolLogo(school);
 }
 
 async function loadLogoDataUrl(logoUrl?: string) {

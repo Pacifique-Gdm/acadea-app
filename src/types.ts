@@ -65,6 +65,8 @@ export interface School {
   logoUrl?: string;
   /** Repère du logo rangé dans `schoolLogos/{id}` ; vide s'il n'y a pas de logo. */
   logoVersion?: string;
+  /** Vignette du logo pour les listes (environ 4 Ko) ; le logo complet reste dans `schoolLogos`. */
+  logoThumbUrl?: string;
   acronym?: string;
   timeZone?: string;
   educationLevels?: string[];
@@ -280,7 +282,12 @@ export interface Coordination {
   name: string;
   code?: string;
   status: "active" | "inactive" | "archived";
+  /** Ancien emplacement du logo (avant qu'il soit rangé dans `coordinationLogos`). */
   logoUrl?: string;
+  /** Repère du logo rangé dans `coordinationLogos/{id}` ; vide s'il n'y a pas de logo. */
+  logoVersion?: string;
+  /** Vignette du logo pour les listes (environ 4 Ko). */
+  logoThumbUrl?: string;
   phone?: string;
   email?: string;
   address?: string;

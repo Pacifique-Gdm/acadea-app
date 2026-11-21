@@ -7,6 +7,7 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { CashBalanceError, resolveRecordedCurrency } from "./_lib/cashBalance.js";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "./_lib/schoolOptions.js";
 import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
+import { isValidLogoThumbnail } from "./_lib/logoThumbnail.js";
 import { readPlatformStats } from "./_lib/platformStats.js";
 import { cachedSchoolSearchEntries, searchSchoolEntries } from "./_lib/schoolSearchIndex.js";
 
@@ -83,7 +84,7 @@ function sameValues(left, right) {
 
 function pickSchoolPatch(body) {
   const patch = {};
-  for (const key of ["name", "address", "phone", "email", "motto", "logoUrl", "timeZone", "schoolType", "educationLevels", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
+  for (const key of ["name", "address", "phone", "email", "motto", "logoUrl", "logoThumbUrl", "timeZone", "schoolType", "educationLevels", "subscriptionPlan", "subscriptionStatus", "subscriptionAmount"]) {
     if (body[key] !== undefined) patch[key] = body[key];
   }
   return patch;
@@ -110,6 +111,11 @@ export function validateSchoolInformationPatch(rawPatch) {
     if (patch.logoUrl && !ALLOWED_LOGO_DATA_URL.test(patch.logoUrl) && !/^https:\/\//i.test(patch.logoUrl)) {
       return { error: "Le format du logo de l'école est invalide." };
     }
+  }
+  if (patch.logoThumbUrl !== undefined) {
+    // La vignette n'accompagne qu'un nouveau logo ; trop lourde ou mal formée, elle est refusée.
+    if (patch.logoUrl === undefined) return { error: "La vignette du logo doit accompagner le logo." };
+    if (patch.logoThumbUrl !== "" && !isValidLogoThumbnail(patch.logoThumbUrl)) return { error: "La vignette du logo de l'école est invalide." };
   }
 
   if (patch.schoolType !== undefined || patch.educationLevels !== undefined) {
@@ -266,9 +272,9 @@ export default async function handler(req, res) {
       const auditRef = db.collection("auditLogs").doc(`school-update-${randomUUID()}`);
       const batch = db.batch();
       const updatedAt = new Date().toISOString();
-      const { logoUrl, ...schoolPatch } = patch;
-      // Le logo est rangé à part : l'école ne garde que son repère logoVersion.
-      const logoFields = logoUrl === undefined ? {} : stageSchoolLogoWrite(db, batch, { schoolId, logoUrl, updatedAt, updatedBy: caller.uid });
+      const { logoUrl, logoThumbUrl, ...schoolPatch } = patch;
+      // Le logo est rangé à part : l'école ne garde que son repère logoVersion et sa vignette.
+      const logoFields = logoUrl === undefined ? {} : stageSchoolLogoWrite(db, batch, { schoolId, logoUrl, logoThumbUrl, updatedAt, updatedBy: caller.uid });
       batch.update(schoolRef, { ...schoolPatch, ...logoFields, updatedAt, updatedBy: caller.uid });
       batch.set(auditRef, buildServerAudit({ id: auditRef.id, eventType: AUDIT_EVENT_TYPES.SCHOOL_UPDATED, actor: caller, schoolId, resourceType: "school", resourceId: schoolId, metadata: { fieldsChanged: Object.keys(patch).join(",") } }));
       await batch.commit();

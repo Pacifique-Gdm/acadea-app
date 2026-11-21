@@ -15,8 +15,9 @@ afterEach(() => resetSchoolLogoCacheForTests());
 describe("affichage du logo rangé à part", () => {
   it("l'en-tête, les cartes et les PDF passent tous par le logo rangé à part", () => {
     expect(source("src/components/layout/Header.tsx")).toContain("useSchoolLogo(school)");
-    expect(source("src/components/platform/SchoolLogo.tsx")).toContain("useSchoolLogo(school)");
-    expect(source("src/utils/pdf.ts")).toContain("loadLogoDataUrl(await loadSchoolLogo(school))");
+    expect(source("src/components/platform/SchoolLogo.tsx")).toContain("useSchoolLogo(thumbnail ? null : school)");
+    expect(source("src/utils/pdf.ts")).toContain("loadLogoDataUrl(await loadInstitutionLogo(school))");
+    expect(source("src/utils/pdf.ts")).toContain("return loadSchoolLogo(school);");
     for (const file of ["src/components/layout/Header.tsx", "src/components/platform/SchoolLogo.tsx", "src/utils/pdf.ts"]) {
       expect(source(file)).not.toMatch(/school\.logoUrl/);
     }

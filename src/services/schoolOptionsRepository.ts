@@ -4,6 +4,7 @@ import type { School } from "../types";
 import { canonicalSchoolOption, mergeSchoolOptions, normalizeSchoolOptions, reconcileSchoolOptions, schoolOptionDisplayName } from "../utils/schoolOptions";
 import { getSchoolEducationLevels, toggleSchoolEducationLevel } from "../utils/schoolConfig";
 import { SCHOOL_LOGO_COLLECTION, computeSchoolLogoVersion, primeSchoolLogo } from "./schoolLogo";
+import { createLogoThumbnail } from "./logoThumbnail";
 
 export async function persistSchoolOption(schoolId: string, option: string) {
   if (!db) throw new Error("Persistance Firestore indisponible.");
@@ -34,6 +35,8 @@ export async function persistSchoolSettings(currentSchool: School, baselineOptio
   const schoolRef = doc(database, "schools", currentSchool.id);
   const logoUrl = logoChange?.logoUrl ?? "";
   const logoVersion = logoChange ? await computeSchoolLogoVersion(logoUrl) : "";
+  // Vignette des listes (environ 4 Ko), rangée dans l'école à côté de logoVersion.
+  const logoThumbUrl = logoUrl ? await createLogoThumbnail(logoUrl) : "";
   const saved = await runTransaction(database, async (transaction) => {
     const snapshot = await transaction.get(schoolRef);
     if (!snapshot.exists()) throw new Error("École introuvable.");
@@ -59,9 +62,11 @@ export async function persistSchoolSettings(currentSchool: School, baselineOptio
     } else {
       transaction.delete(logoRef);
     }
-    transaction.update(schoolRef, { ...settings, logoUrl: deleteField(), logoVersion });
+    transaction.update(schoolRef, { ...settings, logoUrl: deleteField(), logoVersion, logoThumbUrl: logoThumbUrl || deleteField() });
     const savedSchool: School = { ...latest, ...settings, logoVersion };
     delete savedSchool.logoUrl;
+    if (logoThumbUrl) savedSchool.logoThumbUrl = logoThumbUrl;
+    else delete savedSchool.logoThumbUrl;
     return savedSchool;
   });
   if (logoChange) primeSchoolLogo(currentSchool.id, logoVersion, logoUrl);
