@@ -37,7 +37,7 @@ export async function createSchoolSubclasses({ db, caller, body }) {
   const classOptionKey = typeof body.classOptionKey === "string" ? body.classOptionKey.trim() : "";
   if (!schoolId || !schoolYearId || !parentId || !parentName) reject("École, année et classe parent requises.", 400, "invalid-argument");
   if (body.confirmation !== confirmationText) reject("Confirmation d'ajout invalide.", 400, "invalid-confirmation");
-  if (!["school_admin", "secretary"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Création de sous-classe non autorisée.", 403, "permission-denied");
+  if (!["school_admin", "secretary", "cashier"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Création de sous-classe non autorisée.", 403, "permission-denied");
   if (!Array.isArray(body.labels) || body.labels.length < 1 || body.labels.length > 20 || body.labels.some((label) => typeof label !== "string" || label.trim().length < 1 || label.length > 100)) {
     reject("Saisissez entre une et vingt sous-classes valides.", 400, "invalid-argument");
   }

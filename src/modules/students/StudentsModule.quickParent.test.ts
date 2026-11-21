@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const source = readFileSync(new URL("./StudentsModule.tsx", import.meta.url), "utf8");
+const source = readFileSync(new URL("./StudentsModule.tsx", import.meta.url), "utf8")
+  + readFileSync(new URL("../../components/students/StudentRecordDrawer.tsx", import.meta.url), "utf8");
 
 describe("création rapide différée d'un Parent", () => {
   it("persiste l'élève avant de provisionner le Parent avec son véritable ID", () => {

@@ -48,7 +48,8 @@ describe("photo envoyée pour une inscription qui a échoué (lot 9)", () => {
     expect(remove).toHaveBeenCalledTimes(2);
   });
   it("l'écran Élèves ne supprime plus la photo directement après une erreur", () => {
-    const source = readFileSync(new URL("../modules/students/StudentsModule.tsx", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../modules/students/StudentsModule.tsx", import.meta.url), "utf8")
+      + readFileSync(new URL("../components/students/StudentRecordDrawer.tsx", import.meta.url), "utf8");
     expect(source).not.toContain("void deleteStudentPhoto(uploadedPhotoPath)");
     expect(source).toContain("discardUploadedPhotoIfUnused(");
   });
