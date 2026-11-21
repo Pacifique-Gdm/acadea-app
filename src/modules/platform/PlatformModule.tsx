@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PushNotificationPrompt } from "../../components/notifications/PushNotificationPrompt";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import { KeptTab } from "../../components/layout/KeptTab";
-import { PlatformMessages, usePlatformUnreadCount } from "./PlatformMessages";
+import { PlatformMessages, usePlatformInbox } from "./PlatformMessages";
 import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerShell";
 import { syncAppBadge } from "../../utils/appBadge";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
@@ -123,7 +123,9 @@ export function PlatformModule({
   const [customOptionSaving, setCustomOptionSaving] = useState(false);
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [messagingOpen, setMessagingOpen] = useState(false);
-  const platformUnread = usePlatformUnreadCount(user.id);
+  // Lot SA-6 : boîte de la cloche chargée une seule fois par session (écoute gardée après la première ouverture).
+  const platformInbox = usePlatformInbox(user.id);
+  const platformUnread = platformInbox.unread.length;
   useEffect(() => { syncAppBadge(platformUnread); }, [platformUnread]);
   // Lot 19 : les onglets Coordinations et Menu restent en place (masqués) après leur première ouverture.
   const visitedViews = useVisitedTabs(platformView);
@@ -349,9 +351,10 @@ export function PlatformModule({
       schoolYears: [...data.schoolYears.filter((item) => !yearIds.has(item.id)), ...schoolYears],
     }, { persist: false });
   }
-  // Écrans qui ont encore besoin de toutes les écoles (Coordinations, Messages, Publicité, Créer Coordination,
+  // Écrans qui ont encore besoin de toutes les écoles (Coordinations, Publicité, Créer Coordination,
   // recherche locale si la liste du serveur n'est pas prête) : chargement une seule fois, à leur ouverture.
-  const needsAllSchools = platformView === "coordinations" || platformView === "messages" || messagingOpen
+  // Lot SA-6 : Messages et la cloche cherchent leurs destinataires sur le serveur, page par page.
+  const needsAllSchools = platformView === "coordinations"
     || platformMenuDrawer === "ad-campaigns" || platformMenuDrawer === "create-coordination"
     || (platformView === "students" && serverSearch.schools === null && !serverSearch.loading);
   const allSchoolsRequested = useRef(false);
@@ -1311,7 +1314,7 @@ export function PlatformModule({
             </div>
             {/* Lot 25 : actualisation et cloche, comme chez l'Administrateur. */}
             <button type="button" onClick={() => onRefresh?.()} className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser"><RefreshCw className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setMessagingOpen(true)} className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
+            <button type="button" onClick={() => { platformInbox.start(); setMessagingOpen(true); }} className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
               <Bell className="h-4 w-4" />
               {platformUnread > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{platformUnread}</span>}
             </button>
@@ -1319,7 +1322,7 @@ export function PlatformModule({
           </div>
         </header>
         <PushNotificationPrompt user={user} />
-        {messagingOpen && <MessagingDrawerShell onClose={() => setMessagingOpen(false)}><PlatformMessages user={user} schools={visibleSchools} section="inbox" /></MessagingDrawerShell>}
+        {messagingOpen && <MessagingDrawerShell onClose={() => setMessagingOpen(false)}><PlatformMessages user={user} section="inbox" inbox={platformInbox} /></MessagingDrawerShell>}
 
         <main className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8">
           <ErrorNotice error={platformLoadError} onRetry={platformRetry.retry} />
@@ -1405,7 +1408,7 @@ export function PlatformModule({
           </KeptTab>
 
           <KeptTab id="messages" active={platformView} visited={visitedViews}>
-            <PlatformMessages user={user} schools={visibleSchools} section="compose" />
+            <PlatformMessages user={user} section="compose" />
           </KeptTab>
 
           <KeptTab id="menu" active={platformView} visited={visitedViews}>
