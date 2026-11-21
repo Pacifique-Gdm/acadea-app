@@ -9,6 +9,7 @@ import { canonicalSchoolOption, normalizeSchoolOptions } from "./_lib/schoolOpti
 import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
 import { readPlatformStats } from "./_lib/platformStats.js";
 import { cachedSchoolSearchEntries, searchSchoolEntries } from "./_lib/schoolSearchIndex.js";
+import { isSafeSchoolScopeId, readSchoolDrawerSummary, readSchoolHistoryPage } from "./_lib/schoolDrawerSummary.js";
 
 export const maxDuration = 300;
 
@@ -170,6 +171,27 @@ export default async function handler(req, res) {
         sort: choice(body.sort, ["az", "recent", "users"]),
         page: Number.isInteger(body.page) && body.page >= 0 && body.page < 10_000 ? body.page : 0,
       }));
+      return;
+    }
+    if (requestedAction === "school-drawer" || requestedAction === "school-history") {
+      // Lot SA-4 : drawer d'école léger. Nombres calculés par le serveur ; historique page par page.
+      const drawerSchoolId = normalizeText(body.schoolId);
+      const drawerYearId = normalizeText(body.schoolYearId);
+      if (!isSafeSchoolScopeId(drawerSchoolId) || !isSafeSchoolScopeId(drawerYearId)) {
+        sendJson(res, 400, { error: "École ou année scolaire invalide.", code: "invalid-argument" });
+        return;
+      }
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: `platform.${requestedAction}`, ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      if (requestedAction === "school-history") {
+        const page = Number.isInteger(body.page) && body.page >= 0 && body.page < 10_000 ? body.page : 0;
+        sendJson(res, 200, { history: await readSchoolHistoryPage(db, drawerSchoolId, drawerYearId, page) });
+        return;
+      }
+      const [summary, history] = await Promise.all([
+        readSchoolDrawerSummary(db, drawerSchoolId, drawerYearId),
+        readSchoolHistoryPage(db, drawerSchoolId, drawerYearId, 0),
+      ]);
+      sendJson(res, 200, { summary, history });
       return;
     }
     const action = ["update", "change-acronym", "change-currency", "rename-option", "suspend", "reactivate", "delete"].includes(requestedAction) ? requestedAction : "invalid";
