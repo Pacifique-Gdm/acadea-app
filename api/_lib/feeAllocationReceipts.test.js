@@ -440,3 +440,25 @@ describe("correction du prévu : signal de recalcul", () => {
     expect(signals(db)[0].revision).toBe(first);
   });
 });
+
+// Correction partie 2 : une ligne retirée part comme une rubrique à 0 % et ne reçoit plus rien des cas sociaux.
+describe("partie 2 : lignes retirées", () => {
+  const withoutA = [{ id: "a".repeat(32), mode: "percent", basisPoints: 0 }, { id: "b".repeat(32), mode: "fixed", fixedMinor: 2000 }, { id: "c".repeat(32), mode: "percent", basisPoints: 5000 }];
+  it("publication acceptée en cours d'année, puis paiement du cas social réparti sans la rubrique retirée", async () => {
+    const db = fixture();
+    const { social } = await publish(db, withoutA);
+    expect(social.rubrics.find((r) => r.id === "a".repeat(32))).toMatchObject({ mode: "percent", basisPoints: 0 });
+    reduce(db, 5000); await create(db, 50);
+    const [movement] = movements(db);
+    expect(movement.socialCase).toBe(true);
+    expect(lineMap(movement.lines)["a".repeat(32)]).toBeUndefined();
+    expect(movement.lines.reduce((sum, l) => sum + l.amountMinor, 0)).toBe(5000);
+  });
+  it("« Non affecté » retiré : total exactement 100 % en pourcentages, sinon refus clair", async () => {
+    const full = [{ id: "a".repeat(32), mode: "percent", basisPoints: 0 }, { id: "b".repeat(32), mode: "percent", basisPoints: 5000 }, { id: "c".repeat(32), mode: "percent", basisPoints: 5000 }];
+    await expect(publish(fixture(), full.map((r, i) => i === 2 ? { ...r, basisPoints: 4000 } : r), { unallocatedRemoved: true })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("exactement 100 %") });
+    await expect(publish(fixture(), withoutA, { unallocatedRemoved: true })).rejects.toMatchObject({ status: 400 });
+    const { social } = await publish(fixture(), full, { unallocatedRemoved: true });
+    expect(social.unallocatedRemoved).toBe(true);
+  });
+});

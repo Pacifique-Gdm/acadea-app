@@ -29,21 +29,27 @@ export function assertSocialVersionBinding(social, { schoolId, schoolYearId, fee
   return social;
 }
 
-function cleanRubrics(input, partOne) {
+function cleanRubrics(input, partOne, unallocatedRemoved = false) {
   if (!Array.isArray(input) || input.length !== partOne.rubrics.length) fail("La partie 2 doit reprendre toutes les rubriques de la partie 1.", "invalid-argument", 400);
   const rubrics = partOne.rubrics.map((rubric) => {
     const given = input.find((item) => item?.id === rubric.id);
     if (!given || Object.keys(given).some((key) => !["id", "mode", "basisPoints", "fixedMinor"].includes(key))) fail("La partie 2 doit reprendre toutes les rubriques de la partie 1.", "invalid-argument", 400);
     return { id: rubric.id, name: rubric.name, mode: given.mode, ...(given.mode === "fixed" ? { fixedMinor: given.fixedMinor } : { basisPoints: given.basisPoints }) };
   });
-  try { return validateFeeAllocationRubrics(rubrics, partOne.feeAmountMinor).rubrics; }
+  // Une ligne retirée arrive comme une rubrique en pourcentage à 0 : elle ne reçoit rien des cas sociaux.
+  let checked;
+  try { checked = validateFeeAllocationRubrics(rubrics, partOne.feeAmountMinor, { allowZero: true }).rubrics; }
   catch (error) { fail(error.message, "invalid-argument", 400); }
+  if (unallocatedRemoved && (checked.some((rubric) => rubric.mode !== "percent") || checked.reduce((sum, rubric) => sum + rubric.basisPoints, 0) !== 10000)) {
+    fail("« Non affecté » est retiré : les rubriques en pourcentage doivent faire exactement 100 %.", "invalid-argument", 400);
+  }
+  return checked;
 }
 
 export async function manageSocialPart({ db, caller, body, now = new Date().toISOString() }) {
   if (!socialPartActions.has(body.action)) fail("Action inconnue.", "invalid-argument", 400);
   const allowed = body.action === "get-social-part" ? ["action", "schoolId", "feeTypeId"]
-    : ["action", "feeTypeId", "requestId", "expectedPartOneVersionId", "expectedSocialVersionId", "rubrics"];
+    : ["action", "feeTypeId", "requestId", "expectedPartOneVersionId", "expectedSocialVersionId", "rubrics", "unallocatedRemoved"];
   if (Object.keys(body).some((key) => !allowed.includes(key)) || !id(body.feeTypeId)) fail("Demande invalide.", "invalid-argument", 400);
   if (body.action === "get-social-part") {
     const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
@@ -61,7 +67,8 @@ export async function manageSocialPart({ db, caller, body, now = new Date().toIS
   }
   if (!isAdmin(caller.role)) fail("Action réservée à l'Administrateur.", "permission-denied", 403);
   if (!id(body.requestId) || body.requestId.length < 12 || !id(body.expectedPartOneVersionId)
-    || !(body.expectedSocialVersionId === null || id(body.expectedSocialVersionId))) fail("Demande invalide.", "invalid-argument", 400);
+    || !(body.expectedSocialVersionId === null || id(body.expectedSocialVersionId))
+    || !(body.unallocatedRemoved === undefined || typeof body.unallocatedRemoved === "boolean")) fail("Demande invalide.", "invalid-argument", 400);
   await readFeeAllocationScope(db, caller, caller.schoolId);
   const schoolId = caller.schoolId, fingerprint = hash(body);
   const receiptRef = db.doc(`feeAllocationRequests/social_${hash([caller.uid, schoolId, body.requestId])}`);
@@ -85,7 +92,7 @@ export async function manageSocialPart({ db, caller, body, now = new Date().toIS
     if ((config.socialVersionId ?? null) !== body.expectedSocialVersionId) fail("La partie 2 a changé. Actualisez avant de la publier.");
     const partOne = (await tx.get(db.doc(`feeAllocationVersions/${config.currentVersionId}`))).data();
     if (!partOne || partOne.status !== "published" || partOne.configId !== configId || partOne.schoolId !== schoolId || partOne.feeTypeId !== body.feeTypeId) fail("Publiez d'abord la partie 1 de ce frais.");
-    const rubrics = cleanRubrics(body.rubrics, partOne);
+    const rubrics = cleanRubrics(body.rubrics, partOne, body.unallocatedRemoved === true);
     const previousRef = config.socialVersionId ? db.doc(`feeAllocationSocialVersions/${config.socialVersionId}`) : null;
     const previous = previousRef ? (await tx.get(previousRef)).data() : null;
     if (previousRef && (!previous || previous.configId !== configId)) fail("Partie 2 précédente introuvable.");
@@ -95,6 +102,7 @@ export async function manageSocialPart({ db, caller, body, now = new Date().toIS
     if ((await tx.get(versionRef)).exists) fail("Cette partie 2 a déjà été publiée.");
     const version = { id: versionId, configId, schoolId, schoolYearId: yearId, feeTypeId: body.feeTypeId, currency: partOne.currency,
       partOneVersionId: partOne.id, feeAmountMinor: partOne.feeAmountMinor, version: number, rubrics,
+      ...(body.unallocatedRemoved === true ? { unallocatedRemoved: true } : {}),
       copyOfPartOne: sameAllocationRubrics(partOne.rubrics, rubrics), status: "published", effectiveFrom: now, publishedBy: caller.uid, createdAt: now };
     tx.create(versionRef, version);
     if (previousRef) tx.update(previousRef, { status: "superseded", supersededAt: now });

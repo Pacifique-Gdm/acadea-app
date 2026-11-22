@@ -3,7 +3,7 @@ import { AdminDrawer } from "../../components/ui";
 import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationSocialVersion, FeeAllocationVersion } from "../../types/feeAllocation";
 import { AllocationApiError, loadSocialPart, publishSocialPart, type PublishSocialPart } from "../../services/feeAllocation";
 import { sameAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
-import { socialPartPreview, socialPartRubrics, type SocialPartLine as Line } from "./feeAllocationSocialPartPreview";
+import { socialPartPreview, socialPartRubrics, socialPartTotalText, type SocialPartLine as Line } from "./feeAllocationSocialPartPreview";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
@@ -12,8 +12,14 @@ import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 /** Lot 27c-4 : partie 2 de la répartition, propre aux cas sociaux. */
-const toLines = (rubrics: FeeAllocationRubric[]): Line[] => rubrics.map((rubric) => ({ id: rubric.id, name: rubric.name, mode: rubric.mode,
-  value: String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100) }));
+const valueOf = (rubric: FeeAllocationRubric) => String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100);
+/** Toutes les lignes du Tableau 1, pré-remplies ; une rubrique à 0 % dans la partie 2 est une ligne retirée (sa valeur de la partie 1 reste prête pour la remettre). */
+const toLines = (partOne: FeeAllocationRubric[], social?: FeeAllocationRubric[]): Line[] => partOne.map((rubric) => {
+  const own = social?.find((item) => item.id === rubric.id);
+  const removed = own?.mode === "percent" && own.basisPoints === 0;
+  const source = own && !removed ? own : rubric;
+  return { id: rubric.id, name: rubric.name, mode: source.mode, value: valueOf(source), ...(removed ? { removed: true } : {}) };
+});
 const message = (cause: unknown) => userFacingError(cause, "Partie 2 indisponible.");
 const newId = () => crypto.randomUUID().replaceAll("-", "");
 const decimal = /^[0-9]+(?:[.,][0-9]{1,2})?$/;
@@ -27,6 +33,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
   const [paidWithCurrent, setPaidWithCurrent] = useState(0);
   const [lines, setLines] = useState<Line[]>([]);
   const [net, setNet] = useState("");
+  const [unallocatedRemoved, setUnallocatedRemoved] = useState(false);
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false);
   const [error, setError] = useState(""), [notice, setNotice] = useState(""), [confirming, setConfirming] = useState(false);
   const [errorLoad, setErrorLoad] = useState("");
@@ -38,13 +45,13 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
       if (!alive) return;
       setPartOne(result.partOne); setSocial(result.social); setHistory(result.history); setPaidWithCurrent(result.paidWithCurrent ?? 0);
       if (result.partOne) {
-        setLines(toLines(result.social?.rubrics ?? result.partOne.rubrics));
+        setLines(toLines(result.partOne.rubrics, result.social?.rubrics)); setUnallocatedRemoved(result.social?.unallocatedRemoved === true);
         setNet(String(result.partOne.feeAmountMinor / 200));
       }
     }).catch((cause) => { if (alive) setErrorLoad(message(cause)); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [config.schoolId, config.feeTypeId, errorLoadRetry.token]);
-  const entered = useMemo(() => socialPartRubrics(lines), [lines]);
+  const entered = useMemo(() => socialPartRubrics(lines, { unallocatedRemoved }), [lines, unallocatedRemoved]);
   const preview = useMemo(() => {
     if (!partOne || entered.error) return { rows: [], error: entered.error };
     try {
@@ -52,13 +59,15 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
       return { rows: socialPartPreview(partOne, entered.rubrics, toMoneyMinor(Number(net.replace(",", ".")))), error: "" };
     } catch (cause) { return { rows: [], error: message(cause) }; }
   }, [partOne, entered, net]);
-  const copy = partOne && !entered.error && sameAllocationRubrics(partOne.rubrics, entered.rubrics);
-  const update = (index: number, changes: Partial<Line>) => { request.current = null; setConfirming(false); setLines((rows) => rows.map((row, i) => i === index ? { ...row, ...changes } : row)); };
+  const copy = partOne && !entered.error && !unallocatedRemoved && sameAllocationRubrics(partOne.rubrics, entered.rubrics);
+  const changed = () => { request.current = null; setConfirming(false); };
+  const update = (index: number, changes: Partial<Line>) => { changed(); setLines((rows) => rows.map((row, i) => i === index ? { ...row, ...changes } : row)); };
   async function publish() {
     if (!partOne || busy || (!request.current && (entered.error || preview.error))) return;
     setBusy(true); setError("");
     request.current ??= { feeTypeId: config.feeTypeId, requestId: newId(), expectedPartOneVersionId: partOne.id, expectedSocialVersionId: social?.id ?? null,
-      rubrics: entered.rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, mode, ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) })) };
+      rubrics: entered.rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, mode, ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) })),
+      ...(unallocatedRemoved ? { unallocatedRemoved: true } : {}) };
     try {
       const published = await publishSocialPart(request.current);
       request.current = null; setUncertain(false); setConfirming(false);
@@ -72,7 +81,7 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
   }
   return <AdminDrawer title="Partie 2 — cas sociaux" closeLabel="Fermer la partie 2" width="wide" onClose={() => { if (!busy) onClose(); }}><div className="text-justify" data-justified>
     <p className="mb-2 text-sm font-semibold">{feeName} · {classLabel}</p>
-    <p className="mb-3 text-sm text-slate-700">Répartition propre aux élèves qui ont une réduction ou une prise en charge sur ce frais. Les pourcentages s'appliquent à ce que l'élève doit vraiment payer (tarif moins sa réduction). Sans partie 2, la partie 1 s'applique.</p>
+    <p className="mb-3 text-sm text-slate-700">Répartition propre aux élèves qui ont une réduction ou une prise en charge sur ce frais. Les pourcentages s'appliquent à ce que l'élève doit vraiment payer (tarif moins sa réduction). Toutes les lignes de la partie 1 sont reprises : retirez celles qui ne doivent plus rien recevoir des cas sociaux, puis répartissez les pourcentages sur les lignes restantes. Sans partie 2, la partie 1 s'applique.</p>
     {loading && <div aria-hidden className="h-40 animate-pulse rounded bg-slate-100" />}
     {!loading && !partOne && !error && <p role="status" className="text-sm">Publiez d'abord la partie 1 de ce frais.</p>}
     {partOne && <>
@@ -82,12 +91,26 @@ export function SocialPartEditor({ config, feeName, classLabel, currency, canPub
       {social && paidWithCurrent > 0 && <p role="note" className="mb-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Attention : {paidWithCurrent} cas social{paidWithCurrent > 1 ? "aux ont" : " a"} déjà payé ce frais avec la partie 2 en service. Si vous publiez une nouvelle partie 2, leurs paiements déjà répartis ne changent pas ; leurs prochains paiements suivront la nouvelle partie 2 pour le reste de ce qu'ils doivent.</p>}
       <fieldset disabled={!canPublish || busy || uncertain} className="grid gap-2">
         <legend className="mb-1 text-sm font-semibold">Partie 2 — cas sociaux</legend>
-        {lines.map((line, index) => <div key={line.id} className="grid gap-2 rounded border p-2 sm:grid-cols-3">
+        {lines.map((line, index) => line.removed
+          ? <div key={line.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed bg-slate-50 p-2" data-removed-line>
+            <span className="text-sm"><span className="font-medium line-through">{line.name}</span> — ligne retirée : elle ne reçoit plus rien des cas sociaux.</span>
+            <button type="button" className="secondary-button" onClick={() => update(index, { removed: false })}>Remettre la ligne</button></div>
+          : <div key={line.id} className="grid gap-2 rounded border p-2 sm:grid-cols-4">
           <span className="self-center text-sm font-medium">{line.name}</span>
           <label className="grid gap-1 text-sm">Mode<select className="input" aria-label={`Mode ${line.name}`} value={line.mode} onChange={(event) => update(index, { mode: event.target.value as Line["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label>
           <label className="grid gap-1 text-sm">{line.mode === "percent" ? "Pourcentage (%)" : `Montant (${currency})`}<input className="input" inputMode="decimal" aria-label={`Valeur ${line.name}`} value={line.value} onChange={(event) => update(index, { value: event.target.value })}/></label>
+          <button type="button" className="secondary-button self-end" aria-label={`Retirer la ligne ${line.name}`} onClick={() => update(index, { removed: true })}>Retirer la ligne</button>
         </div>)}
-        <button type="button" className="secondary-button justify-self-start" onClick={() => { request.current = null; setConfirming(false); setLines(toLines(partOne.rubrics)); }}>Recopier la partie 1</button>
+        {unallocatedRemoved
+          ? <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed bg-slate-50 p-2" data-removed-line>
+            <span className="text-sm"><span className="font-medium line-through">Non affecté</span> — ligne retirée : tout doit aller aux rubriques.</span>
+            <button type="button" className="secondary-button" onClick={() => { changed(); setUnallocatedRemoved(false); }}>Remettre la ligne</button></div>
+          : <div className="grid gap-2 rounded border p-2 sm:grid-cols-4" data-unallocated-line>
+            <span className="self-center text-sm font-medium">Non affecté</span>
+            <span className="self-center text-sm sm:col-span-2">Reçoit automatiquement ce qui n'est attribué à aucune rubrique.</span>
+            <button type="button" className="secondary-button self-end" aria-label="Retirer la ligne Non affecté" onClick={() => { changed(); setUnallocatedRemoved(true); }}>Retirer la ligne</button></div>}
+        {!entered.error && <p className="text-sm" role="status">{socialPartTotalText(entered.percentBasisPoints, entered.hasFixed, unallocatedRemoved)}</p>}
+        <button type="button" className="secondary-button justify-self-start" onClick={() => { changed(); setUnallocatedRemoved(false); setLines(toLines(partOne.rubrics)); }}>Recopier la partie 1</button>
       </fieldset>
       <h3 className="mt-4 font-bold">Aperçu en {currency}</h3>
       <label className="my-2 grid max-w-xs gap-1 text-sm">Montant net d'un cas social ({currency}, tarif {formatCurrencyMoney(partOne.feeAmountMinor / 100, currency)})<input className="input" inputMode="decimal" aria-label="Montant net du cas social" value={net} onChange={(event) => setNet(event.target.value)}/></label>

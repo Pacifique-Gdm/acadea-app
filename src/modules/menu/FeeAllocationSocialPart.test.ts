@@ -29,3 +29,20 @@ describe("aperçu de la partie 2", () => {
     expect(() => socialPartPreview(partOne, partOne.rubrics, 13000)).toThrow("entre 0 et le tarif");
   });
 });
+
+describe("partie 2 : lignes retirées", () => {
+  const lines = [{ id: ids.promoteur, name: "Part du Promoteur", mode: "percent" as const, value: "40", removed: true },
+    { id: ids.ecole, name: "Part de l'école", mode: "percent" as const, value: "30" }, { id: ids.enseignants, name: "Part des enseignants", mode: "percent" as const, value: "50" }];
+  it("Promoteur retiré : 0 % envoyé, il ne reçoit rien et le reste suit les lignes restantes", () => {
+    const part2 = socialPartRubrics(lines);
+    expect(part2.error).toBe("");
+    expect(part2.rubrics[0]).toMatchObject({ mode: "percent", basisPoints: 0 });
+    expect(amounts(socialPartPreview(partOne, part2.rubrics, 7000))).toEqual({
+      "Part du Promoteur": [4800, 0], "Part de l'école": [2400, 2100], "Part des enseignants": [4800, 3500], "Non affecté": [0, 1400] });
+  });
+  it("« Non affecté » retiré : le total doit faire exactement 100 %", () => {
+    expect(socialPartRubrics(lines, { unallocatedRemoved: true }).error).toMatch("exactement 100 % (actuellement 80 %)");
+    expect(socialPartRubrics(lines.map((l) => l.id === ids.ecole ? { ...l, value: "50" } : l), { unallocatedRemoved: true }).error).toBe("");
+    expect(socialPartRubrics(lines.map((l) => l.id === ids.ecole ? { ...l, value: "60" } : l)).error).toMatch("ne doit pas dépasser 100 %");
+  });
+});
