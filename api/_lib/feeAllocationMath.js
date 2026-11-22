@@ -22,7 +22,8 @@ const safeMinor = (value) => Number.isSafeInteger(value) && value >= 0;
 const normalizedName = (name) => name.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("fr");
 
 /** Validates one exact fee target; fixed amounts remain fixed across different tariffs. */
-export function validateFeeAllocationRubrics(rubrics, feeAmountMinor) {
+/** options.allowZero : partie 2 seulement — une ligne retirée est une rubrique en pourcentage à 0 (elle ne reçoit rien). */
+export function validateFeeAllocationRubrics(rubrics, feeAmountMinor, { allowZero = false } = {}) {
   if (!safeMinor(feeAmountMinor) || feeAmountMinor === 0) invalid("Tarif de référence invalide.");
   if (!Array.isArray(rubrics) || rubrics.length < 1 || rubrics.length > 40) invalid("Sélectionnez entre 1 et 40 rubriques personnalisées.");
   const names = new Set();
@@ -38,7 +39,7 @@ export function validateFeeAllocationRubrics(rubrics, feeAmountMinor) {
     if (input.description !== undefined && (typeof input.description !== "string" || input.description.length > 500)) invalid("Description de rubrique invalide.");
     ids.add(input.id); names.add(name);
     if (input.mode === "percent") {
-      if (!Number.isInteger(input.basisPoints) || input.basisPoints <= 0 || input.basisPoints > 10000 || input.fixedMinor !== undefined) invalid("Pourcentage de rubrique invalide.");
+      if (!Number.isInteger(input.basisPoints) || input.basisPoints < (allowZero ? 0 : 1) || input.basisPoints > 10000 || input.fixedMinor !== undefined) invalid("Pourcentage de rubrique invalide.");
       percentNumerator += BigInt(feeAmountMinor) * BigInt(input.basisPoints);
       return { id: input.id, name: input.name.trim(), mode: "percent", basisPoints: input.basisPoints, ...(input.description?.trim() ? { description: input.description.trim() } : {}) };
     }
@@ -142,13 +143,13 @@ export function socialCaseShares(part1Rubrics, part2Rubrics, grossMinor, netMino
   if (part2Rubrics.length !== ids.size || part2Rubrics.some((rubric) => !ids.has(rubric?.id))) invalid("La partie 2 doit reprendre les rubriques de la partie 1.");
   // Les noms viennent toujours de la partie 1 (mêmes rubriques).
   const part2 = validateFeeAllocationRubrics(part2Rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, name: part1.rubrics.find((r) => r.id === id).name, mode,
-    ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) })), grossMinor).rubrics;
+    ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) })), grossMinor, { allowZero: true }).rubrics;
   if (netMinor === 0) return part1.shares.map((share) => ({ rubricId: share.rubricId, amountMinor: 0 }));
   const scale = 10000n;
   const raw = part2.map((rubric) => ({ rubricId: rubric.id, weight: rubric.mode === "fixed" ? BigInt(rubric.fixedMinor) * scale : BigInt(netMinor) * BigInt(rubric.basisPoints) }));
   const needed = raw.reduce((sum, item) => sum + item.weight, 0n);
   if (needed <= BigInt(netMinor) * scale) {
-    const shares = validateFeeAllocationRubrics(part2, netMinor).shares;
+    const shares = validateFeeAllocationRubrics(part2, netMinor, { allowZero: true }).shares;
     return shares;
   }
   // Plus que le net : réduction à proportion de chaque ligne, « Non affecté » à zéro.

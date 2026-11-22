@@ -138,7 +138,7 @@ export async function loadSocialPart(schoolId: string, feeTypeId: string) {
   return result;
 }
 export type PublishSocialPart = { feeTypeId: string; requestId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null;
-  rubrics: Array<{ id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number }> };
+  rubrics: Array<{ id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number }>; unallocatedRemoved?: boolean };
 export async function publishSocialPart(request: PublishSocialPart) {
   const result = await allocationRequest<{ social: FeeAllocationSocialVersion }>("publish-social-part", request);
   if (!result.social || result.social.feeTypeId !== request.feeTypeId || result.social.partOneVersionId !== request.expectedPartOneVersionId) throw new AllocationApiError("Publication non confirmée. Vérifiez la même demande avant de recommencer.");

@@ -1,7 +1,7 @@
 import type { FeeAllocationRubric, FeeAllocationMovement, FeeAllocationOpeningProposal } from "../../src/types/feeAllocation";
 export const UNALLOCATED_RUBRIC_ID: "UNALLOCATED";
 export class FeeAllocationError extends Error { status: number; code: string; }
-export function validateFeeAllocationRubrics(rubrics: FeeAllocationRubric[], feeAmountMinor: number): {
+export function validateFeeAllocationRubrics(rubrics: FeeAllocationRubric[], feeAmountMinor: number, options?: { allowZero?: boolean }): {
   rubrics: FeeAllocationRubric[]; shares: Array<{ rubricId: string; amountMinor: number }>; unallocatedMinor: number;
 };
 export function assertFeeAllocationMovement(movement: FeeAllocationMovement): FeeAllocationMovement;
