@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.18.6] — 2026-11-22 — Correction
+- Partie 2 des cas sociaux : bouton « Retirer la ligne » sur chaque rubrique et sur « Non affecté » ; une ligne retirée ne reçoit plus rien et la publication n'est plus refusée
+
 ## [1.18.5] — 2026-11-21 — Correction
 - Notifications : sur un téléphone partagé, l'ancien compte ne reçoit plus ses notifications quand un autre compte active les siennes ; le jeton du navigateur est retiré même sans réseau (P4 lot 4)
 
