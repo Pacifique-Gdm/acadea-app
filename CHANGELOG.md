@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.18.7] — 2026-11-22 — Correction
+- Super administrateur, onglet Écoles : compteur « 29 écoles » sans « recherche… » bloqué, la recherche n'est plus relancée à l'ouverture d'une école, et les données d'une école déjà ouverte s'affichent tout de suite (relues seulement si l'école a changé ou avec « Actualiser »)
+
 ## [1.18.6] — 2026-11-22 — Correction
 - Partie 2 des cas sociaux : bouton « Retirer la ligne » sur chaque rubrique et sur « Non affecté » ; une ligne retirée ne reçoit plus rien et la publication n'est plus refusée
 

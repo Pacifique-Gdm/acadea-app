@@ -22,6 +22,6 @@ describe("écoles chargées à la demande", () => {
     expect(platform).toContain("if (!needsAllSchools || allSchoolsRequested.current) return;");
   });
   it("lire une école ne relance pas la recherche (les pages affichées restent)", () => {
-    expect(platform).toContain("if (changed) refreshServerSearch();");
+    expect(platform).not.toContain("if (changed) refreshServerSearch();");
   });
 });
