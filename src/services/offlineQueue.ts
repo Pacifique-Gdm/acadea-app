@@ -79,6 +79,47 @@ export async function saveOfflineContext<T>(scope: OfflineScope, context: T): Pr
   } finally { database.close(); }
 }
 
+/**
+ * P4, lot 2 : efface les copies de référence hors ligne (listes d'élèves préchargées).
+ * `onlyExpired` : seulement celles dont les 8 h sont passées. Ne touche JAMAIS aux brouillons ni aux clés.
+ */
+export async function deleteOfflineContexts({ onlyExpired = false, now = Date.now() }: { onlyExpired?: boolean; now?: number } = {}): Promise<number> {
+  if (!globalThis.indexedDB) return 0;
+  const database = await openDatabase();
+  try {
+    const write = database.transaction("snapshots", "readwrite");
+    const store = write.objectStore("snapshots");
+    const rows = await requestResult(store.getAll()) as { partition: string; expiresAt?: string }[];
+    const doomed = rows.filter((row) => !onlyExpired || !(Date.parse(row.expiresAt ?? "") > now));
+    for (const row of doomed) store.delete(row.partition);
+    await finished(write);
+    return doomed.length;
+  } finally { database.close(); }
+}
+
+/**
+ * P4, lot 2 (correction 6) : retire seulement les opérations CONFIRMÉES par le serveur depuis plus de 30 jours.
+ * Un brouillon non envoyé (en attente, en erreur, en conflit ou refusé) n'est jamais supprimé ici.
+ */
+export async function deleteOldConfirmedOperations(now = Date.now()): Promise<number> {
+  if (!globalThis.indexedDB) return 0;
+  const database = await openDatabase();
+  try {
+    const write = database.transaction("operations", "readwrite");
+    const store = write.objectStore("operations");
+    const rows = await requestResult(store.getAll()) as StoredOperation[];
+    const doomed = confirmedOperationsToForget(rows, now);
+    for (const row of doomed) store.delete(row.id);
+    await finished(write);
+    return doomed.length;
+  } finally { database.close(); }
+}
+
+/** Partie pure (testée sans IndexedDB) : confirmées par le serveur ET arrivées à expiration (30 jours). */
+export function confirmedOperationsToForget<T extends Pick<OfflineOperation, "id" | "status" | "expiresAt">>(rows: readonly T[], now: number): T[] {
+  return rows.filter((row) => row.status === "SERVER_CONFIRMED" && Date.parse(row.expiresAt) <= now);
+}
+
 export async function readOfflineContext<T>(scope: OfflineScope): Promise<T | null> {
   const scopeKey = partition(scope);
   const database = await openDatabase();

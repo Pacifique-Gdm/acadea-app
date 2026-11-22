@@ -46,7 +46,7 @@ export interface FeeAllocationConfig {
 export interface FeeAllocationSocialVersion {
   id: string; configId: string; schoolId: string; schoolYearId: string; feeTypeId: string; currency: FeeAllocationCurrency;
   partOneVersionId: string; feeAmountMinor: number; version: number; rubrics: FeeAllocationRubric[];
-  copyOfPartOne: boolean; status: "published" | "superseded"; effectiveFrom: string; publishedBy: string; createdAt: string;
+  copyOfPartOne: boolean; unallocatedRemoved?: boolean; status: "published" | "superseded"; effectiveFrom: string; publishedBy: string; createdAt: string;
 }
 
 export interface FeeAllocationVersion {

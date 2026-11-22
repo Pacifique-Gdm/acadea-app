@@ -1,6 +1,9 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { studentForPersistence } from "../../src/utils/studentYearTransition.js";
 import { studentIdentityKey } from "../../src/utils/studentSearch.js";
+import { CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, hasYearPayments, isClassChange } from "../../src/utils/classChangeGuard.js";
+import { buildStudentChangeLog, summarizeStudentChanges } from "./studentChangeLog.js";
+import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { identityCandidatesQuery, identityIndexReady, identityIndexStateRef, identityLockId } from "./studentIdentityIndex.js";
 
 const DUPLICATE_MESSAGE = "Un élève avec le même nom, post-nom et prénom existe déjà.";
@@ -84,7 +87,7 @@ export async function saveManualStudent({ db, caller, body }) {
   const schoolId = safeId(input?.schoolId);
   const schoolYearId = safeId(input?.schoolYearId);
   if (!id || !schoolId || !schoolYearId) reject("Identifiants de la fiche élève invalides.");
-  if (!["school_admin", "secretary"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Enregistrement de l’élève non autorisé.", 403, "permission-denied");
+  if (!["school_admin", "secretary", "cashier"].includes(caller?.role) || caller.schoolId !== schoolId || !caller.uid) reject("Enregistrement de l’élève non autorisé.", 403, "permission-denied");
   const fields = validatedFields(input);
   // Forme du chemin : même école obligatoire. L'appartenance à CET élève est
   // vérifiée dans la transaction (lui-même ou ses fiches des années précédentes).
@@ -147,6 +150,12 @@ export async function saveManualStudent({ db, caller, body }) {
       biometric: input.biometric && typeof input.biometric === "object" && !Array.isArray(input.biometric) ? input.biometric : undefined,
     };
     if (existing) for (const key of OPTIONAL_FIELDS) if (!(key in fields)) delete next[key];
+    // Protection provisoire : un élève qui a déjà au moins un paiement cette année ne change pas de classe
+    // (rattachement des paiements et remboursement du trop-perçu pas encore en ligne).
+    if (existing && isClassChange(existing, next)) {
+      const paid = await transaction.get(db.collection("payments").where("studentId", "==", id));
+      if (hasYearPayments(paid.docs.map((snapshot) => snapshot.data()), id, schoolId, schoolYearId)) reject(CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, 409, "failed-precondition");
+    }
     await validClassReferences(transaction, db, next, Boolean(offlineOperationId));
     const oldKey = existing ? studentIdentityKey(existing) : "";
     const newKey = studentIdentityKey(next);
@@ -210,6 +219,17 @@ export async function saveManualStudent({ db, caller, body }) {
     if (existing?.financialSupport) student.financialSupport = existing.financialSupport;
     if (existing) transaction.set(studentRef, student);
     else transaction.create(studentRef, student);
+    // Lot C : qui, quand, avant / après, dans la même transaction ; rien n'est noté si rien n'a changé.
+    const changedAt = new Date().toISOString();
+    const logId = `stu_${createHash("sha256").update(`${caller.uid}\0${id}\0${changedAt}\0${randomUUID()}`).digest("hex").slice(0, 32)}`;
+    const actorName = typeof actor.name === "string" && actor.name.trim() ? actor.name.trim() : typeof actor.email === "string" ? actor.email : caller.uid;
+    const changeLog = buildStudentChangeLog({ id: logId, actor: { uid: caller.uid, role: caller.role, name: actorName }, previous: existing, student, now: changedAt });
+    if (!existing || changeLog.fields.length) {
+      transaction.set(db.doc(`studentChangeLogs/${logId}`), changeLog);
+      transaction.set(db.doc(`auditLogs/audit_${logId}`), buildServerAudit({ id: `audit_${logId}`, eventType: existing ? AUDIT_EVENT_TYPES.STUDENT_UPDATED : AUDIT_EVENT_TYPES.STUDENT_CREATED,
+        actor: { ...caller, name: actorName }, schoolId, schoolYearId, resourceType: "student", resourceId: id,
+        metadata: { matricule: student.matricule ?? "", student: changeLog.studentName, fields: changeLog.fields.join(", "), changes: summarizeStudentChanges(changeLog) } }));
+    }
     if (!existing) transaction.set(counterRef, { schoolId, schoolYearId, lastAllocated: sequence });
     if (matriculePrefixCounter) transaction.set(matriculePrefixCounter.ref, matriculePrefixCounter.value);
     if (identityChanged) transaction.set(newLockRef, { schoolId, studentId: id, key: newKey });

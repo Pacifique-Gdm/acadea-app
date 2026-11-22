@@ -35,7 +35,7 @@ export async function loadBillingControls(): Promise<BillingControls> {
 export async function saveValvesUploadsEnabled(enabled: boolean, updatedBy?: string): Promise<BillingControls> {
   const documentRef = billingControlsRef();
   if (!documentRef) {
-    throw new Error("Firestore indisponible.");
+    throw new Error("Service indisponible. Veuillez réessayer.");
   }
 
   const nextControls: BillingControls = {

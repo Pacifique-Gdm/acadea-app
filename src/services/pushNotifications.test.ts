@@ -23,7 +23,7 @@ vi.mock("firebase/messaging", () => messagingMocks);
 vi.mock("../firebase", () => ({ app: {}, auth: { currentUser: { uid: "parent-user" } }, db: {}, firebaseReady: true }));
 vi.mock("../pwa", () => pwaMocks);
 
-import { disablePushNotifications, enablePushNotifications, getPushNotificationStatus, stopPushForegroundListener } from "./pushNotifications";
+import { disablePushNotifications, enablePushNotifications, flushPendingPushTokenRemoval, forgetDevicePushToken, getPushNotificationStatus, restorePushNotifications, stopPushForegroundListener } from "./pushNotifications";
 
 const parentUser: AppUser = {
   id: "parent-user",
@@ -60,6 +60,7 @@ function installBrowserApis() {
     value: {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => storage.set(key, value),
+      removeItem: (key: string) => storage.delete(key),
     },
   });
   Object.defineProperty(globalThis, "crypto", { configurable: true, value: { randomUUID: () => "device-new" } });
@@ -254,5 +255,84 @@ describe("service worker unique", () => {
     expect(source).not.toContain("attendance_recorded");
     expect(source).not.toContain("discipline_recorded");
     expect(source.match(/addEventListener\("push"/g)).toHaveLength(1);
+  });
+});
+
+describe("P4 lot 4 — retrait du jeton à la déconnexion, même sans réseau", () => {
+  it("invalide le jeton du navigateur sans attendre Firestore (qui ne répond pas sans réseau)", async () => {
+    storage.set("acadea:push-device-id", "device-shared");
+    firestoreMocks.deleteDoc.mockImplementation(() => new Promise(() => undefined));
+    void forgetDevicePushToken(parentUser.id);
+    await vi.waitFor(() => expect(messagingMocks.deleteToken).toHaveBeenCalledTimes(1));
+    expect(storage.get("acadea:push-a-retirer:parent-user")).toBe("device-shared");
+  });
+
+  it("retrait abouti : aucune trace « à retirer » ne reste", async () => {
+    storage.set("acadea:push-device-id", "device-shared");
+    await forgetDevicePushToken(parentUser.id);
+    expect(firestoreMocks.deleteDoc).toHaveBeenCalledTimes(1);
+    expect(storage.has("acadea:push-a-retirer:parent-user")).toBe(false);
+  });
+
+  it("à la reconnexion sans réinscription, le retrait en attente est refait puis oublié", async () => {
+    storage.set("acadea:push-a-retirer:parent-user", "device-shared");
+    permission = "denied";
+    await expect(restorePushNotifications(parentUser)).resolves.toEqual({ status: "permission-denied" });
+    expect(firestoreMocks.doc).toHaveBeenLastCalledWith(expect.anything(), "users", parentUser.id, "pushTokens", "device-shared");
+    expect(firestoreMocks.deleteDoc).toHaveBeenCalledTimes(1);
+    expect(storage.has("acadea:push-a-retirer:parent-user")).toBe(false);
+  });
+
+  it("ne refait jamais le retrait d'un AUTRE compte que celui connecté", async () => {
+    storage.set("acadea:push-a-retirer:autre-compte", "device-shared");
+    await expect(flushPendingPushTokenRemoval("autre-compte")).resolves.toBe(false);
+    expect(firestoreMocks.deleteDoc).not.toHaveBeenCalled();
+    expect(storage.get("acadea:push-a-retirer:autre-compte")).toBe("device-shared");
+  });
+
+  it("une réinscription du même compte remplace le document : le retrait en attente est oublié sans suppression", async () => {
+    storage.set("acadea:push-a-retirer:parent-user", "device-new");
+    permission = "granted";
+    await expect(restorePushNotifications(parentUser)).resolves.toMatchObject({ status: "enabled" });
+    expect(firestoreMocks.deleteDoc).not.toHaveBeenCalled();
+    expect(storage.has("acadea:push-a-retirer:parent-user")).toBe(false);
+  });
+});
+
+describe("P4 lot 4 — l'appareil annonce son compte au serveur", () => {
+  it("après l'enregistrement du jeton, appelle le serveur pour détacher l'ancien compte", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ registered: true, detached: 1 }) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const firebase = await import("../firebase");
+    const currentUser = (firebase.auth as unknown as { currentUser: Record<string, unknown> }).currentUser;
+    currentUser.getIdToken = vi.fn(async () => "jeton-identite");
+    try {
+      permission = "granted";
+      await expect(enablePushNotifications(parentUser)).resolves.toMatchObject({ status: "enabled" });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      expect(url).toBe("/api/message-recipients");
+      expect(JSON.parse(String(init.body))).toEqual({ action: "register-push-device", deviceId: "device-new", token: "current-token" });
+      expect(firestoreMocks.setDoc.mock.invocationCallOrder[0]).toBeLessThan(fetchMock.mock.invocationCallOrder[0]);
+    } finally {
+      delete currentUser.getIdToken;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("un refus du serveur ne bloque pas l'activation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, json: async () => ({}) })));
+    const firebase = await import("../firebase");
+    const currentUser = (firebase.auth as unknown as { currentUser: Record<string, unknown> }).currentUser;
+    currentUser.getIdToken = vi.fn(async () => "jeton-identite");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      permission = "granted";
+      await expect(enablePushNotifications(parentUser)).resolves.toMatchObject({ status: "enabled" });
+    } finally {
+      warn.mockRestore();
+      delete currentUser.getIdToken;
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -21,7 +21,7 @@ describe("sections dans Paramètres école", () => {
 
   it("n'enregistre que la section après confirmation et montre un échec sans état optimiste", () => {
     expect(source).toContain("await persistSchoolEducationLevel(school.id, pending.level, pending.wasChecked)");
-    expect(source).toContain("setSchoolSectionError(error instanceof Error");
+    expect(source).toContain("setSchoolSectionError(userFacingError(error");
     expect(source).toContain("disabled={schoolSaving || schoolSectionSaving || Boolean(schoolSectionPending)}");
   });
 

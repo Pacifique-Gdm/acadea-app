@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PushNotificationPrompt } from "../../components/notifications/PushNotificationPrompt";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import { KeptTab } from "../../components/layout/KeptTab";
-import { PlatformMessages, usePlatformUnreadCount } from "./PlatformMessages";
+import { PlatformMessages, usePlatformInbox } from "./PlatformMessages";
 import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerShell";
 import { syncAppBadge } from "../../utils/appBadge";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
@@ -48,6 +48,9 @@ import { counterAsksReload, needsSchoolDrawerLoad, schoolDrawerKey, snapshotScho
 import { schoolCountLabel, useSlowFlag } from "./schoolSearchStatus";
 import type { AppData, AppUser, AuditLog, BiometricTerminal, BiometricTerminalStatus, School, SchoolClass, SchoolYear } from "../../types";
 import { CLASSES } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 export function PlatformModule({
   user,
@@ -122,7 +125,9 @@ export function PlatformModule({
   const [customOptionSaving, setCustomOptionSaving] = useState(false);
   const [platformView, setPlatformView] = useState<PlatformView>("dashboard");
   const [messagingOpen, setMessagingOpen] = useState(false);
-  const platformUnread = usePlatformUnreadCount(user.id);
+  // Lot SA-6 : boîte de la cloche chargée une seule fois par session (écoute gardée après la première ouverture).
+  const platformInbox = usePlatformInbox(user.id);
+  const platformUnread = platformInbox.unread.length;
   useEffect(() => { syncAppBadge(platformUnread); }, [platformUnread]);
   // Lot 19 : les onglets Coordinations et Menu restent en place (masqués) après leur première ouverture.
   const visitedViews = useVisitedTabs(platformView);
@@ -201,15 +206,19 @@ export function PlatformModule({
   const [schoolDetailLoading, setSchoolDetailLoading] = useState(false);
   const [schoolDetailError, setSchoolDetailError] = useState("");
   const schoolDetailRequestRef = useRef(0);
+  const [catalogError, setCatalogError] = useState("");
+  const catalogRetry = useLoadRetry(Boolean(catalogError), () => setCatalogError(""));
   useEffect(() => {
     let active = true;
     void loadSchoolOptionCatalog().then((options) => {
-      if (active) setCatalogOptions(options);
+      if (active) { setCatalogOptions(options); setCatalogError(""); }
     }).catch((error) => {
-      if (active) setProvisioningError(error instanceof Error ? error.message : "Catalogue des options indisponible.");
+      if (active) setCatalogError(userFacingError(error, "Catalogue des options indisponible."));
     });
     return () => { active = false; };
-  }, []);
+  }, [catalogRetry.token]);
+  // Erreur d'ouverture d'une école : le bouton « Réessayer » rouvre la même école.
+  const [schoolActionRetry, setSchoolActionRetry] = useState<{ message: string; run: () => void }>();
   useEffect(() => {
     if (!schoolActionSuccess) return;
     const timeoutId = window.setTimeout(() => setSchoolActionSuccess(""), 4_000);
@@ -225,7 +234,7 @@ export function PlatformModule({
     current.updateData({ users: reconcileRealtimeSchoolUsers(current.users, users, current.schoolId) }, { persist: false });
   }, []);
   useRealtimeSchoolUsers({ user, schoolId: schoolDrawerId, onUsers: applyRealtimeSchoolUsers });
-  const { coordinations, loaded: coordinationsLoaded, error: coordinationLoadError } = useRealtimeCoordinations();
+  const { coordinations, loaded: coordinationsLoaded, error: coordinationLoadError, retry: retryCoordinations } = useRealtimeCoordinations();
 
   const visibleSchools = data.schools.filter((school) => String(school.status) !== "deleted");
   // Lot SA-3 : chiffres du Dashboard venant du serveur, écoles supprimées exclues.
@@ -343,19 +352,25 @@ export function PlatformModule({
       schoolYears: [...current.schoolYears.filter((item) => !yearIds.has(item.id)), ...schoolYears],
     });
   }
-  // Écrans qui ont encore besoin de toutes les écoles (Coordinations, Messages, Publicité, Créer Coordination,
+  // Écrans qui ont encore besoin de toutes les écoles (Coordinations, Publicité, Créer Coordination,
   // recherche locale si la liste du serveur n'est pas prête) : chargement une seule fois, à leur ouverture.
-  const needsAllSchools = platformView === "coordinations" || platformView === "messages" || messagingOpen
+  // Lot SA-6 : Messages et la cloche cherchent leurs destinataires sur le serveur, page par page.
+  const needsAllSchools = platformView === "coordinations"
     || platformMenuDrawer === "ad-campaigns" || platformMenuDrawer === "create-coordination"
     || (platformView === "students" && serverSearch.schools === null && !serverSearch.loading);
   const allSchoolsRequested = useRef(false);
+  const [allSchoolsError, setAllSchoolsError] = useState("");
+  // Chiffres et écoles de la plateforme : relance au retour du réseau, comme le bouton « Réessayer ».
+  const platformRetry = useLoadRetry(Boolean(platformLoadError));
+  useEffect(() => { if (platformRetry.token) onRefresh?.(); }, [platformRetry.token]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allSchoolsRetry = useLoadRetry(Boolean(allSchoolsError), () => setAllSchoolsError(""));
   useEffect(() => {
     if (!needsAllSchools || allSchoolsRequested.current) return;
     allSchoolsRequested.current = true;
-    void loadAllPlatformSchools().then(({ schools, schoolYears }) => mergeKnownSchools(schools, schoolYears))
-      .catch((cause: unknown) => { allSchoolsRequested.current = false; setSchoolActionError(cause instanceof Error ? cause.message : "Écoles indisponibles."); });
+    void loadAllPlatformSchools().then(({ schools, schoolYears }) => { setAllSchoolsError(""); mergeKnownSchools(schools, schoolYears); })
+      .catch((cause: unknown) => { allSchoolsRequested.current = false; setAllSchoolsError(userFacingError(cause, "Écoles indisponibles.")); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [needsAllSchools]);
+  }, [needsAllSchools, allSchoolsRetry.token]);
 
   function writeAudit(schoolId: string | undefined, action: string): AuditLog {
     return {
@@ -418,7 +433,7 @@ export function PlatformModule({
       setDetailTab("overview");
       setPlatformMenuDrawer(null);
     } catch (error) {
-      setProvisioningError(error instanceof Error ? error.message : "Provisionnement impossible.");
+      setProvisioningError(userFacingError(error, "Provisionnement impossible."));
     } finally {
       setProvisioningLoading(false);
     }
@@ -465,7 +480,7 @@ export function PlatformModule({
       setCustomOptionConfirmation("");
       setProvisioningError("");
     } catch (error) {
-      setProvisioningError(error instanceof Error ? error.message : "Impossible d'enregistrer l'option.");
+      setProvisioningError(userFacingError(error, "Impossible d'enregistrer l'option."));
     } finally {
       setCustomOptionSaving(false);
     }
@@ -510,7 +525,7 @@ export function PlatformModule({
       setSchoolStatusConfirmation("");
       setSchoolActionSuccess(`École « ${school.name} » ${action === "suspend" ? "suspendue" : "réactivée"}.`);
     } catch (error) {
-      setSchoolActionError(error instanceof Error ? error.message : "Changement de statut impossible.");
+      setSchoolActionError(userFacingError(error, "Changement de statut impossible."));
     } finally {
       schoolStatusSavingRef.current = false;
       setSchoolStatusSaving(false);
@@ -550,7 +565,7 @@ export function PlatformModule({
       setSchoolEditTargetId("");
       setSchoolActionSuccess("Informations de l'école enregistrées avec succès.");
     } catch (error) {
-      setSchoolEditError(error instanceof Error ? error.message : "Modification de l'école impossible.");
+      setSchoolEditError(userFacingError(error, "Modification de l'école impossible."));
     } finally {
       setSchoolEditSaving(false);
     }
@@ -568,7 +583,7 @@ export function PlatformModule({
       setSchoolAcronymTargetId("");
       setSchoolActionSuccess("Sigle de l'école enregistré avec succès.");
     } catch (error) {
-      setSchoolAcronymError(error instanceof Error ? error.message : "Modification du sigle impossible.");
+      setSchoolAcronymError(userFacingError(error, "Modification du sigle impossible."));
     } finally {
       setSchoolAcronymSaving(false);
     }
@@ -585,7 +600,7 @@ export function PlatformModule({
       setOptionRenameTarget(""); setOptionRenameSchoolId(""); setOptionRenameName(""); setOptionRenameConfirmation("");
       setSchoolActionSuccess("Le nom de l'option scolaire a été modifié.");
     } catch (error) {
-      setOptionRenameError(error instanceof Error ? error.message : "Renommage impossible.");
+      setOptionRenameError(userFacingError(error, "Renommage impossible."));
     } finally { setOptionRenameSaving(false); }
   }
 
@@ -774,7 +789,7 @@ export function PlatformModule({
       setSchoolDeleteConfirmation("");
       setSchoolActionSuccess(`Ecole ${school.name} supprimee avec succes.`);
     } catch (error) {
-      setSchoolActionError(error instanceof Error ? error.message : "Suppression ecole impossible.");
+      setSchoolActionError(userFacingError(error, "Suppression ecole impossible."));
     } finally {
       setSchoolDeleteLoading(false);
     }
@@ -795,7 +810,7 @@ export function PlatformModule({
         loginLogoUrl: logoUrl,
         updatedAt: new Date().toISOString(),
       });
-      if (!saved) throw new Error("Enregistrement Firestore indisponible.");
+      if (!saved) throw new Error("Enregistrement indisponible. Veuillez réessayer.");
       onPlatformLogoSaved(logoUrl);
       setPlatformLogoDraft(logoUrl);
       void applyPlatformLogoAssets();
@@ -803,7 +818,7 @@ export function PlatformModule({
       setPlatformLogoAction(null);
       setPlatformLogoConfirmation("");
     } catch (error) {
-      setPlatformLogoError(error instanceof Error ? error.message : "Enregistrement du logo impossible.");
+      setPlatformLogoError(userFacingError(error, "Enregistrement du logo impossible."));
     } finally {
       platformLogoSavingRef.current = false;
       setPlatformLogoSaving(false);
@@ -862,7 +877,7 @@ export function PlatformModule({
       }
       setAdminModalOpen(false);
     } catch (cause) {
-      setAdminSaveError(cause instanceof Error ? cause.message : "Création ou modification impossible.");
+      setAdminSaveError(userFacingError(cause, "Création ou modification impossible."));
     } finally {
       adminSavingRef.current = false;
       setAdminSaving(false);
@@ -880,7 +895,7 @@ export function PlatformModule({
       updateData({ users: data.users.map((item) => (item.id === admin.id ? { ...item, status: result.status, active: result.status === "active" } : item)) }, { persist: false });
       setSchoolActionSuccess(nextStatus === "inactive" ? `${admin.name} est désactivé et déconnecté.` : `${admin.name} est réactivé.`);
     } catch (error) {
-      setSchoolActionError(error instanceof Error ? error.message : "Changement de statut impossible.");
+      setSchoolActionError(userFacingError(error, "Changement de statut impossible."));
     }
   }
 
@@ -923,7 +938,7 @@ export function PlatformModule({
       setCurrencyChangeTarget(null);
       setCurrencyChangeConfirmation("");
     } catch (error) {
-      setSchoolActionError(error instanceof Error ? error.message : "Changement de devise impossible.");
+      setSchoolActionError(userFacingError(error, "Changement de devise impossible."));
     } finally {
       setCurrencyChangeLoading(false);
     }
@@ -959,7 +974,7 @@ export function PlatformModule({
       setAiAssistantChangeTarget(null);
       setAiAssistantConfirmation("");
     } catch (error) {
-      setAiAssistantError(error instanceof Error ? error.message : "Modification de l’Assistant IA impossible.");
+      setAiAssistantError(userFacingError(error, "Modification de l’Assistant IA impossible."));
     } finally {
       setAiAssistantSaving(false);
     }
@@ -980,7 +995,7 @@ export function PlatformModule({
       updateData({ schools: data.schools.map((item) => item.id === school.id ? { ...item, aiAssistant: result.aiAssistant } : item), auditLogs: [result.auditLog, ...data.auditLogs] }, { persist: false });
       setAiAssistantMessage("Quota mensuel enregistré.");
     } catch (error) {
-      setAiAssistantError(error instanceof Error ? error.message : "Enregistrement de la limite impossible.");
+      setAiAssistantError(userFacingError(error, "Enregistrement de la limite impossible."));
     } finally {
       setAiAssistantSaving(false);
     }
@@ -998,7 +1013,7 @@ export function PlatformModule({
       setAiAssistantMessage("Utilisation mensuelle réinitialisée à 0.");
       setAiQuotaResetTarget(null);
     } catch (error) {
-      setAiAssistantError(error instanceof Error ? error.message : "Réinitialisation du quota impossible.");
+      setAiAssistantError(userFacingError(error, "Réinitialisation du quota impossible."));
     } finally {
       setAiAssistantSaving(false);
     }
@@ -1035,7 +1050,7 @@ export function PlatformModule({
       setAdminRemovalTarget(null);
       setAdminRemovalConfirmation("");
     } catch (error) {
-      setAdminRemovalError(error instanceof Error ? error.message : "Retrait de l'administrateur impossible.");
+      setAdminRemovalError(userFacingError(error, "Retrait de l'administrateur impossible."));
     } finally {
       setAdminRemovalLoading(false);
     }
@@ -1152,7 +1167,11 @@ export function PlatformModule({
         const yearId = schoolYears.find((year) => year.id === school?.activeSchoolYearId)?.id ?? schoolYears[0]?.id ?? "";
         setDrawerYearId(yearId);
         loadSchoolDrawerData(schoolId, yearId);
-      }).catch((cause: unknown) => setSchoolActionError(cause instanceof Error ? cause.message : "École indisponible."))
+      }).catch((cause: unknown) => {
+        const message = userFacingError(cause, "École indisponible.");
+        setSchoolActionError(message);
+        setSchoolActionRetry({ message, run: () => { setSchoolActionError(""); openSchoolDrawer(schoolId); } });
+      })
         .finally(() => setSchoolDrawerLoadingId(""));
       return;
     }
@@ -1236,7 +1255,7 @@ export function PlatformModule({
           previewFit="contain"
         />
         {platformLogoMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{platformLogoMessage}</p>}
-        {platformLogoError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLogoError}</p>}
+        <ErrorNotice error={platformLogoError} />
         {platformLogoAction && <div role="group" aria-label="Confirmer la modification du logo" className="grid gap-3 rounded border border-amber-200 bg-amber-50 p-3">
           <p className="text-sm font-semibold text-amber-900">Pour confirmer, saisissez exactement : {platformLogoAction === "delete" ? "SUPPRIMER LE LOGO ACTUEL" : "ENREGISTRER LE NOUVEAU LOGO"}</p>
           <input aria-label="Phrase de confirmation du logo" value={platformLogoConfirmation} onChange={(event) => setPlatformLogoConfirmation(event.target.value)} className="input" autoComplete="off" disabled={platformLogoSaving} />
@@ -1313,7 +1332,8 @@ export function PlatformModule({
             )}
           </fieldset>
         )}
-        {provisioningError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{provisioningError}</p>}
+        <ErrorNotice error={catalogError} onRetry={catalogRetry.retry} />
+        <ErrorNotice error={provisioningError} />
         <button
           onClick={createSchool}
           disabled={provisioningLoading || !mainAdminName.trim() || (hasSecondarySection && hasCustomSchoolOption)}
@@ -1342,7 +1362,7 @@ export function PlatformModule({
             </div>
             {/* Lot 25 : actualisation et cloche, comme chez l'Administrateur. */}
             <button type="button" onClick={() => onRefresh?.()} className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser"><RefreshCw className="h-4 w-4" /></button>
-            <button type="button" onClick={() => setMessagingOpen(true)} className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
+            <button type="button" onClick={() => { platformInbox.start(); setMessagingOpen(true); }} className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
               <Bell className="h-4 w-4" />
               {platformUnread > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{platformUnread}</span>}
             </button>
@@ -1350,11 +1370,12 @@ export function PlatformModule({
           </div>
         </header>
         <PushNotificationPrompt user={user} />
-        {messagingOpen && <MessagingDrawerShell onClose={() => setMessagingOpen(false)}><PlatformMessages user={user} schools={visibleSchools} section="inbox" /></MessagingDrawerShell>}
+        {messagingOpen && <MessagingDrawerShell onClose={() => setMessagingOpen(false)}><PlatformMessages user={user} section="inbox" inbox={platformInbox} /></MessagingDrawerShell>}
 
         <main className="mx-auto grid w-full max-w-7xl min-w-0 gap-5 overflow-x-hidden px-3 py-5 sm:px-6 lg:px-8">
-          {platformLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{platformLoadError}</p>}
-          {schoolActionError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{schoolActionError}</p>}
+          <ErrorNotice error={platformLoadError} onRetry={platformRetry.retry} />
+          <ErrorNotice error={allSchoolsError} onRetry={allSchoolsRetry.retry} />
+          <ErrorNotice error={schoolActionError} onRetry={schoolActionRetry?.message === schoolActionError ? schoolActionRetry.run : undefined} />
           {schoolActionSuccess && <p className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{schoolActionSuccess}</p>}
 
           {platformView === "dashboard" && (
@@ -1368,7 +1389,7 @@ export function PlatformModule({
 
           {platformView === "dashboard" && (
             <section className="grid min-w-0 gap-4">
-              {coordinationLoadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{coordinationLoadError}</p>}
+              <ErrorNotice error={coordinationLoadError} onRetry={retryCoordinations} />
               <div className="grid min-w-0 gap-4 lg:grid-cols-2">
                 <PlatformStatusDistributionCard title="Répartition des écoles par statut" description="État global des établissements de la plateforme." total={platformStats?.schools.total ?? "—"} totalLabel="école(s)" items={schoolStatusChart} />
                 <PlatformStatusDistributionCard title="Répartition des Coordinations par statut" description="État global des Coordinations de la plateforme." total={coordinationsLoaded ? coordinations.length : "—"} totalLabel="Coordination(s)" items={coordinationsLoaded ? coordinationStatusChart : null} />
@@ -1411,7 +1432,7 @@ export function PlatformModule({
               <div className="grid min-w-0 gap-3">
                 {schoolDrawerLoadingId && <p className="text-sm text-slate-600" role="status">Ouverture de l'école…</p>}
                 {serverSearch.schools && <p className="text-sm text-slate-600" role="status" data-school-search-total>{schoolCountLabel(serverSearch.total)}{searchIsSlow && <span className="ml-2 inline-block h-2 w-2 animate-pulse rounded-full bg-slate-400 align-middle" aria-label="Recherche en cours" data-school-search-slow />}</p>}
-                {serverSearch.error && <p role="alert" className="text-sm text-red-700">{serverSearch.error}</p>}
+                <ErrorNotice error={serverSearch.error} onRetry={serverSearch.retry} />
                 {listedSchools.length === 0 && !serverSearch.loading && (
                   <div className="rounded border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">
                     Aucune école ne correspond aux filtres.
@@ -1435,7 +1456,7 @@ export function PlatformModule({
           </KeptTab>
 
           <KeptTab id="messages" active={platformView} visited={visitedViews}>
-            <PlatformMessages user={user} schools={visibleSchools} section="compose" />
+            <PlatformMessages user={user} section="compose" />
           </KeptTab>
 
           <KeptTab id="menu" active={platformView} visited={visitedViews}>
@@ -1529,6 +1550,7 @@ export function PlatformModule({
             controls={billingControls.controls}
             loading={billingControls.loading}
             error={billingControls.error}
+            onRetry={() => void billingControls.refresh()}
             updatedBy={user.id}
             onSetValvesUploadsEnabled={billingControls.setValvesUploadsEnabled}
           />
@@ -1657,7 +1679,7 @@ export function PlatformModule({
                   {aiQuotaWarning && <p role="alert" className="text-sm text-amber-800">{aiQuotaWarning} <button type="button" className="underline" disabled={aiQuotaLoading} onClick={() => void refreshSchoolQuota(drawerSchool.id, schoolDetailRequestRef.current)}>Réessayer</button></p>}
                   {aiAssistantSaving && <p className="text-sm text-slate-500">Enregistrement en cours…</p>}
                   {aiAssistantMessage && <p role="status" className="rounded border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">{aiAssistantMessage}</p>}
-                  {aiAssistantError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{aiAssistantError}</p>}
+                  <ErrorNotice error={aiAssistantError} />
                 </section>
                 <div className="rounded bg-slate-50 p-4">
                   <p className="text-sm font-semibold text-ink">Effectif des élèves par classe</p>
@@ -1721,7 +1743,7 @@ export function PlatformModule({
                     <label className="grid gap-1">Nouveau nom<input className="input" value={optionRenameName} onChange={(event) => setOptionRenameName(event.target.value)} disabled={optionRenameSaving} /></label>
                     <p>Saisissez exactement : <strong>{SCHOOL_OPTION_RENAME_CONFIRMATION}</strong></p>
                     <input aria-label="Confirmation du renommage de l'option" className="input" autoComplete="off" value={optionRenameConfirmation} onChange={(event) => setOptionRenameConfirmation(event.target.value)} disabled={optionRenameSaving} />
-                    {optionRenameError && <p role="alert" className="text-red-700">{optionRenameError}</p>}
+                    <ErrorNotice error={optionRenameError} onRetry={() => void saveSchoolOptionName()} />
                     <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={optionRenameSaving} onClick={() => { setOptionRenameTarget(""); setOptionRenameSchoolId(""); setOptionRenameConfirmation(""); }}>Annuler</button><button type="button" className="primary-button justify-center" disabled={optionRenameSaving || optionRenameConfirmation !== SCHOOL_OPTION_RENAME_CONFIRMATION || !optionRenameName.trim()} onClick={() => void saveSchoolOptionName()}>Enregistrer</button></div>
                   </div>}
                 </div>
@@ -1801,7 +1823,7 @@ export function PlatformModule({
               <p className="mt-2 text-sm text-slate-500">Acadéa enregistre et rattache les terminaux compatibles. Aucun secret matériel n'est stocké dans cette interface.</p>
             </div>
             {terminalMessage && <p className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{terminalMessage}</p>}
-            {terminalError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{terminalError}</p>}
+            <ErrorNotice error={terminalError} onRetry={() => void saveTerminal()} />
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="font-bold text-ink">Terminaux liés</p>
@@ -1938,7 +1960,7 @@ export function PlatformModule({
                 Confirmation incorrecte. Saisissez exactement : {aiAssistantConfirmationPhrase(aiAssistantChangeTarget.enabled)}
               </p>
             )}
-            {aiAssistantError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{aiAssistantError}</p>}
+            <ErrorNotice error={aiAssistantError} />
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button type="button" className="secondary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" disabled={aiAssistantSaving} onClick={closeSchoolAiAssistantConfirmation}>
                 Annuler
@@ -1987,7 +2009,7 @@ export function PlatformModule({
             <label className="grid gap-1 text-sm font-semibold text-slate-700">Phrase de confirmation
               <input aria-label="Phrase de confirmation du statut de l'école" value={schoolStatusConfirmation} onChange={(event) => setSchoolStatusConfirmation(event.target.value)} className="input" autoComplete="off" disabled={schoolStatusSaving} />
             </label>
-            {schoolActionError && <p role="alert" className="text-sm font-semibold text-red-700">{schoolActionError}</p>}
+            <ErrorNotice error={schoolActionError} />
             <div className="grid grid-cols-2 gap-2">
               <button type="button" className="secondary-button justify-center" onClick={closeSchoolStatusChange} disabled={schoolStatusSaving}>Annuler</button>
               <button type="button" className="primary-button justify-center disabled:opacity-50" onClick={() => void changeSchoolStatus()} disabled={schoolStatusSaving || schoolStatusConfirmation !== (schoolStatusTarget.status === "active" ? "SUSPENDRE CETTE ÉCOLE" : "RÉACTIVER CETTE ÉCOLE")}>{schoolStatusSaving ? "Enregistrement…" : "Confirmer"}</button>
@@ -2060,7 +2082,7 @@ export function PlatformModule({
                   </p>
                 </>
               )}
-              {adminSaveError && <p role="alert" className="text-sm text-red-700">{adminSaveError}</p>}
+              <ErrorNotice error={adminSaveError} onRetry={() => void saveAdmin()} />
               <button disabled={!adminFormValid || adminSaving} onClick={saveAdmin} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50">
                 <CheckCircle2 className="h-4 w-4" /> {adminSaving ? "Enregistrement…" : "Enregistrer"}
               </button>
@@ -2125,7 +2147,7 @@ export function PlatformModule({
                 disabled={adminRemovalLoading}
               />
             </label>
-            {adminRemovalError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{adminRemovalError}</p>}
+            <ErrorNotice error={adminRemovalError} onRetry={() => void confirmAdminRemoval()} />
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <button onClick={closeAdminRemovalDialog} disabled={adminRemovalLoading} className="secondary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
                 Annuler

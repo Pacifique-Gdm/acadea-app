@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppUser, Coordination, School, SchoolYear } from "../types";
+import { useLoadRetry } from "./useLoadRetry";
 
 export function isSchoolClosedByCoordination(school: School | undefined, coordination: Coordination | null) {
   return Boolean(school?.activeCoordinationId && coordination?.id === school.activeCoordinationId
@@ -14,6 +15,7 @@ export function useCoordinatedSchoolYears(user: AppUser | null, school: School |
   const coordinationId = schoolId ? school?.activeCoordinationId ?? "" : "";
   const [state, setState] = useState<{ key: string; coordination: Coordination | null; error: string }>({ key: "", coordination: null, error: "" });
   const key = coordinationId ? `${schoolId}/${coordinationId}` : "";
+  const { token: loadRetryToken, retry } = useLoadRetry(Boolean(key && state.key === key && state.error));
   useEffect(() => {
     if (!key || !firebaseReady || !db) return;
     let cancelled = false;
@@ -25,10 +27,11 @@ export function useCoordinatedSchoolYears(user: AppUser | null, school: School |
       if (!cancelled) onYears(snapshot.docs.map((item) => ({ ...item.data(), id: item.id }) as SchoolYear));
     }, fail);
     return () => { cancelled = true; stopCoordination(); stopYears(); };
-  }, [coordinationId, key, onYears, schoolId]);
+  }, [coordinationId, key, onYears, schoolId, loadRetryToken]);
   return {
     closed: Boolean(key && state.key === key && isSchoolClosedByCoordination(school, state.coordination)),
     loading: Boolean(key && state.key !== key),
     error: key && state.key === key ? state.error : "",
+    retry,
   };
 }

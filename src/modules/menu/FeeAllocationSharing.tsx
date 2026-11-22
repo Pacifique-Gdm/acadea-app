@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { AdminDrawer } from "../../components/ui";
 import { AllocationApiError, revokeShare, setRubricShare, staffRoleLabel, type AllocationShares } from "../../services/feeAllocation";
 import { allocationViewers, type Viewer } from "./feeAllocationSharingState";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 /** Lot « Deux onglets et partage des rubriques » (maquette validée le 19/11). */
-const message = (cause: unknown) => cause instanceof Error ? cause.message : "Partage indisponible.";
+const message = (cause: unknown) => userFacingError(cause, "Partage indisponible.");
 /** Phrases à taper exactement (demande du 19/11) : le bouton reste désactivé sinon. */
 export const SHARE_PHRASE = "PARTAGER AVEC CE PERSONNEL";
 export const REVOKE_PHRASE = "RETIRER CE PARTAGE";
@@ -82,7 +84,7 @@ export function ShareRubricButton({ schoolId, rubric, shares, onChanged }: { sch
       </fieldset>}
       <p className="mt-2 text-xs text-slate-600">Seul le personnel qui a un espace Acadéa est proposé. Ne rien cocher retire le partage de cette rubrique.</p>
       <PhraseField phrase={SHARE_PHRASE} value={typed} onChange={setTyped} />
-      {error && <p role="alert" className="mt-2 text-red-700">{error}</p>}
+      <ErrorNotice error={error} onRetry={() => void save()} />
       <div className={`mt-3 ${BUTTON_ROW}`}><button type="button" className="secondary-button w-full justify-center" onClick={() => setOpen(false)}>Annuler</button>
         <button type="button" className="primary-button w-full justify-center" disabled={busy || typed !== SHARE_PHRASE} onClick={() => void save()}>{busy ? "Enregistrement…" : "Partager"}</button></div>
       </div>
@@ -95,7 +97,7 @@ export function SharingTab({ schoolId, shares, error, names, onChanged }: { scho
   const [revoking, setRevoking] = useState<string | null>(null);
   const [whole, setWhole] = useState(true), [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false), [failure, setFailure] = useState(""), [typed, setTyped] = useState("");
-  if (error) return <p role="alert" className="text-sm text-red-700">{error}</p>;
+  if (error) return <ErrorNotice error={error} />;
   if (!shares) return <div aria-hidden className="h-32 animate-pulse rounded bg-slate-100" />;
   const viewers = allocationViewers(shares, names);
   async function revoke(viewer: Viewer) {
@@ -117,7 +119,7 @@ export function SharingTab({ schoolId, shares, error, names, onChanged }: { scho
           {!whole && <fieldset className="ml-6 grid gap-1" aria-label="Rubriques à retirer">{viewer.rubricIds.map((id) => <label key={id} className="flex items-start gap-2">
             <input type="checkbox" checked={picked.includes(id)} onChange={(event) => setPicked((items) => event.target.checked ? [...items, id] : items.filter((x) => x !== id))} />{names.get(id) ?? "Rubrique"}</label>)}</fieldset>}
           <PhraseField phrase={REVOKE_PHRASE} value={typed} onChange={setTyped} />
-          {failure && <p role="alert" className="mt-2 text-red-700">{failure}</p>}
+          <ErrorNotice error={failure} />
           <div className={`mt-3 ${BUTTON_ROW}`}><button type="button" className="secondary-button w-full justify-center" onClick={() => setRevoking(null)}>Annuler</button>
             <button type="button" className="primary-button w-full justify-center" disabled={busy || (!whole && !picked.length) || typed !== REVOKE_PHRASE} onClick={() => void revoke(viewer)}>{busy ? "Retrait…" : "Retirer"}</button></div>
         </SidePopover>}</span>

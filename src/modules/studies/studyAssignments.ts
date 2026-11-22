@@ -1,5 +1,6 @@
 import type { PedagogicalAssignment, StudySubject, StudyTeacher } from "./studyTypes";
 import { firebaseErrorCode } from "../../utils/refreshErrors";
+import { isTechnicalText } from "../../utils/userFacingError";
 import { assignmentAppliesToClass, assignmentStudentGroupKey } from "./studyCourseScope";
 import type { StudyClass } from "./studyTypes";
 
@@ -36,7 +37,7 @@ export function pedagogicalAssignmentSaveErrorMessage(error: unknown) {
   if (code === "permission-denied") return "Vous n’avez pas l’autorisation nécessaire pour enregistrer cette affectation.";
   if (code === "unavailable" || code === "network-request-failed") return "Le service est temporairement indisponible. Vérifiez votre connexion puis réessayez.";
   if (code === "invalid-argument") return "Impossible d’enregistrer cette affectation. Vérifiez les classes sélectionnées.";
-  return error instanceof Error && code === "unknown" && error.message
+  return error instanceof Error && code === "unknown" && error.message && !isTechnicalText(error.message)
     ? error.message
     : "Impossible d’enregistrer cette affectation.";
 }

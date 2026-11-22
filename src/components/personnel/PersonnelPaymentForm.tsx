@@ -8,6 +8,9 @@ import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/curr
 import { fromMoneyMinor, remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
 import type { PersonnelPayment, School, SchoolYear } from "../../types";
 import { personnelJobTitleLabel } from "../../services/personnel";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 const today = () => {
   const date = new Date();
@@ -38,6 +41,8 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [lastPayment, setLastPayment] = useState<PersonnelPayment>();
   const [cashBalance, setCashBalance] = useState<PayrollCashBalance>();
   const [cashLoading, setCashLoading] = useState(true);
@@ -48,9 +53,9 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   const format = (value: number) => formatCurrencyMoney(value, currency);
   useEffect(() => {
     let active = true;
-    void listPayrollPersonnel().then((items) => { if (active) setPersonnel(items); }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Personnel indisponible."); }).finally(() => { if (active) setLoading(false); });
+    void listPayrollPersonnel().then((items) => { if (active) setPersonnel(items); }).catch((cause) => { if (active) setErrorLoad(userFacingError(cause, "Personnel indisponible.")); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [errorLoadRetry.token]);
   useEffect(() => {
     let active = true;
     setCashBalance(undefined); setCashLoading(true); setCashError("");
@@ -58,7 +63,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
       if (!active) return;
       if (balance.schoolId !== school.id || balance.currency !== currency) throw new Error("La caisse ne correspond pas à cet établissement ou à cette devise.");
       setCashBalance(balance);
-    }).catch((cause) => { if (active) setCashError(cause instanceof Error ? cause.message : "Solde de caisse indisponible."); })
+    }).catch((cause) => { if (active) setCashError(userFacingError(cause, "Solde de caisse indisponible.")); })
       .finally(() => { if (active) setCashLoading(false); });
     return () => { active = false; };
   }, [currency, school.id, year.id]);
@@ -66,9 +71,9 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     if (!beneficiaryId) { setAdvances([]); setRecoveries({}); return; }
     let active = true;
     setRecoveries({});
-    void listPayrollAdvances(beneficiaryId).then((items) => { if (active) setAdvances(items); }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Avances indisponibles."); });
+    void listPayrollAdvances(beneficiaryId).then((items) => { if (active) setAdvances(items); }).catch((cause) => { if (active) setErrorLoad(userFacingError(cause, "Avances indisponibles.")); });
     return () => { active = false; };
-  }, [beneficiaryId]);
+  }, [beneficiaryId, errorLoadRetry.token]);
 
   const grossCents = inputMinor(gross);
   const deductionCents = inputMinor(deduction), cnssCents = inputMinor(cnss), taxCents = inputMinor(tax);
@@ -127,7 +132,7 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
           .catch(() => { setCashBalance(undefined); setCashError("Solde de caisse indisponible : paiement bloqué."); })
           .finally(() => setCashLoading(false));
       }
-      setError(cause instanceof Error ? cause.message : "Paiement impossible.");
+      setError(userFacingError(cause, "Paiement impossible."));
     }
     finally { busyRef.current = false; setBusy(false); }
   }
@@ -152,14 +157,14 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     <strong>Net à payer : {format(net)}</strong>
     <section className="grid min-w-0 gap-2 rounded border border-slate-200 bg-slate-50 p-3" aria-label="Solde de caisse">
       <p className="font-semibold">Caisse de l'établissement · {currency}</p>
-      {cashLoading ? <p role="status">Chargement du solde disponible…</p> : cashError ? <p role="alert" className="text-red-700">{cashError}</p> : cashBalance ? <>
+      {cashLoading ? <p role="status">Chargement du solde disponible…</p> : cashError ? <ErrorNotice error={cashError} /> : cashBalance ? <>
         <p>Solde disponible : <strong>{format(cashBalance.availableCents / 100)}</strong></p>
         <p>Montant net à décaisser : <strong>{format(net)}</strong></p>
         <p>Solde après paiement : <strong>{format((cashBalance.availableCents - netCents) / 100)}</strong></p>
         {cashInsufficient && <p role="alert" className="rounded bg-red-50 p-2 text-red-700">Paiement impossible : solde de caisse insuffisant. Montant manquant : {format(shortfallCents / 100)}. Veuillez approvisionner la caisse ou corriger le paiement.</p>}
       </> : <p role="alert" className="text-red-700">Solde de caisse indisponible : paiement bloqué.</p>}
     </section>
-    {error && <p role="alert" className="rounded bg-red-50 p-3 text-red-700">{error}</p>}
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     {lastPayment && <div role="status" className="grid gap-2 rounded bg-green-50 p-3 text-green-800"><span>Paiement enregistré : {lastPayment.reference}</span><button className="secondary-button justify-center" type="button" onClick={() => void printPersonnelPaymentPdf(lastPayment, school)}>{lastPayment.kind === "advance" ? "Télécharger le justificatif" : "Télécharger le bulletin de paie"}</button></div>}
     <button type="submit" disabled={busy || loading || cashLoading || !cashBalance || cashInsufficient || !beneficiaryId || !validNet} className="primary-button justify-center">{busy ? "Enregistrement…" : "Enregistrer le paiement personnel"}</button>
   </form>;

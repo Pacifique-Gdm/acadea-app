@@ -16,6 +16,7 @@ import { prepareIncrementalFixedEntries } from "./incrementalSchedule";
 import { scheduleIsStale, timetableSourceFingerprint } from "./scheduleSource";
 import type { StudyDay } from "./studyTypes";
 import { TimetableWorkflowError } from "./timetableWorkflowClient";
+import { userFacingError } from "../../utils/userFacingError";
 
 type View = "class" | "teacher" | "day";
 type GenerationMode = "incremental" | "full";
@@ -71,7 +72,7 @@ export function StudySchedulesModule({ user, school, year, data }: { user: AppUs
       const version = Math.max(0, ...ordered.map((item) => item.version)) + 1;
       const created = await saveGeneratedTimetable({ user, schoolId: school.id, schoolYearId: year.id, version, entries: result.entries, existing: ordered, metadata: { algorithm: "deterministic-backtracking", exploredBranches: result.statistics.exploredBranches, durationMs: result.statistics.durationMs, maxSameAssignmentPeriodsPerDay: 2, sourceFingerprint } });
       selectVersion(created.id); setLastGeneratedFingerprint(sourceFingerprint); setUpdateChoiceOpen(false); setReport(undefined); setFeedback(`Brouillon version ${version} généré.`);
-    } catch (cause) { setFeedback(cause instanceof Error ? cause.message : "Génération impossible."); } finally { operationPending.current = false; setBusy(false); }
+    } catch (cause) { setFeedback(userFacingError(cause, "Génération impossible.")); } finally { operationPending.current = false; setBusy(false); }
   }
   function chooseGeneration(mode: GenerationMode) { setUpdateChoiceOpen(false); void generate(mode); }
   function requestGeneration() { if (current) setUpdateChoiceOpen(true); else void generate("full"); }
@@ -91,7 +92,7 @@ export function StudySchedulesModule({ user, school, year, data }: { user: AppUs
       setConfirmPublish(false); setConfirmValidate(false); setReport(undefined);
     } catch (cause) {
       if (cause instanceof TimetableWorkflowError && cause.report) { setReport(cause.report); setReportStamp(""); }
-      setFeedback(cause instanceof Error ? cause.message : "Opération impossible. Réessayez.");
+      setFeedback(userFacingError(cause, "Opération impossible. Réessayez."));
     } finally { operationPending.current = false; setBusy(false); }
   }
   async function exportPdf() { await exportFilteredStudySchedulePdf({ school, year, entries: filtered, teachers: data.teachers, classes: scheduleClasses, assignments: personnel.assignments, subjects: data.subjects, periods: data.periods, rooms: data.rooms, filterLabel: `${viewLabels[view]} : ${selectedLabelText}` }); }

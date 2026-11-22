@@ -24,6 +24,8 @@ import {
   type TransactionPeriod,
 } from "../dashboard/Dashboard";
 import { exportCoordinationDashboardPdf } from "./coordinationDashboardPdf";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 function dateKey(date: Date) {
   const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -50,6 +52,7 @@ export function CoordinationDashboard({
   model,
   loading,
   loadError,
+  onRetry,
 }: {
   coordination: Coordination;
   schools: School[];
@@ -59,6 +62,8 @@ export function CoordinationDashboard({
   model: CoordinationDashboardReadModel;
   loading: boolean;
   loadError: string;
+  /** Relance la lecture de la supervision (bouton « Réessayer »). */
+  onRetry?: () => void;
 }) {
   const today = dateKey(new Date());
   const [sectionFilter, setSectionFilter] = useState<"all" | SchoolSection>("all");
@@ -228,7 +233,7 @@ export function CoordinationDashboard({
         showTransactionCharts: !hasCrossCurrencyHistory,
       });
     } catch (error) {
-      setPdfExportError(error instanceof Error ? error.message : "La génération du PDF a échoué.");
+      setPdfExportError(userFacingError(error, "La génération du PDF a échoué."));
     }
   }
 
@@ -242,11 +247,11 @@ export function CoordinationDashboard({
         <input value={endDate} onChange={(event) => updateDate("end", event.target.value)} type="date" max={today} className="input" aria-label="Date de fin" />
         <button onClick={resetFilters} type="button" className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600 transition hover:border-mint hover:text-mint xl:w-auto">Réinitialiser</button>
         <button onClick={() => void exportPdf()} type="button" disabled={!scopedSchools.length || pdfExportBlocked} className="pdf-export-button w-full xl:w-auto"><Download className="h-4 w-4" /> Exporter PDF</button>
-        {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 xl:col-span-6">{dateFilterError}</p>}
-        {pdfExportError && <p role="alert" className="text-xs font-semibold text-red-600 sm:col-span-2 xl:col-span-6">{pdfExportError}</p>}
+        <ErrorNotice error={dateFilterError} />
+        <ErrorNotice error={pdfExportError} onRetry={() => void exportPdf()} />
       </div>
     </div>
-    {loadError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{loadError}</p>}
+    <ErrorNotice error={loadError} onRetry={onRetry} />
     {displayVerified && hasUnknownFinancialCurrency && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse financière et export indisponibles : des opérations historiques sans devise exigent une réconciliation.</p>}
     {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible : {expenseResolution.message}</p>}
     {dashboardArrears.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Export PDF indisponible : les arriérés historiques ne sont pas vérifiés ({dashboardArrears.error})</p>}

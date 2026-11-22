@@ -21,6 +21,9 @@ import { formatCurrencyMoney } from "../../utils/currency";
 import { financialDateRangeError, localDateInputValue, schoolYearDatesFromName } from "../../utils/coordinationDates";
 import { SocialSupportDrawer } from "../menu/SocialSupportDrawer";
 import { cashInflowNatureLabel } from "../../utils/cashInflowCategory";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type Drawer = "fees" | "finance" | "personnel" | "years" | "settings" | "history" | "subCoordinations" | "socialSupport";
 const emptyModel: CoordinationReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [], auditLogs: [] };
@@ -37,6 +40,8 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
   const [loadedModelScope, setLoadedModelScope] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [errorLoad, setErrorLoad] = useState("");
+  const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [search, setSearch] = useState("");
   const [personnelRole, setPersonnelRole] = useState("");
   const [personnelStatus, setPersonnelStatus] = useState("");
@@ -71,21 +76,21 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
   useEffect(() => { setSettingsForm({ name: coordination.name, code: coordination.code ?? "", phone: coordination.phone ?? "", email: coordination.email ?? "", address: coordination.address ?? "", logoUrl: coordination.logoUrl ?? "" }); }, [coordination]);
   useEffect(() => {
     if (!drawer) return undefined;
-    let cancelled = false; setLoading(true); setError("");
-    loadCoordinationReadModel(coordination.id, allSchoolIds, user.subCoordinationId).then((result) => { if (!cancelled) { setModel(result); setLoadedModelScope(modelScope); } }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Chargement impossible."); }).finally(() => { if (!cancelled) setLoading(false); });
+    let cancelled = false; setLoading(true); setErrorLoad("");
+    loadCoordinationReadModel(coordination.id, allSchoolIds, user.subCoordinationId).then((result) => { if (!cancelled) { setModel(result); setLoadedModelScope(modelScope); } }).catch((cause) => { if (!cancelled) setErrorLoad(userFacingError(cause, "Chargement impossible.")); }).finally(() => { if (!cancelled) setLoading(false); });
     if (drawer === "years") {
       setYearStatusReady(false);
-      loadCoordinationSchoolYearStatus().then((result) => { if (!cancelled) { setYearRows(result.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(result.referenceYear); setYearGovernance(result.governance); setYearStatusReady(true); } }).catch(() => { if (!cancelled) setError("Années indisponibles."); });
+      loadCoordinationSchoolYearStatus().then((result) => { if (!cancelled) { setYearRows(result.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(result.referenceYear); setYearGovernance(result.governance); setYearStatusReady(true); } }).catch(() => { if (!cancelled) setErrorLoad("Années indisponibles."); });
     }
     return () => { cancelled = true; };
-  }, [allSchoolIds, coordination.id, drawer, modelScope, refreshToken, user.subCoordinationId]);
+  }, [allSchoolIds, coordination.id, drawer, modelScope, refreshToken, user.subCoordinationId, errorLoadRetry.token]);
   useEffect(() => {
     if (!selectedPersonnel?.schoolId) { setSelectedPersonnelProfile(undefined); setPersonnelProfileReady(false); return undefined; }
     let cancelled = false;
     setPersonnelProfileReady(false);
-    loadCoordinationPersonnelProfile(selectedPersonnel.id).then((profile) => { if (!cancelled) setSelectedPersonnelProfile(profile ?? undefined); }).catch(() => { if (!cancelled) setError("Impossible de charger la fiche Personnel."); }).finally(() => { if (!cancelled) setPersonnelProfileReady(true); });
+    loadCoordinationPersonnelProfile(selectedPersonnel.id).then((profile) => { if (!cancelled) setSelectedPersonnelProfile(profile ?? undefined); }).catch(() => { if (!cancelled) setErrorLoad("Impossible de charger la fiche Personnel."); }).finally(() => { if (!cancelled) setPersonnelProfileReady(true); });
     return () => { cancelled = true; };
-  }, [selectedPersonnel]);
+  }, [selectedPersonnel, errorLoadRetry.token]);
 
   const schoolName = (id?: string) => schools.find((item) => item.id === id)?.name ?? id ?? "—";
   const scopedSchools = schools.filter((school) => schoolIds.includes(school.id));
@@ -149,14 +154,14 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     await renderAcadPdfPreview({ filename: `coordination-${kind}-${drawerSchoolId || "toutes"}.pdf`, title: `Coordination — ${kind}`, school: coordinationPdfInstitution(coordination, contextSchool), subtitle: context, sections });
   }
 
-  async function saveSettings() { if (user.role !== "coordination_admin" || settingsBusy) return; setSettingsBusy(true); setError(""); try { await updateCoordinationSettings(settingsForm); } catch (cause) { setError(cause instanceof Error ? cause.message : "Enregistrement impossible."); } finally { setSettingsBusy(false); } }
+  async function saveSettings() { if (user.role !== "coordination_admin" || settingsBusy) return; setSettingsBusy(true); setError(""); try { await updateCoordinationSettings(settingsForm); } catch (cause) { setError(userFacingError(cause, "Enregistrement impossible.")); } finally { setSettingsBusy(false); } }
   async function mutateYears(action: "close" | "reactivate" | "open") {
     if (yearLock.current || !yearStatusReady) return;
     if (user.role !== "coordination_admin") { setError("La gouvernance annuelle reste réservée au Coordinateur principal."); return; }
     if (action !== "open" && (yearConfirmation?.action !== action || yearConfirmation.value !== YEAR_CONFIRMATIONS[action])) return;
     // Lot 15 : même règle que le serveur (année en avance ou passée refusée, avec un message clair).
     const opening = action === "open" ? schoolYearOpeningDecision(yearName) : null;
-    if (opening && !opening.ok) { setError(opening.message); return; }
+    if (opening && !opening.ok) { setError(userFacingError(opening, "Chargement impossible. Veuillez réessayer.")); return; }
     const dates = opening?.ok ? { startsAt: opening.startsAt, endsAt: opening.endsAt } : null;
     yearLock.current = true;
     setYearBusy(true); setError("");
@@ -171,7 +176,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
       setYearStatusReady(false);
       const status = await loadCoordinationSchoolYearStatus();
       setYearRows(status.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(status.referenceYear); setYearGovernance(status.governance); setYearStatusReady(true);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Opération impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Opération impossible.")); }
     finally { yearLock.current = false; setYearBusy(false); }
   }
   function openPersonnelTransfer() { setTransferForm(emptyTransferForm()); setTransferError(""); setTransferMessage(""); setTransferOpen(true); }
@@ -188,7 +193,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
       setTransferOpen(false);
       setTransferForm(emptyTransferForm());
     } catch (cause) {
-      setTransferError(cause instanceof Error ? cause.message : "Mutation impossible.");
+      setTransferError(userFacingError(cause, "Mutation impossible."));
     } finally {
       setTransferBusy(false);
     }
@@ -207,7 +212,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     if ((drawer === "fees" || drawer === "finance") && hasUnknownFinancialCurrency) return <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Synthèse et export indisponibles : des opérations historiques sans devise exigent une réconciliation.</p>;
     if (drawer === "fees") return <>{financialGroups.map((group) => <section key={group.currency} className="grid gap-2 rounded border border-slate-200 p-3"><h3 className="font-bold text-ink">Types de frais — {group.currency}</h3><ReadTable headers={["Type", "Officiel", "Réductions", "Net exigible", "Payé", "Solde", "%"]} rows={group.feeProgressRows.map((item) => [item.name, formatCurrencyMoney(item.official ?? item.expected, group.currency), formatCurrencyMoney(item.reduction ?? 0, group.currency), formatCurrencyMoney(item.expected, group.currency), formatCurrencyMoney(item.paid, group.currency), formatCurrencyMoney(item.remaining, group.currency), `${item.rate}%`])} /></section>)}</>;
     if (drawer === "finance") return <>
-      {financialDateError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{financialDateError}</p>}
+      <ErrorNotice error={financialDateError} />
       {financialGroups.map((group) => <section key={group.currency} className="grid gap-3 rounded border border-slate-200 p-3">
         <h3 className="font-bold text-ink">Synthèse financière — {group.currency}</h3>
         <ReadTable headers={["Indicateur", "Montant"]} rows={[["Officiel", formatCurrencyMoney(group.official, group.currency)], ["Réductions", formatCurrencyMoney(group.reduction, group.currency)], ["Net exigible", withFormer(group.expected, group)], ["Encaissé frais de l'année", withFormer(group.paid, group)], ["Dépenses", formatCurrencyMoney(group.expenses, group.currency)], ["Reste", formatCurrencyMoney(group.remaining, group.currency)], ["Recouvrement", `${group.recoveryRate}%`]]} />
@@ -255,10 +260,10 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     {items.filter(([id]) => id !== "years").map(([id, label, Icon]) => <button key={id} type="button" onClick={() => { setDrawerSchoolId(selectedSchoolId); setDrawer(id); setSearch(""); setSelectedPersonnel(undefined); setTransferMessage(""); }} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Icon className="h-5 w-5"/></div><span className="break-words font-bold text-ink">{label}</span></div></button>)}
     <button type="button" onClick={() => { setDrawerSchoolId(selectedSchoolId); setDrawer("years"); setSearch(""); setSelectedPersonnel(undefined); setTransferMessage(""); }} className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><CalendarRange className="h-5 w-5"/></div><span className="break-words font-bold text-ink">Année scolaire</span></div></button>
     <div className="mt-2 border-t border-slate-200 pt-4"><LogoutButton onClick={onLogout}/></div>
-    {drawer && <AdminDrawer width={drawer === "settings" ? "default" : "wide"} title={items.find(([id]) => id === drawer)?.[1] ?? "Coordination"} closeLabel="Fermer" toolbar={drawerToolbar()} footer={drawerFooter()} onClose={() => { if (yearLock.current) return; setDrawer(null); setYearConfirmation(null); setSelectedPersonnel(undefined); setTransferOpen(false); }}>{error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}{loading && <p className="text-sm text-slate-500">Chargement…</p>}{drawerContent()}</AdminDrawer>}
+    {drawer && <AdminDrawer width={drawer === "settings" ? "default" : "wide"} title={items.find(([id]) => id === drawer)?.[1] ?? "Coordination"} closeLabel="Fermer" toolbar={drawerToolbar()} footer={drawerFooter()} onClose={() => { if (yearLock.current) return; setDrawer(null); setYearConfirmation(null); setSelectedPersonnel(undefined); setTransferOpen(false); }}><ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />{loading && <p className="text-sm text-slate-500">Chargement…</p>}{drawerContent()}</AdminDrawer>}
     {drawer === "years" && yearConfirmation && <AdminDrawer title={yearConfirmation.action === "close" ? "Confirmer la clôture des années scolaires" : "Confirmer la réactivation des années scolaires"} closeLabel="Annuler" onClose={() => { if (!yearLock.current) setYearConfirmation(null); }} footer={<button type="button" className="primary-button w-full justify-center" disabled={yearBusy || yearConfirmation.value !== YEAR_CONFIRMATIONS[yearConfirmation.action]} onClick={() => void mutateYears(yearConfirmation.action)}>{yearBusy ? "Traitement…" : "Confirmer"}</button>}>
       <p className="text-sm text-slate-600">Cette opération concerne toutes les écoles du périmètre de la Coordination, indépendamment du filtre d’affichage. Les données historiques sont conservées.</p>
-      {error && <p role="alert" className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+      <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
       <label className="grid gap-2 text-sm font-semibold">Saisissez exactement « {YEAR_CONFIRMATIONS[yearConfirmation.action]} »<input className="input w-full min-w-0" autoComplete="off" spellCheck={false} disabled={yearBusy} value={yearConfirmation.value} onChange={(event) => setYearConfirmation({ ...yearConfirmation, value: event.target.value })} /></label>
     </AdminDrawer>}
     {selectedPersonnel && <AdminDrawer width="wide" title={`Personnel — ${selectedPersonnel.name}`} closeLabel="Fermer la fiche Personnel" toolbar={<div className={`grid w-full min-w-0 gap-2 ${transferAllowed ? "grid-cols-2" : "grid-cols-1"}`}><button type="button" className="primary-button w-full justify-center" disabled={!personnelProfileReady} onClick={() => { const school = schools.find((item) => item.id === selectedPersonnel.schoolId); if (school) void printPersonnelProfilePdf(coordinationPdfInstitution(coordination, school), selectedPersonnel, selectedPersonnelProfile, new Date(), { personnelSchoolName: school.name }); }}><Printer className="h-4 w-4"/> Imprimer</button>{transferAllowed && <button type="button" className="secondary-button w-full justify-center" onClick={openPersonnelTransfer}><ArrowRightLeft className="h-4 w-4"/> Muter</button>}</div>} onClose={() => { setSelectedPersonnel(undefined); setTransferOpen(false); setTransferMessage(""); }}>
@@ -267,7 +272,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     </AdminDrawer>}
     {selectedPersonnel?.schoolId && transferOpen && <AdminDrawer title="Muter le personnel" closeLabel="Fermer la mutation" footer={<button type="button" className="primary-button w-full justify-center" disabled={transferBusy || !transferReady} onClick={() => void submitPersonnelTransfer()}>{transferBusy ? "Mutation…" : "Confirmer la mutation"}</button>} onClose={closePersonnelTransfer}>
       <div className="grid min-w-0 gap-3 text-sm">
-        {transferError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 font-semibold text-red-700">{transferError}</p>}
+        <ErrorNotice error={transferError} onRetry={() => void submitPersonnelTransfer()} />
         <label className="grid min-w-0 gap-1 font-semibold">Personnel<input className="input min-w-0 w-full" value={selectedPersonnel.name} disabled /></label>
         <label className="grid min-w-0 gap-1 font-semibold">Fonction actuelle<input className="input min-w-0 w-full" value={roleLabel[selectedPersonnel.role] ?? selectedPersonnel.role} disabled /></label>
         <label className="grid min-w-0 gap-1 font-semibold">École actuelle<input className="input min-w-0 w-full" value={schoolName(selectedPersonnel.schoolId)} disabled /></label>

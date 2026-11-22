@@ -33,7 +33,7 @@ describe("fiche Élève — liaison Parent", () => {
   it("explique que le compte Parent et les autres enfants sont conservés", () => {
     expect(detailSource).toContain("Le compte Parent et ses liens avec d’autres enfants seront conservés.");
     expect(detailSource).toContain("Le parent a été délié de cet élève.");
-    expect(detailSource).toContain('role="alert"');
+    expect(detailSource).toContain('<ErrorNotice error={parentUnlinkError}');
   });
 
   it("trie les paiements récents et résout strictement leur école source pour le reçu", () => {

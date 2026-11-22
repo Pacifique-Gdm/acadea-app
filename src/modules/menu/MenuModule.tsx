@@ -38,6 +38,8 @@ import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArch
 import { LibraryDrawer } from "../library/LibraryDrawer";
 import type { StudentMedicalRecord } from "../secretary/secretaryTypes";
 import { useSchoolLogo } from "../../hooks/useSchoolLogo";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
 
@@ -201,7 +203,7 @@ export function MenuModule({
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
-    { id: "history", title: "Historique", description: "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
+    { id: "history", title: "Historique", description: canReadAdmin ? "Activités de tous les utilisateurs de l’école : élèves, paiements, dépenses, corrections…" : "Activités et messages enregistrés pour ce compte.", icon: Clock3 },
   ] satisfies { id: MenuSection; title: string; description: string; icon: typeof Settings }[];
   const persistedCustomFeeKindChoices = selectedYear.customFeeKindChoices ?? [];
   const feeKindChoices = Array.from(new Set([...yearData.feeTypes.map((fee) => fee.name), ...persistedCustomFeeKindChoices, ...customFeeKindChoices]));
@@ -346,7 +348,7 @@ export function MenuModule({
       setSchoolSaveStatus(result.status === "partial" ? "error" : "success");
       setSchoolSaveMessage(
         result.status === "partial"
-          ? "Parent supprimé, mais le compte Firebase Authentication n'a pas pu être supprimé. Vérifiez le compte concerné."
+          ? "Parent supprimé, mais le compte de connexion n'a pas pu être supprimé. Vérifiez le compte concerné."
           : "Parent supprimé avec succès.",
       );
       setParentDeleteOpen(false);
@@ -354,7 +356,7 @@ export function MenuModule({
       setParentDeleteConfirmation("");
       setParentDeleteError("");
     } catch (error) {
-      setParentDeleteError(error instanceof Error ? error.message : "Suppression du parent impossible. Veuillez réessayer.");
+      setParentDeleteError(userFacingError(error, "Suppression du parent impossible. Veuillez réessayer."));
     } finally {
       setParentDeleteSaving(false);
     }
@@ -482,7 +484,7 @@ export function MenuModule({
     // Lot 15 : seulement le nom ; les dates en sont calculées ; année en avance, passée ou existante refusée.
     const decision = schoolYearOpeningDecision(newYearForm.name, { existingNames: years.map((year) => year.name) });
     if (!decision.ok) {
-      setNewYearError(decision.message);
+      setNewYearError(userFacingError(decision, "Chargement impossible. Veuillez réessayer."));
       return;
     }
 
@@ -550,7 +552,7 @@ export function MenuModule({
         sectionIds: schoolUserSections,
       });
     } catch (error) {
-      setCashierError(error instanceof Error ? `Création Firebase Auth impossible : ${error.message}` : "Création Firebase Auth impossible.");
+      setCashierError(error instanceof Error ? `Création du compte de connexion impossible : ${userFacingError(error, "erreur inconnue")}` : "Création du compte de connexion impossible.");
       return;
     } finally {
       setSchoolUserSubmitting(false);
@@ -629,7 +631,7 @@ export function MenuModule({
       setFeePendingConfirmation(!confirmed);
       setFeeAddPending(false);
       setFeeEditPending(false);
-      setFeeSaveError(confirmed && error instanceof Error ? error.message
+      setFeeSaveError(confirmed && error instanceof Error ? userFacingError(error, "Enregistrement impossible.")
         : "Confirmation serveur indisponible. Ne recréez pas ce frais : vérifiez cette même demande dès que la connexion revient.");
     } finally {
       feeSubmittingRef.current = false;
@@ -710,7 +712,7 @@ export function MenuModule({
       setFeeDeleteTarget(null);
       setFeeDeleteConfirmation("");
     } catch (error) {
-      setFeeSaveError(error instanceof Error ? error.message : "Suppression du type de frais impossible.");
+      setFeeSaveError(userFacingError(error, "Suppression du type de frais impossible."));
     } finally {
       setFeeDeleteSaving(false);
     }
@@ -745,7 +747,7 @@ export function MenuModule({
       const confirmed = error instanceof FeeTypeSaveError && error.confirmed;
       if (confirmed) newFeeRequestRef.current = null;
       setNewFeePending(!confirmed);
-      setNewFeeError(confirmed && error instanceof Error ? error.message : "Confirmation serveur indisponible. Vérifiez cette même demande : ne recréez pas le libellé.");
+      setNewFeeError(confirmed && error instanceof Error ? userFacingError(error, "Enregistrement impossible.") : "Confirmation serveur indisponible. Vérifiez cette même demande : ne recréez pas le libellé.");
     } finally {
       newFeeSavingRef.current = false;
       setNewFeeSaving(false);
@@ -785,7 +787,7 @@ export function MenuModule({
       setSchoolSaveStatus("success");
       setSchoolSaveMessage(`Section « ${pending.level} » ${pending.action === "check" ? "cochée" : "décochée"} avec succès.`);
     } catch (error) {
-      setSchoolSectionError(error instanceof Error ? error.message : "Impossible de modifier cette section. Veuillez réessayer.");
+      setSchoolSectionError(userFacingError(error, "Impossible de modifier cette section. Veuillez réessayer."));
     } finally {
       schoolSectionSavingRef.current = false;
       setSchoolSectionSaving(false);
@@ -813,7 +815,7 @@ export function MenuModule({
       setSchoolSaveMessage(`Option « ${persisted.option} » enregistrée dans l'école.`);
     } catch (error) {
       setSchoolSaveStatus("error");
-      setSchoolSaveMessage(error instanceof Error ? error.message : "Impossible d'enregistrer cette option scolaire.");
+      setSchoolSaveMessage(userFacingError(error, "Impossible d'enregistrer cette option scolaire."));
     } finally {
       setSchoolOptionAdding(false);
     }
@@ -852,7 +854,7 @@ export function MenuModule({
       setSchoolSaveStatus("success");
       setSchoolSaveMessage("Option supprimée de l'école.");
     } catch (error) {
-      setSchoolOptionDeleteError(error instanceof Error ? error.message : "Suppression de l'option impossible.");
+      setSchoolOptionDeleteError(userFacingError(error, "Suppression de l'option impossible."));
     } finally {
       setSchoolOptionDeleting(false);
     }
@@ -907,7 +909,7 @@ export function MenuModule({
                   Pour {schoolSectionPending.action === "check" ? "cocher" : "décocher"} la section « {schoolSectionPending.level} », saisissez exactement : {SCHOOL_SECTION_CONFIRMATIONS[schoolSectionPending.action]}
                 </p>
                 <input aria-label="Phrase de confirmation de la section" value={schoolSectionConfirmation} onChange={(event) => setSchoolSectionConfirmation(event.target.value)} className="input min-w-0 w-full max-w-full" autoComplete="off" disabled={schoolSectionSaving} />
-                {schoolSectionError && <p role="alert" className="break-words text-sm font-semibold text-red-700">{schoolSectionError}</p>}
+                <ErrorNotice error={schoolSectionError} onRetry={() => void confirmSchoolSectionChange()} />
                 <div className="grid min-w-0 grid-cols-2 gap-2">
                   <button type="button" className="secondary-button min-w-0 w-full justify-center" onClick={closeSchoolSectionConfirmation} disabled={schoolSectionSaving}>Annuler</button>
                   <button type="button" className="primary-button min-w-0 w-full justify-center disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void confirmSchoolSectionChange()} disabled={!isSchoolSectionConfirmation(schoolSectionPending.action, schoolSectionConfirmation) || schoolSectionSaving}>
@@ -938,7 +940,7 @@ export function MenuModule({
                         <p className="mt-1 break-words text-sm text-red-800">Cette action supprimera cette option de l’école. Pour confirmer, saisissez exactement : {SCHOOL_OPTION_DELETE_CONFIRMATION}</p>
                       </div>
                       <input aria-label="Confirmation de suppression de l’option" value={schoolOptionDeleteConfirmation} onChange={(event) => setSchoolOptionDeleteConfirmation(event.target.value)} className="input min-w-0 w-full" autoComplete="off" />
-                      {schoolOptionDeleteError && <p role="alert" className="break-words text-sm font-semibold text-red-800">{schoolOptionDeleteError}</p>}
+                      <ErrorNotice error={schoolOptionDeleteError} onRetry={() => void confirmSchoolOptionRemoval()} />
                       <div className="grid w-full grid-cols-2 gap-2">
                         <button type="button" className="secondary-button min-w-0 w-full justify-center" onClick={closeSchoolOptionRemoval} disabled={schoolOptionDeleting}>Annuler</button>
                         <button type="button" className="primary-button min-w-0 w-full justify-center disabled:cursor-not-allowed disabled:opacity-60" onClick={() => void confirmSchoolOptionRemoval()} disabled={!isSchoolOptionDeleteConfirmation(schoolOptionDeleteConfirmation) || schoolOptionDeleting}>Supprimer</button>
@@ -999,7 +1001,7 @@ export function MenuModule({
               </button>
             </div>
           )}
-          {yearActionError && !yearAction && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
+          {yearActionError && !yearAction && <ErrorNotice error={yearActionError} />}
           {newYearOpen && canManageYears && (
             <div className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4">
               <div className="min-w-0">
@@ -1008,7 +1010,7 @@ export function MenuModule({
                   Cette opération crée une nouvelle année scolaire active et archive automatiquement l'année active précédente. Les données historiques restent consultables dans leur dossier d'archives.
                 </p>
               </div>
-              {newYearError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{newYearError}</p>}
+              <ErrorNotice error={newYearError} onRetry={() => void createNewSchoolYear()} />
               <Field label="Nom de la nouvelle année" value={newYearForm.name} onChange={(value) => setNewYearForm({ ...newYearForm, name: value })} />
               <p className="text-xs text-slate-500">Seulement le nom, par exemple 2026-2027. L'année suivante peut être ouverte à partir du 1er juillet.</p>
               <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
@@ -1059,7 +1061,7 @@ export function MenuModule({
                     : "Cette action définit l'année scolaire sélectionnée comme année active de l'école."}
                 </p>
               </div>
-              {yearActionError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{yearActionError}</p>}
+              <ErrorNotice error={yearActionError} />
               <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
                 Confirmation obligatoire
                 <input
@@ -1102,8 +1104,8 @@ export function MenuModule({
             </select>
           </label>
           {personnelCreationKind === "service" ? <ServicePersonnelForm schoolId={school.id} /> : <>
-          {cashierError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{cashierError}</p>}
-          {schoolUserRole === "teacher" && teacherAccountsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{teacherAccountsError}</p>}
+          <ErrorNotice error={cashierError} onRetry={() => void saveSchoolUser()} />
+          {schoolUserRole === "teacher" && teacherAccountsError && <ErrorNotice error={teacherAccountsError} />}
           {cashierSuccess && <p role="status" aria-live="polite" className="rounded border border-mint/30 bg-mint/10 p-3 text-sm font-semibold text-mint">{cashierSuccess}</p>}
           <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
             Type d'utilisateur
@@ -1150,7 +1152,7 @@ export function MenuModule({
       );
       return (
         <fieldset disabled={!canAdmin} className="grid min-w-0 gap-4">
-          {feeSaveError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{feeSaveError}</p>}
+          <ErrorNotice error={feeSaveError} />
           {feePendingConfirmation && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Confirmation en attente. Le bouton ci-dessous vérifie la même demande, sans créer un nouveau frais.</p>}
           <div ref={feeEditorRef} className="grid min-w-0 scroll-mt-4 gap-2" data-testid="fee-editor">
             <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Frais
@@ -1204,7 +1206,7 @@ export function MenuModule({
           {showNewFeeForm && (
             <div ref={newFeeFormRef} className="rounded border border-slate-100 bg-slate-50 p-3">
               <p className="mb-2 text-sm font-semibold text-ink">Nouveau frais</p>
-              {newFeeError && <p role="alert" aria-live="assertive" className="mb-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-semibold text-red-700">{newFeeError}</p>}
+              <ErrorNotice error={newFeeError} onRetry={() => void addFeeKind()} />
               <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <input
                   value={newFeeName}
@@ -1429,7 +1431,7 @@ export function MenuModule({
           {renderMenuSectionForm("accounts")}
         </AdminDrawer>
       )}
-      {medicalRecordsError && medicalRecordsOpen && <p role="alert" aria-live="assertive" className="rounded border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">{medicalRecordsError}</p>}
+      {medicalRecordsError && medicalRecordsOpen && <ErrorNotice error={medicalRecordsError} />}
       <SecretaryMedicalRecordsDrawer open={medicalRecordsOpen} onClose={() => { setMedicalRecordsOpen(false); setMedicalRecordsError(""); }} user={user} students={yearData.students} records={medicalRecords} school={school} year={selectedYear} />
       {parentDeleteOpen && (
         <AdminDrawer title="Supprimer un parent" onClose={closeParentDeleteDrawer} closeLabel="Annuler la suppression du parent">
@@ -1488,7 +1490,7 @@ export function MenuModule({
                 placeholder="SUPPRIMER LE PARENT"
               />
             </label>
-            {parentDeleteError && <p role="alert" aria-live="assertive" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{parentDeleteError}</p>}
+            <ErrorNotice error={parentDeleteError} onRetry={() => void confirmDeleteParent()} />
             <div className="grid gap-2 sm:grid-cols-2">
               <button onClick={closeParentDeleteDrawer} type="button" className="secondary-button justify-center" disabled={parentDeleteSaving}>
                 Annuler

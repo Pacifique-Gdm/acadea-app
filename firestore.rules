@@ -357,8 +357,9 @@ service cloud.firestore {
         ]);
     }
 
+    // Lot C : le caissier ajoute une option depuis la fiche élève, comme le secrétaire.
     function secretarySchoolOptionsUpdate(schoolId) {
-      return secretary()
+      return (secretary() || activeCashier())
         && schoolId == tenantSchoolId()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["schoolOptions"]);
     }
@@ -1035,6 +1036,12 @@ service cloud.firestore {
 
     match /servicePersonnelPhoneLocks/{lockId} {
       allow read, write: if false;
+    }
+
+    // Lot C : historique des fiches élèves (avant / après), écrit par le serveur seul, lu par l'administrateur de l'école.
+    match /studentChangeLogs/{logId} {
+      allow read: if superAdmin() || (schoolAdmin() && sameTenantResource());
+      allow create, update, delete: if false;
     }
 
     match /auditLogs/{auditLogId} {

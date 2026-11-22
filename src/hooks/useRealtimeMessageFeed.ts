@@ -3,6 +3,7 @@ import { collection, limit, onSnapshot, orderBy, query, where } from "@firebase/
 import type { Firestore, Query } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import type { AppUser, Message } from "../types";
+import { useLoadRetry } from "./useLoadRetry";
 
 type UseRealtimeMessageFeedOptions = {
   user: AppUser;
@@ -79,6 +80,7 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
 export function useRealtimeMessageFeed({ user, schoolId, schoolYearId, enabled, refreshToken = 0 }: UseRealtimeMessageFeedOptions) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState("");
+  const { token: loadRetryToken, retry } = useLoadRetry(Boolean(error));
 
   useEffect(() => {
     setMessages([]);
@@ -107,7 +109,7 @@ export function useRealtimeMessageFeed({ user, schoolId, schoolYearId, enabled, 
     return () => {
       unsubscribes.forEach((unsubscribe) => unsubscribe());
     };
-  }, [enabled, refreshToken, schoolId, schoolYearId, user]);
+  }, [enabled, refreshToken, schoolId, schoolYearId, user, loadRetryToken]);
 
-  return { messages, error };
+  return { messages, error, retry };
 }

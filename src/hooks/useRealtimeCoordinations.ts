@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { collection, onSnapshot, type Firestore } from "@firebase/firestore";
 import { db } from "../firebase";
+import { useLoadRetry } from "./useLoadRetry";
 import type { Coordination } from "../types";
 
 export function subscribeToRealtimeCoordinations(
@@ -24,6 +25,7 @@ export function useRealtimeCoordinations() {
   // Lot SA-3 : vrai seulement après la première réponse, pour ne jamais afficher « 0 » provisoire.
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => subscribeToRealtimeCoordinations(db as Firestore | null, (items) => { setCoordinations(items); setLoaded(true); }, setError), []);
-  return { coordinations, loaded, error };
+  const { token, retry } = useLoadRetry(Boolean(error));
+  useEffect(() => subscribeToRealtimeCoordinations(db as Firestore | null, (items) => { setCoordinations(items); setLoaded(true); }, setError), [token]);
+  return { coordinations, loaded, error, retry };
 }

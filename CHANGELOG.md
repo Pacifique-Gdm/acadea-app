@@ -3,8 +3,48 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.18.7] — 2026-11-22 — Correction
+- Super administrateur, onglet Écoles : compteur « 29 écoles » sans « recherche… » bloqué, la recherche n'est plus relancée à l'ouverture d'une école, et les données d'une école déjà ouverte s'affichent tout de suite (relues seulement si l'école a changé ou avec « Actualiser »)
+
+## [1.18.6] — 2026-11-22 — Correction
+- Partie 2 des cas sociaux : bouton « Retirer la ligne » sur chaque rubrique et sur « Non affecté » ; une ligne retirée ne reçoit plus rien et la publication n'est plus refusée
+
+## [1.18.5] — 2026-11-21 — Correction
+- Notifications : sur un téléphone partagé, l'ancien compte ne reçoit plus ses notifications quand un autre compte active les siennes ; le jeton du navigateur est retiré même sans réseau (P4 lot 4)
+
+## [1.18.4] — 2026-11-21 — Correction
+- Changement de classe refusé (écran et serveur) pour un élève qui a déjà des paiements cette année, en attendant le remboursement automatique du trop-perçu ; sans paiement, le changement reste possible
+
+## [1.18.3] — 2026-11-21 — Correction
+- Aucune donnée d'un compte visible pour le suivant quand la session se termine toute seule (compte désactivé, session expirée) ou quand un autre compte se connecte dans un autre onglet (P4 lot 3)
+
+## [1.18.2] — 2026-11-21 — Correction
+- Historique : ajouts et modifications d'élèves (qui, quand, avant / après) dans le drawer « Historique » de l'administrateur, avec toutes les activités des utilisateurs de l'école, filtres utilisateur, type et période, et « Voir plus » ; bouton « Ajouter un élève » du caissier sur une seule ligne, avec l'icône de l'onglet Élèves ; bandeau de l'élève sélectionné avec le nom seul
+
+## [1.18.1] — 2026-11-21 — Correction
+- Répartition des frais : boutons « Enregistrer » et « Ajouter », champ « Nouvelle rubrique » assez large, icône « Actualiser » à droite du statut ; sans répartition configurée, ni tableaux ni « Non affecté » (écran et PDF), seulement « Aucune répartition n'est encore configurée. », suivi de « Cliquez sur « + Ajouter » pour commencer. » pour les comptes qui ont ce bouton
+
+## [1.18.0] — 2026-11-21 — Fonctionnalité
+- Caissier : fiche élève depuis « Enregistrer un paiement » (stylo, « Ajouter un élève », retour au paiement), mêmes droits que le secrétaire sur la fiche élève, historique des modifications visible par l'administrateur, et correction de « Aucun élève trouvé. »
+
+## [1.17.1] — 2026-11-21 — Correction
+- PDF : nom de l'école et titre du document à nouveau en gras ; la date de génération reste dans son cadre (reçu, dépense et tous les PDF à bandeau)
+
+## [1.17.0] — 2026-11-21 — Fonctionnalité
+- Super administrateur : les destinataires des messages se cherchent par nom, page par page, et la messagerie ne se recharge plus à chaque ouverture (lot 6)
+
+## [1.16.8] — 2026-11-20 — Correction
+- Messages d'erreur clairs en français partout (réseau, délai, session, autorisation), bouton « Réessayer » qui relance vraiment, relance automatique des chargements au retour du réseau (jamais pour l'argent)
+
+## [1.16.7] — 2026-11-20 — Correction
+- Écran de connexion : retrait du rappel « téléphone partagé » ajouté avec la 1.16.6
+
+## [1.16.6] — 2026-11-20 — Correction
+- Déconnexion : nettoyage complet de l'appareil (mémoires, devises des dépenses, copies hors ligne, notifications affichées), puis page rechargée ; les brouillons non envoyés restent
+- Page de connexion : rappel pour les téléphones partagés
+
 ## [1.16.5] — 2026-11-20 — Correction
-- Super administrateur, onglet Écoles : compteur « 29 écoles » sans « recherche… » bloqué, la recherche n'est plus relancée à l'ouverture d'une école, et les données d'une école déjà ouverte s'affichent tout de suite (relues seulement si l'école a changé ou avec « Actualiser »).
+- Rapport financier PDF : tous les paiements et toutes les dépenses de la période (plus de coupure à 24 lignes), colonne Classe remplie, totaux des tableaux égaux à la synthèse
 
 ## [1.16.4] — 2026-11-20 — Correction
 - Effacement d'école : une coupure réseau ne recrée plus une école vide « en cours d'effacement »

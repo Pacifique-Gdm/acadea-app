@@ -8,6 +8,7 @@ import {
   filterParentsDirectory,
 } from "../../utils/parentsDirectory";
 import { printParentsDirectoryPdf } from "../../utils/parentsDirectoryPdf";
+import { ErrorNotice } from "../ui/ErrorNotice";
 
 type ParentsDirectoryDrawerProps = {
   parents: ParentProfile[];
@@ -210,7 +211,7 @@ export function ParentsDirectoryDrawer({ parents, students, school, year, school
           </button>
         </div>
 
-        {printError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{printError}</p>}
+        <ErrorNotice error={printError} onRetry={() => void printDirectory()} />
 
         <div className="flex min-w-0 items-center justify-between gap-3 rounded bg-slate-50 p-3">
           <p className="text-sm font-semibold text-slate-700">{filteredEntries.length} parent(s) / tuteur(s)</p>

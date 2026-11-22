@@ -43,7 +43,7 @@ describe("chargement Super Admin", () => {
     expect(app.indexOf("void reloadPlatformStats(forcePlatformStats)")).toBeLessThan(app.indexOf("await loadSuperAdminInitialData(bootstrapUser.id"));
     expect(app).toContain("setData(firestoreData)");
     expect(app).toContain("setPlatformLoadError(");
-    expect(platform).toContain('{platformLoadError && <p role="alert"');
+    expect(platform).toContain('<ErrorNotice error={platformLoadError}');
     expect(platform).toContain('platformStats?.students ?? "—"');
   });
 

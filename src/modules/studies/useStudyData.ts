@@ -8,6 +8,8 @@ import { canonicalOperationalClasses } from "../../services/schoolSubclasses";
 import { assignmentsForClasses } from "./studyAssignments";
 import { currentTimetableEntries } from "./studyScope";
 import { completedStudyTimetables } from "./studySchedule";
+import { userFacingError } from "../../utils/userFacingError";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 export function useStudyData(user: AppUser, schoolId: string, schoolYearId: string, refreshToken = 0, includeStudents = true) {
   const scope = `${user.id}:${user.role}:${schoolId}:${schoolYearId}:${userSectionIds(user).join(",")}`;
@@ -15,6 +17,7 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
   const [teachers,setTeachers]=useState<StudyTeacher[]>([]),[subjects,setSubjects]=useState<StudySubject[]>([]),[classes,setClasses]=useState<StudyClass[]>([]),[students,setStudents]=useState<Student[]>([]),[assignments,setAssignments]=useState<PedagogicalAssignment[]>([]),[titulars,setTitulars]=useState<ClassTitular[]>([]),[availabilities,setAvailabilities]=useState<TeacherAvailability[]>([]),[periods,setPeriods]=useState<SchedulePeriod[]>([]),[timetables,setTimetables]=useState<Timetable[]>([]),[timetableEntries,setTimetableEntries]=useState<TimetableEntry[]>([]),[rooms,setRooms]=useState<StudyRoom[]>([]);
   const [attendanceSettings,setAttendanceSettings]=useState<AttendanceSettings>();
   const [error,setError]=useState("");
+  const { token: loadRetryToken } = useLoadRetry(Boolean(error));
   const [loadedSources, setLoadedSources] = useState<Set<string>>(() => new Set());
   useEffect(() => {
     let active = true;
@@ -47,18 +50,18 @@ export function useStudyData(user: AppUser, schoolId: string, schoolYearId: stri
         setAttendanceSettings(items[0]);
         setLoadedSources((current) => current.has("attendanceSettings") ? current : new Set(current).add("attendanceSettings"));
       },
-      onError: (cause) => { if (active) setError(cause.message); },
+      onError: (cause) => { if (active) setError(userFacingError(cause, "Chargement impossible. Veuillez réessayer.")); },
     });
     return () => { active = false; unsubscribes.forEach((unsubscribe) => unsubscribe()); };
-  }, [refreshToken, schoolId, schoolYearId, user, scope]);
+  }, [refreshToken, schoolId, schoolYearId, user, scope, loadRetryToken]);
   useEffect(() => {
     let active = true;
     setStudents([]);
     if (!includeStudents) return;
     const stop = subscribeToStudyStudents(user, schoolId, schoolYearId,
-      (rows) => { if (active) setStudents(rows); }, (cause) => { if (active) setError(cause.message); });
+      (rows) => { if (active) setStudents(rows); }, (cause) => { if (active) setError(userFacingError(cause, "Chargement impossible. Veuillez réessayer.")); });
     return () => { active = false; stop(); };
-  }, [includeStudents, refreshToken, schoolId, schoolYearId, user]);
+  }, [includeStudents, refreshToken, schoolId, schoolYearId, user, loadRetryToken]);
   const scopedClasses = useMemo(() => canonicalOperationalClasses(classes, students, schoolId, schoolYearId, userSectionIds(user)), [classes, schoolId, schoolYearId, students, user]);
   const scopedClassIds = useMemo(() => new Set(scopedClasses.map((item) => item.id)), [scopedClasses]);
   const scopedStudents = useMemo(() => filterByAllowedSections(user, students, getStudentSection), [students, user]);

@@ -27,6 +27,8 @@ import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig
 import { formatStudentClassName, getClassSection } from "../../utils/studentClasses";
 import { isArchivedStudent } from "../../utils/studentUtils";
 import type { AppUser, Expense, FeeType, ParentProfile, Payment, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 type DashboardData = {
   students: Student[];
@@ -594,7 +596,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
       feeShares,
       transactionChartRows,
       transactionPeriodLabel: transactionPeriodLabels[transactionPeriod],
-    }).catch((error) => setPdfExportError(error instanceof Error ? error.message : "La génération du PDF a échoué."));
+    }).catch((error) => setPdfExportError(userFacingError(error, "La génération du PDF a échoué.")));
   }
 
   function resetDashboardDateFilter() {
@@ -661,8 +663,8 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
           <button onClick={exportDashboardPdf} disabled={pdfExportBlocked} type="button" className="pdf-export-button w-full sm:w-auto">
             <Download className="h-4 w-4" /> Exporter PDF
           </button>
-          {dateFilterError && <p className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{dateFilterError}</p>}
-          {pdfExportError && <p role="alert" className="text-xs font-semibold text-red-600 sm:col-span-2 lg:col-span-5">{pdfExportError}</p>}
+          <ErrorNotice error={dateFilterError} />
+          <ErrorNotice error={pdfExportError} onRetry={exportDashboardPdf} />
         </div>
       </div>
       {expenseResolution.status === "error" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Vérification des devises indisponible : {expenseResolution.message}</p>}

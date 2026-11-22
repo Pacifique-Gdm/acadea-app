@@ -30,7 +30,7 @@ describe("formulaire Nouveau rapport", () => {
   it("refuse une heure de fin antérieure et affiche l'erreur dans le formulaire", () => {
     expect(source).toContain("if (endTime < startTime)");
     expect(source).toContain("L'heure de fin doit être postérieure ou égale à l'heure de début.");
-    expect(source).toContain("{formError &&");
+    expect(source).toContain("<ErrorNotice error={formError}");
   });
 
   it("génère, désactive pendant le traitement et ferme uniquement après succès", () => {

@@ -27,7 +27,7 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
     const checked = model ? validateFeeAllocationRubrics(model.rubrics, tariff) : { rubrics: [], shares: [{ rubricId: 'UNALLOCATED', amountMinor: tariff }] };
     // Lot 27c-4 : partie 2 publiée (cas sociaux) — tableau 2 selon ses propres règles, sur le net de chaque élève.
     const social = model && version === model && config?.socialVersionId ? socialVersions.find(v => v.id === config.socialVersionId && v.partOneVersionId === version.id && v.status === 'published') ?? null : null;
-    const socialRubrics = social ? validateFeeAllocationRubrics(social.rubrics, tariff).rubrics : null;
+    const socialRubrics = social ? validateFeeAllocationRubrics(social.rubrics, tariff, { allowZero: true }).rubrics : null;
     // Lot 27c-1 : prévu séparé — tableau 1 (élèves normaux) et tableau 2 (réduction ou prise en charge sur ce frais).
     const totals = new Map([1, 2].flatMap(table => checked.shares.map(s => [`${table}|${s.rubricId}`, 0])));
     const counts = { 1: 0, 2: 0 };

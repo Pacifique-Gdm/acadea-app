@@ -10,6 +10,7 @@ import { normalizeCorrespondenceSignatories, prepareReportSignatories, type Repo
 import { SignatoriesEditor } from "./SignatoriesEditor";
 import { SecretaryDocumentFormActions } from "./SecretaryDocumentFormActions";
 import { CORRESPONDENCE_DELIVERY_MODES } from "./correspondenceOptions";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 const today = () => new Date().toISOString().slice(0, 10);
 export const DEFAULT_OUTGOING_ISSUE_PLACE = "Kinshasa / RDC";
@@ -89,7 +90,7 @@ export function OutgoingCorrespondenceForm({ user, school, year, current, busy, 
   function applyAiSections(generated: Record<string, string>) { Object.entries(generated).forEach(([key, value]) => acceptAi(key, value)); }
 
   return <form className="grid gap-5" onSubmit={(event) => { event.preventDefault(); void act("draft"); }}>
-    {error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+    <ErrorNotice error={error} />
     {!locked && <div className="flex justify-end"><SecretaryAiAssistant user={user} schoolId={school.id} academicYearId={year.id} documentId={current?.id} documentType="outgoing_correspondence" documentCategory="courrier" documentTypeLabel={correspondenceTypeLabel} documentDate={date} schoolName={school.name} academicYearName={year.name} sections={aiSections} sectionLabels={aiSectionLabels} aiAssistant={school.aiAssistant} onAccept={acceptAi} onApplySections={applyAiSections} /></div>}
     <fieldset disabled={Boolean(locked) || busy} className="grid gap-5 disabled:opacity-75">
       <FormSection title="1. Identification"><Select label="Type de courrier *" value={outgoing.correspondenceType} onChange={(value) => set("correspondenceType", value as OutgoingCorrespondenceData["correspondenceType"])} options={correspondenceTypes} />{outgoing.correspondenceType === "other" && <Field label="Préciser le type de courrier *" value={outgoing.customCorrespondenceType ?? ""} onChange={(value) => set("customCorrespondenceType", value)} />}<ReadOnly label="Référence du courrier" value={current?.referenceNumber ?? "Attribuée lors de l’enregistrement"} /><Field label="Date du courrier *" type="date" value={date} onChange={setDate} /><Field label="Lieu d’émission *" value={outgoing.issuePlace} onChange={(value) => set("issuePlace", value)} /><ReadOnly label="Année scolaire" value={year.name} /></FormSection>

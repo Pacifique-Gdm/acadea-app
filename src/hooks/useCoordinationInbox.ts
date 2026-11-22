@@ -4,6 +4,7 @@ import { db, firebaseReady } from "../firebase";
 import { markNotificationsReadTargeted } from "../services/notificationsPagination";
 import type { AppNotification, AppUser, Message, School } from "../types";
 import { activityTimestamp } from "../utils/activityHistory";
+import { useLoadRetry } from "./useLoadRetry";
 
 function mergeById<T extends { id: string; createdAt: string }>(groups: Map<string, T[]>) {
   return Array.from(new Map(Array.from(groups.values()).flat().map((item) => [item.id, item])).values())
@@ -14,6 +15,7 @@ export function useCoordinationInbox(user: AppUser, schools: School[], refreshTo
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [error, setError] = useState("");
+  const { token: loadRetryToken, retry } = useLoadRetry(Boolean(error));
   const [platformNotifications, setPlatformNotifications] = useState<AppNotification[]>([]);
   const [platformMessages, setPlatformMessages] = useState<Message[]>([]);
   const scope = useMemo(
@@ -59,7 +61,7 @@ export function useCoordinationInbox(user: AppUser, schools: School[], refreshTo
       ];
     });
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [refreshToken, scope, scopeKey, user.id]);
+  }, [refreshToken, scope, scopeKey, user.id, loadRetryToken]);
 
   // Lot 23 : messages du Super administrateur (sans école), écoutés en temps réel.
   useEffect(() => {
@@ -73,7 +75,7 @@ export function useCoordinationInbox(user: AppUser, schools: School[], refreshTo
         (snapshot) => setPlatformMessages(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as Message)), () => setError("Impossible d'actualiser les messages en temps réel.")),
     ];
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [refreshToken, user.id]);
+  }, [refreshToken, user.id, loadRetryToken]);
 
   const markAllRead = useCallback(async () => {
     const database = db as unknown as Firestore | undefined;
@@ -89,6 +91,7 @@ export function useCoordinationInbox(user: AppUser, schools: School[], refreshTo
     messages: allMessages,
     unreadCount: allNotifications.filter((item) => !item.read).length,
     error,
+    retry,
     markAllRead,
   };
 }

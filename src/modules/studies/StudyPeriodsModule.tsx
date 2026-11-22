@@ -6,6 +6,8 @@ import { operationalClassLabel, periodTargetPairs, studyDayVacation, studyVacati
 import { DAY_LABELS } from "./studySchedule";
 import type { SchedulePeriod, StudyDay, StudyDayVacation, StudyVacation } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 const periodTypeLabel = (type: SchedulePeriod["type"]) => type === "course" ? "Cours" : type === "break" ? "Pause" : "Récréation";
 
@@ -56,7 +58,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
     try {
       await saveSchedulePeriod({ user, item: { id, schoolId: school.id, schoolYearId: year.id, label: label.trim(), startTime: start, endTime: end, order: Number(order), type, vacation, dayScope: editing?.dayScope ?? "weekdays", ...(editing?.targetPairs ? { targetPairs: editing.targetPairs } : editing ? {} : { targetPairs: selectedPairs }), active: editing?.active ?? true, createdBy: editing?.createdBy ?? user.id, createdAt: editing?.createdAt ?? now, updatedAt: now }, existing: data.periods });
       setEditorOpen(false); setEditing(undefined); setConfirmation(""); setSuccess("Période enregistrée.");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
+    } catch (cause) { setError(userFacingError(cause, "Enregistrement impossible.")); }
     finally { setBusy(false); }
   }
 
@@ -68,7 +70,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
     try {
       await setSchedulePeriodActive(user, item, false);
       setDeactivating(undefined); setDeactivationConfirmation(""); setSuccess("Période désactivée.");
-    } catch (cause) { setDeactivationError(cause instanceof Error ? cause.message : "Désactivation impossible."); }
+    } catch (cause) { setDeactivationError(userFacingError(cause, "Désactivation impossible.")); }
     finally { setBusy(false); }
   }
 
@@ -82,7 +84,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
       const values = Object.fromEntries(selectedClasses.map((item) => [item.id, Object.fromEntries(schoolDays.map((day) => [day, dayDraft[item.id]?.[day] ?? studyDayVacation(item, day)]))])) as Record<string, Partial<Record<StudyDay, StudyDayVacation>>>;
       await saveStudyClassDayVacations({ user, classes: selectedClasses, sourceClasses: data.sourceClasses, days: schoolDays, values });
       setVacationConfirmation(""); setDayDraft({}); setSuccess("Vacations journalières enregistrées pour les classes sélectionnées.");
-    } catch (cause) { setVacationError(cause instanceof Error ? cause.message : "Enregistrement impossible."); }
+    } catch (cause) { setVacationError(userFacingError(cause, "Enregistrement impossible.")); }
     finally { setBusy(false); }
   }
 
@@ -94,7 +96,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
     <input className="input" aria-label="Ordre" type="number" min="1" value={order} onChange={(event) => setOrder(event.target.value)} />
     <select className="input" value={type} onChange={(event) => setType(event.target.value as SchedulePeriod["type"])}><option value="course">Cours</option><option value="break">Pause</option><option value="recess">Récréation</option></select>
     {editing && <label className="grid gap-1 text-sm font-semibold">Saisissez exactement « MODIFIER CETTE PÉRIODE »<input className="input" autoComplete="off" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>}
-    {error && <p role="alert" className="text-red-700">{error}</p>}
+    <ErrorNotice error={error} onRetry={() => void save()} />
     <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => { setEditorOpen(false); setEditing(undefined); }}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void save()}>{busy ? "Enregistrement…" : "Enregistrer"}</button></div>
   </div>;
 
@@ -107,7 +109,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
       <div className="grid gap-2 sm:grid-cols-2">{periodClasses.map((item) => <label key={item.id} className="flex items-center gap-2 rounded border p-2 text-sm"><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{operationalClassLabel(item)}</label>)}</div>
       {selectedClasses.map((item) => <div key={item.id} className="grid gap-2 rounded border border-slate-200 p-3"><p className="font-semibold">{operationalClassLabel(item)}</p><div className="grid gap-2 sm:grid-cols-2">{schoolDays.map((day) => <label key={day} className="grid gap-1 text-sm">{DAY_LABELS[day]}<select className="input" aria-label={`${operationalClassLabel(item)} — ${DAY_LABELS[day]}`} value={dayDraft[item.id]?.[day] ?? studyDayVacation(item, day)} onChange={(event) => setDayDraft((current) => ({ ...current, [item.id]: { ...current[item.id], [day]: event.target.value as StudyDayVacation } }))}><option value="morning">Avant-midi</option><option value="afternoon">Après-midi</option><option value="full">Journée complète</option><option value="none">Pas de cours</option></select></label>)}</div>{classHasEstablishedEntries(item.id) && <p role="alert" className="text-sm text-amber-800">Horaire validé ou publié : modification de cette classe bloquée.</p>}</div>)}
       {selectedClasses.some((item) => item.vacation || item.saturdayVacation || item.dayVacations && Object.keys(item.dayVacations).length > 0) && <label className="grid gap-1 text-sm">Remplacement d’une configuration particulière : saisissez « REMPLACER LES VACATIONS »<input className="input" value={vacationConfirmation} onChange={(event) => setVacationConfirmation(event.target.value)} /></label>}
-      {vacationError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-700">{vacationError}</p>}
+      <ErrorNotice error={vacationError} onRetry={() => void saveClassVacations()} />
       <button type="button" className="primary-button w-full justify-center" disabled={busy || !selectedClasses.length} onClick={() => void saveClassVacations()}>{busy ? "Enregistrement…" : "Enregistrer les vacations sélectionnées"}</button>
     </div>
     {selectedClasses.length > 0 && <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
@@ -129,7 +131,7 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
       <p className="text-sm text-slate-600">{periodTypeLabel(item.type)} — {item.startTime} → {item.endTime}</p>
       <div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button w-full justify-center" disabled={busy} onClick={() => edit(item)}>Modifier</button>{item.active ? <button type="button" className="secondary-button w-full justify-center" disabled={busy} onClick={() => { setDeactivating(item); setDeactivationConfirmation(""); setDeactivationError(""); setEditorOpen(false); setEditing(undefined); setSuccess(""); }}>Désactiver</button> : <span className="flex items-center justify-center rounded bg-slate-100 text-sm text-slate-500">Désactivée</span>}</div>
       {editorOpen && editing?.id === item.id && editor}
-      {deactivating?.id === item.id && <div className="grid gap-3 rounded border border-red-200 bg-red-50 p-3"><p className="text-sm font-semibold">Désactiver « {item.label} » ? Saisissez exactement « DÉSACTIVER CETTE PÉRIODE ».</p><input className="input" aria-label={`Confirmation de désactivation de ${item.label}`} autoComplete="off" value={deactivationConfirmation} onChange={(event) => setDeactivationConfirmation(event.target.value)} />{deactivationError && <p role="alert" className="text-sm text-red-700">{deactivationError}</p>}<div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setDeactivating(undefined)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void deactivate(item)}>{busy ? "Traitement…" : "Confirmer"}</button></div></div>}
+      {deactivating?.id === item.id && <div className="grid gap-3 rounded border border-red-200 bg-red-50 p-3"><p className="text-sm font-semibold">Désactiver « {item.label} » ? Saisissez exactement « DÉSACTIVER CETTE PÉRIODE ».</p><input className="input" aria-label={`Confirmation de désactivation de ${item.label}`} autoComplete="off" value={deactivationConfirmation} onChange={(event) => setDeactivationConfirmation(event.target.value)} /><ErrorNotice error={deactivationError} /><div className="grid grid-cols-2 gap-2"><button type="button" className="secondary-button justify-center" disabled={busy} onClick={() => setDeactivating(undefined)}>Annuler</button><button type="button" className="primary-button justify-center" disabled={busy} onClick={() => void deactivate(item)}>{busy ? "Traitement…" : "Confirmer"}</button></div></div>}
     </article>)}</div>
   </section>;
 }

@@ -167,13 +167,14 @@ async function cleanup({ auth, db, authUid, refs }) {
   await Promise.allSettled(tasks);
 }
 
-async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = false, allowStudyDirectorTeacher = false, targetRole = "" }) {
+// Lot C : allowCashier ouvre au caissier les actions de la fiche élève (mêmes droits que le secrétaire).
+async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = false, allowCashier = false, allowStudyDirectorTeacher = false, targetRole = "" }) {
   const studyDirectorTeacher = allowStudyDirectorTeacher && targetRole === "teacher" && caller.role === "study_director";
-  if (caller.role !== "school_admin" && caller.role !== "super_admin" && !(allowSecretary && caller.role === "secretary") && !studyDirectorTeacher) {
+  if (caller.role !== "school_admin" && caller.role !== "super_admin" && !(allowSecretary && caller.role === "secretary") && !(allowCashier && caller.role === "cashier") && !studyDirectorTeacher) {
     throw Object.assign(new Error("Action reservee a un administrateur autorise."), { statusCode: 403 });
   }
 
-  if ((caller.role === "school_admin" || caller.role === "secretary" || studyDirectorTeacher) && caller.schoolId !== schoolId) {
+  if ((caller.role === "school_admin" || caller.role === "secretary" || caller.role === "cashier" || studyDirectorTeacher) && caller.schoolId !== schoolId) {
     throw Object.assign(new Error("Action refusee pour cette ecole."), { statusCode: 403 });
   }
 
@@ -282,14 +283,14 @@ export async function unlinkParentFromStudent({ db, caller, body }) {
   if (confirmation !== parentUnlinkConfirmation && confirmation !== parentStudentUnlinkConfirmation) {
     throw Object.assign(new Error("Veuillez saisir exactement la confirmation de déliaison demandée."), { statusCode: 400, code: "invalid-confirmation" });
   }
-  if (!caller?.uid || !["school_admin", "secretary"].includes(caller.role)) {
-    throw Object.assign(new Error("Action réservée à un Administrateur ou un Secrétaire autorisé."), { statusCode: 403, code: "permission-denied" });
+  if (!caller?.uid || !["school_admin", "secretary", "cashier"].includes(caller.role)) {
+    throw Object.assign(new Error("Action réservée à un Administrateur, un Secrétaire ou un Caissier autorisé."), { statusCode: 403, code: "permission-denied" });
   }
   if (caller.schoolId !== schoolId) {
     throw Object.assign(new Error("Action refusée pour cette école."), { statusCode: 403, code: "permission-denied" });
   }
 
-  await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: true });
+  await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: true, allowCashier: true });
   await requireActiveSchoolYear(db, schoolId, schoolYearId);
 
   const callerRef = db.doc(`users/${caller.uid}`);
@@ -374,14 +375,14 @@ export async function linkParentToStudent({ db, caller, body }) {
   if (confirmation !== parentLinkConfirmation) {
     throw Object.assign(new Error("Veuillez saisir exactement la confirmation de liaison demandée."), { statusCode: 400, code: "invalid-confirmation" });
   }
-  if (!caller?.uid || !["school_admin", "secretary"].includes(caller.role)) {
-    throw Object.assign(new Error("Action réservée à un Administrateur ou un Secrétaire autorisé."), { statusCode: 403, code: "permission-denied" });
+  if (!caller?.uid || !["school_admin", "secretary", "cashier"].includes(caller.role)) {
+    throw Object.assign(new Error("Action réservée à un Administrateur, un Secrétaire ou un Caissier autorisé."), { statusCode: 403, code: "permission-denied" });
   }
   if (caller.schoolId !== schoolId) {
     throw Object.assign(new Error("Action refusée pour cette école."), { statusCode: 403, code: "permission-denied" });
   }
 
-  await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: true });
+  await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: true, allowCashier: true });
   await requireActiveSchoolYear(db, schoolId, schoolYearId);
 
   const callerRef = db.doc(`users/${caller.uid}`);
@@ -886,7 +887,7 @@ export default async function handler(req, res) {
       const schoolYearId = normalizeText(body.schoolYearId);
       const email = normalizeEmail(body.email);
       if (!allowedRoles.has(role) || !schoolId || !schoolYearId || !email) throw Object.assign(new Error("Demande de récupération invalide."), { statusCode: 400, code: "invalid-argument" });
-      await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: role === "parent", allowStudyDirectorTeacher: role === "teacher", targetRole: role });
+      await assertAuthorizedCaller({ db, caller, schoolId, allowSecretary: role === "parent", allowCashier: role === "parent", allowStudyDirectorTeacher: role === "teacher", targetRole: role });
       await requireActiveSchoolYear(db, schoolId, schoolYearId);
       const requestId = provisioningRequestId(body.clientRequestId);
       if (!requestId) throw Object.assign(new Error("Identifiant de demande requis."), { statusCode: 400, code: "invalid-argument" });
@@ -1002,6 +1003,7 @@ export default async function handler(req, res) {
       caller,
       schoolId,
       allowSecretary: role === "parent",
+      allowCashier: role === "parent",
       allowStudyDirectorTeacher: role === "teacher",
       targetRole: role,
     });

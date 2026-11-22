@@ -1,5 +1,5 @@
 import type { AllocationRow, AllocationFinancialField } from "./feeAllocationView";
-import { allocationTotals, allocationFinancialTotals, buildAllocationTables, unavailableAllocation } from "./feeAllocationView";
+import { allocationTotals, allocationFinancialTotals, buildAllocationTables, noAllocationConfigured, unavailableAllocation } from "./feeAllocationView";
 import { escapePdfHtml, pdfInfoGrid, pdfSection, pdfTable } from "./pdf";
 import { formatCurrencyMoney } from "./currency";
 
@@ -7,7 +7,7 @@ import { formatCurrencyMoney } from "./currency";
  * l'école, l'année et la devise n'apparaissent qu'une fois, dans l'en-tête (contexte). */
 const justified = (text: string) => `<p style="text-align: justify">${escapePdfHtml(text)}</p>`;
 
-export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: string, context: string, periodSelected = false, options: { onlyTableThree?: boolean } = {}) {
+export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: string, context: string, periodSelected = false, options: { onlyTableThree?: boolean; configured?: boolean; canAdd?: boolean } = {}) {
   const operational = rows.some(r => r.financial);
   const receivedLabel = periodSelected ? 'Encaissé sur la période' : 'Encaissé selon le filtre';
   const multipleSchools = new Set(rows.map(r => r.schoolId)).size > 1;
@@ -35,8 +35,11 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   const section = (title: string, table: AllocationRow[]) => pdfSection(title, table.length
     ? `${parts(table)}${justified(totalLine(table))}`
     : justified("Aucun montant dans ce tableau."), { className: "fee-allocation-table-pdf-section" });
-  return [pdfInfoGrid([{ label: "Établissement, année et devise", value: context }, { label: "Filtre", value: filterLabel },
-    { label: "Statut", value: operational ? "Registre rapproché" : "Préparatoire — aucune activation financière" }]),
+  const info = pdfInfoGrid([{ label: "Établissement, année et devise", value: context }, { label: "Filtre", value: filterLabel },
+    { label: "Statut", value: operational ? "Registre rapproché" : "Préparatoire — aucune activation financière" }]);
+  // Lot du 21/11 : aucune répartition configurée → ni tableaux ni « Non affecté », seulement le message.
+  if (options.configured === false) return [info, justified(noAllocationConfigured(options.canAdd === true))];
+  return [info,
   justified("Prévu total de l’année : frais nets des élèves actifs, réductions et exonérations comprises, plus les paiements des anciens élèves (comptés du même montant dans le prévu et dans l'encaissé). Un filtre de période ne réduit pas ce prévu annuel. Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. L'ouverture et les dépenses d'une rubrique sont partagées entre les tableaux 1 et 2 à proportion de leurs encaissements ; le tableau 3 additionne les deux."),
   // Lot « Deux onglets » : le personnel ne reçoit que la ligne d'ensemble (tableau 3) des rubriques partagées.
   ...(options.onlyTableThree ? [] : [section("Tableau 1 — Élèves normalement inscrits", tables.one), section("Tableau 2 — Cas sociaux et prises en charge", tables.two)]),

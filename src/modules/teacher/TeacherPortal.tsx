@@ -22,6 +22,7 @@ import { teacherDashboardYear } from "./teacherDashboardYear";
 import { useTeacherSchoolYears } from "./useTeacherSchoolYears";
 import { teacherMenuProfileState } from "./teacherMenuState";
 import { SchoolYearArchiveDrawer } from "../../components/archive/SchoolYearArchiveDrawer";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
 export function TeacherPortal({ user, school, year, appData, refreshToken = 0, renderHeader, renderEnvironmentBanner, onLogout }: { user: AppUser; school: School; year: SchoolYear; appData: AppData; refreshToken?: number; renderHeader: (state: { isRefreshing: boolean; refreshError: string; onOpenAvailabilityRequests: (requestId?: string) => void }) => ReactNode; renderEnvironmentBanner: () => ReactNode; onLogout: () => void }) {
   const [activeTab, setActiveTab] = useState<TeacherTab>("dashboard");
@@ -69,7 +70,7 @@ export function TeacherPortal({ user, school, year, appData, refreshToken = 0, r
 
   return <div className="flex h-screen flex-col overflow-hidden bg-[#f6f8fb]">{renderEnvironmentBanner()}{renderHeader({ isRefreshing: data.loading, refreshError: data.error, onOpenAvailabilityRequests: (requestId) => { setFocusedRequestId(requestId); setActiveTab("menu"); setRequestsOpen(true); } })}<main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
     {data.loading && <p className="rounded bg-white p-6 text-center text-sm text-slate-500">Chargement de votre espace Enseignant…</p>}
-    {data.error && <p role="alert" className="rounded border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">{data.error}</p>}
+    <ErrorNotice error={data.error} onRetry={data.retry} />
     {!data.loading && !data.error && data.teacher && data.assignments.length === 0 && <section role="status" className="rounded border border-blue-200 bg-white p-4 text-sm text-slate-700"><h2 className="font-bold text-ink">Aucune affectation pour l'année scolaire en cours</h2><p className="mt-2 whitespace-pre-line">{"Votre compte Enseignant est actif. Aucun cours ni aucune classe ne vous ont encore été attribués.\n\nVeuillez contacter l'administration de votre établissement pour connaître vos nouvelles affectations."}</p></section>}
     {activeTab === "dashboard" && <section className="grid gap-4">
       <div><h1 className="text-2xl font-bold text-ink">Dashboard Enseignant</h1><p className="mt-1 text-sm text-slate-600">{school.name}{dashboardYear ? ` · Année scolaire ${dashboardYear.name}` : ""}</p></div>

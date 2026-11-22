@@ -34,12 +34,19 @@ import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { resolveSchoolCurrency } from "../../utils/currency";
 import { remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
+import { showNoPaymentStudentFound } from "../../utils/paymentStudentSearch";
 import { formatCount } from "../../utils/numberFormat";
 import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
 import { compareStudentsForPdfByClass, formatStudentPdfClassName } from "../../utils/studentPdf";
 import { filterControlStudentRows } from "../../utils/controlStudentSearch";
 import { historicalArrearsPdfSection } from "./historicalArrearsPdf";
 import type { AppData, AppUser, AuditLog, CashInflow, Expense, FeeType, ParentProfile, Payment, PersonnelPayment, School, SchoolYear, Student } from "../../types";
+import { StudentRecordDrawer, type StudentRecordTarget } from "../../components/students/StudentRecordDrawer";
+import { cashierStudentRecordCapabilities } from "../../utils/cashierStudentRecords";
+import { getSchoolClassChoices } from "../../utils/schoolConfig";
+import { userFacingError } from "../../utils/userFacingError";
+import { ErrorNotice } from "../../components/ui/ErrorNotice";
+import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 type ControlYearData = {
   students: Student[];
@@ -117,6 +124,9 @@ export function ControlModule({
   const [recordedPersonnelPayment, setRecordedPersonnelPayment] = useState<PersonnelPayment>();
   const [cashierControlFeedback, setCashierControlFeedback] = useState("");
   const [cashierControlFeedbackDrawer, setCashierControlFeedbackDrawer] = useState<"payment" | "expense" | "inflow" | null>(null);
+  // Fiche élève officielle ouverte depuis « Enregistrer un paiement » (création ou modification).
+  const [paymentStudentRecord, setPaymentStudentRecord] = useState<StudentRecordTarget | null>(null);
+  const paymentStudentRecordRights = cashierStudentRecordCapabilities(user, year);
   const [paymentSubmitting, setPaymentSubmitting] = useState(false);
   const [expenseSubmitting, setExpenseSubmitting] = useState(false);
   const [financialMutationId, setFinancialMutationId] = useState("");
@@ -144,6 +154,8 @@ export function ControlModule({
   const [historyPdfLoading, setHistoryPdfLoading] = useState(false);
   const [historyPdfError, setHistoryPdfError] = useState("");
   const [arrearsError, setArrearsError] = useState("");
+  const [arrearsErrorLoad, setArrearsErrorLoad] = useState("");
+  const arrearsErrorLoadRetry = useLoadRetry(Boolean(arrearsErrorLoad), () => setArrearsErrorLoad(""));
   const [arrearsLoading, setArrearsLoading] = useState(false);
   const [controlStudentSearch, setControlStudentSearch] = useState("");
   const [controlPage, setControlPage] = useState(1);
@@ -151,6 +163,7 @@ export function ControlModule({
   const [filterArrears, setFilterArrears] = useState<ArrearsTotals>({});
   const [filterArrearsLoading, setFilterArrearsLoading] = useState(false);
   const [filterArrearsError, setFilterArrearsError] = useState("");
+  const filterArrearsErrorRetry = useLoadRetry(Boolean(filterArrearsError), () => setFilterArrearsError(""));
   const amountSearching = deferredAmountComparator !== amountComparator || deferredAmountThreshold !== amountThreshold || filterArrearsLoading;
   const needsArrears = arrearsFilterActive(arrearsFilter);
   useEffect(() => {
@@ -167,7 +180,7 @@ export function ControlModule({
     })().catch(() => { if (!cancelled) setFilterArrearsError("Impossible de calculer les arriérés du contrôle."); })
       .finally(() => { if (!cancelled) setFilterArrearsLoading(false); });
     return () => { cancelled = true; };
-  }, [needsArrears, school.id, year.id, yearData.students, data.payments, data.feeTypes]);
+  }, [needsArrears, school.id, year.id, yearData.students, data.payments, data.feeTypes, filterArrearsErrorRetry.token]);
   const controlIndexes = useMemo(() => buildSchoolYearDataIndexes(yearData.students, yearData.feeTypes, yearData.payments), [yearData.students, yearData.feeTypes, yearData.payments]);
   const paymentHistory = usePaginatedControlHistory<Payment>({
     kind: "payments",
@@ -254,7 +267,7 @@ export function ControlModule({
       if (!active) return;
       if (balance.schoolId !== school.id || balance.schoolYearId !== year.id || balance.currency !== expenseCurrency) throw new Error("La caisse ne correspond pas à cet établissement ou à cette devise.");
       setExpenseCashBalance(balance);
-    }).catch((cause) => { if (active) setExpenseCashError(cause instanceof Error ? cause.message : "Solde de caisse indisponible."); })
+    }).catch((cause) => { if (active) setExpenseCashError(userFacingError(cause, "Solde de caisse indisponible.")); })
       .finally(() => { if (active) setExpenseCashLoading(false); });
     return () => { active = false; };
   }, [cashierControlDrawer, expenseCurrency, expenseEditTarget, isArchivedContext, school.id, user.role, year.id]);
@@ -292,21 +305,21 @@ export function ControlModule({
   const historyArrearsFingerprint = useMemo(() => historicalArrearsFingerprint(yearData.students.find((item) => item.id === selectedHistoryStudentId), yearData.payments, year.id), [selectedHistoryStudentId, yearData.students, yearData.payments, year.id]);
   useEffect(() => {
     const requestId = ++paymentStudentRequestRef.current;
-    if (!studentId || year.status !== "active") { setPaymentArrears([]); setArrearsError(""); return; }
+    if (!studentId || year.status !== "active") { setPaymentArrears([]); setArrearsErrorLoad(""); return; }
     let cancelled = false;
     const key = historicalArrearsKey(user.id, year.id, studentId);
     const known = peekHistoricalArrears(key, paymentArrearsFingerprint);
     setPaymentArrears(known?.debts ?? []);
     setArrearsLoading(!known);
-    setArrearsError("");
+    setArrearsErrorLoad("");
     if (known) return;
     void cachedHistoricalArrears(key, paymentArrearsFingerprint, () => loadStudentArrears({ schoolYearId: year.id, studentId })).then((result) => {
       if (!cancelled && requestId === paymentStudentRequestRef.current) setPaymentArrears(result.debts);
     }).catch((error) => {
-      if (!cancelled && requestId === paymentStudentRequestRef.current) setArrearsError(error instanceof Error ? error.message : "Chargement des arriérés impossible.");
+      if (!cancelled && requestId === paymentStudentRequestRef.current) setArrearsErrorLoad(userFacingError(error, "Chargement des arriérés impossible."));
     }).finally(() => { if (!cancelled && requestId === paymentStudentRequestRef.current) setArrearsLoading(false); });
     return () => { cancelled = true; };
-  }, [studentId, year.id, year.status, user.id, paymentArrearsFingerprint]);
+  }, [studentId, year.id, year.status, user.id, paymentArrearsFingerprint, arrearsErrorLoadRetry.token]);
   useEffect(() => {
     if (!selectedHistoryStudentId || year.status !== "active") { setHistoryArrears([]); setHistoryArrearsLoading(false); setHistoryArrearsError(""); return; }
     let cancelled = false;
@@ -495,7 +508,7 @@ export function ControlModule({
         <p>Disponible après opération : <strong>{rubricMoney(rubric.availableMinor - debit)}</strong></p>
         {rubric.over && <p role="alert" className="rounded bg-red-50 p-2 font-semibold text-red-700">Montant supérieur au disponible de la rubrique : {rubricMoney(rubric.availableMinor)}</p>}
         {balance && debitCents > 0 && (balance.availableCents < 0 || debitCents > balance.availableCents) && <p role="alert" className="rounded bg-red-50 p-2 text-red-700">Opération impossible : solde de caisse insuffisant. Solde disponible : {format(balance.availableCents)}.</p>}
-      </> : expenseCashLoading ? <p role="status">Chargement du solde disponible…</p> : expenseCashError ? <p role="alert" className="text-red-700">{expenseCashError}</p> : balance ? <>
+      </> : expenseCashLoading ? <p role="status">Chargement du solde disponible…</p> : expenseCashError ? <ErrorNotice error={expenseCashError} /> : balance ? <>
         <p>Solde disponible : <strong>{format(balance.availableCents)}</strong></p>
         <p>{label} : <strong>{format(Math.max(0, debitCents))}</strong></p>
         <p>Solde après opération : <strong>{format(balance.availableCents - Math.max(0, debitCents))}</strong></p>
@@ -514,7 +527,7 @@ export function ControlModule({
       return balance;
     } catch (cause) {
       setExpenseCashBalance(undefined);
-      setExpenseCashError(cause instanceof Error ? cause.message : "Solde de caisse indisponible.");
+      setExpenseCashError(userFacingError(cause, "Solde de caisse indisponible."));
       throw cause;
     } finally { setExpenseCashLoading(false); }
   }
@@ -651,7 +664,7 @@ export function ControlModule({
         setCashierControlFeedbackDrawer("payment");
       }
     } catch (error) {
-      setPaymentError(error instanceof Error ? error.message : "Enregistrement du paiement impossible.");
+      setPaymentError(userFacingError(error, "Enregistrement du paiement impossible."));
     } finally {
       paymentSubmittingRef.current = false;
       setPaymentSubmitting(false);
@@ -732,7 +745,7 @@ export function ControlModule({
         setCashierControlFeedbackDrawer("expense");
       }
     } catch (error) {
-      setExpenseError(error instanceof Error ? error.message : "Enregistrement de la dépense impossible.");
+      setExpenseError(userFacingError(error, "Enregistrement de la dépense impossible."));
       void refreshExpenseCashBalance().catch(() => {});
     } finally {
       expenseSubmittingRef.current = false;
@@ -791,7 +804,7 @@ export function ControlModule({
       void refreshExpenseCashBalance().catch(() => {});
       closeEditExpense();
     } catch (error) {
-      setExpenseEditError(error instanceof Error ? error.message : "Modification de la dépense impossible.");
+      setExpenseEditError(userFacingError(error, "Modification de la dépense impossible."));
       void refreshExpenseCashBalance().catch(() => {});
     } finally {
       financialMutationRef.current = "";
@@ -811,7 +824,7 @@ export function ControlModule({
       void refreshExpenseCashBalance().catch(() => {});
       setExpenseDeleteTarget(null);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Suppression de la dépense impossible.");
+      alert(userFacingError(error, "Suppression de la dépense impossible."));
     } finally {
       financialMutationRef.current = "";
       setFinancialMutationId("");
@@ -972,10 +985,10 @@ export function ControlModule({
       if (studentId === correctedPayment.studentId) {
         void loadStudentArrears({ schoolYearId: year.id, studentId }).then((result) => setPaymentArrears(result.debts)).catch(() => setArrearsError("Actualisez les arriérés pour consulter le solde corrigé."));
       }
-      setPaymentEditFeedback("Paiement modifié. Les totaux se synchronisent depuis Firestore.");
+      setPaymentEditFeedback("Paiement modifié. Les totaux se mettent à jour.");
       setPaymentEditTarget(null);
     } catch (error) {
-      setPaymentEditError(error instanceof Error ? error.message : "Correction du paiement impossible.");
+      setPaymentEditError(userFacingError(error, "Correction du paiement impossible."));
     } finally {
       financialMutationRef.current = "";
       setFinancialMutationId("");
@@ -992,7 +1005,7 @@ export function ControlModule({
       await deleteFinancialTransaction({ kind: "payment", transactionId: payment.id, reason, clientRequestId: crypto.randomUUID() });
       paymentHistory.removeItem(payment.id);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Suppression du paiement impossible.");
+      alert(userFacingError(error, "Suppression du paiement impossible."));
     } finally {
       financialMutationRef.current = "";
       setFinancialMutationId("");
@@ -1200,7 +1213,7 @@ export function ControlModule({
       ],
       });
     } catch (error) {
-      setHistoryPdfError(error instanceof Error ? error.message : "Impossible de charger les arriérés pour le PDF.");
+      setHistoryPdfError(userFacingError(error, "Impossible de charger les arriérés pour le PDF."));
     } finally {
       setHistoryPdfLoading(false);
     }
@@ -1213,12 +1226,7 @@ export function ControlModule({
           Recherche appliquée aux paiements déjà chargés. Utilisez Charger plus pour afficher les pages suivantes.
         </p>
         {paymentHistory.isInitialLoading && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement de l'historique...</p>}
-        {paymentHistory.loadError && (
-          <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            <p className="font-semibold">{paymentHistory.loadError}</p>
-            <button onClick={() => void paymentHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
-          </div>
-        )}
+        <ErrorNotice error={paymentHistory.loadError} onRetry={() => void paymentHistory.loadFirstPage()} />
         {paymentHistory.hasMore && (
           <button
             onClick={() => void paymentHistory.loadMore()}
@@ -1244,12 +1252,7 @@ export function ControlModule({
           Historique chargé par pages de 50 éléments, du plus récent au plus ancien.
         </p>
         {expenseHistory.isInitialLoading && <p className="rounded bg-blue-50 p-3 text-sm font-semibold text-blue-700">Chargement de l'historique...</p>}
-        {expenseHistory.loadError && (
-          <div className="grid gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            <p className="font-semibold">{expenseHistory.loadError}</p>
-            <button onClick={() => void expenseHistory.loadFirstPage()} className="secondary-button w-fit" type="button">Réessayer</button>
-          </div>
-        )}
+        <ErrorNotice error={expenseHistory.loadError} onRetry={() => void expenseHistory.loadFirstPage()} />
         {sortedExpenses.length === 0 && !expenseHistory.isInitialLoading && <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">{normalizedExpenseQuery ? "Aucune dépense trouvée." : "Aucune dépense enregistrée."}</p>}
         {sortedExpenses.map((expense) => {
           const beneficiary = getExpenseField(expense, ["beneficiary", "beneficiaire", "supplier", "fournisseur", "providerName", "payee"]);
@@ -1323,7 +1326,7 @@ export function ControlModule({
             </button>
           </div>
         </div>
-        {historyPdfError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{historyPdfError}</p>}
+        <ErrorNotice error={historyPdfError} />
 
         <div className="grid min-w-0 grid-cols-3 divide-x divide-slate-200 rounded border border-slate-200 bg-slate-50 shadow-sm">
           {([
@@ -1341,7 +1344,7 @@ export function ControlModule({
         <div className="min-w-0 rounded border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <h2 className="text-lg font-bold text-ink">Dettes des années antérieures</h2>
           {historyArrearsLoading && <p role="status" className="mt-2 text-sm text-slate-600">Chargement des dettes des années antérieures…</p>}
-          {!historyArrearsLoading && historyArrearsError && <p role="alert" className="mt-2 text-sm text-red-700">{historyArrearsError}</p>}
+          {!historyArrearsLoading && historyArrearsError && <ErrorNotice error={historyArrearsError} />}
           {!historyArrearsLoading && !historyArrearsError && historyArrears.length === 0 && <p className="mt-2 text-sm text-slate-600">Aucune créance historique trouvée pour cet élève.</p>}
           <div className="mt-2 grid gap-2">
             {historyArrears.map((debt) => <div key={`${debt.schoolYearId}:${debt.feeTypeId}`} className="min-w-0 rounded border border-amber-200 bg-white p-3 text-sm">
@@ -1448,9 +1451,9 @@ export function ControlModule({
         <SectionTitle title="Contrôle" subtitle="Frais scolaires, paiements, historique et soldes restants." />
         <div className="mb-3 w-full min-w-0 max-w-full">
           {amountSearching && <p role="status">Recherche...</p>}
-          {filterArrearsError && <p role="alert" className="text-red-700">{filterArrearsError}</p>}
-          {pdfExportError && <p role="alert" className="text-red-700">{pdfExportError}</p>}
-          {receiptAction.error && <p role="alert" className="text-red-700">{receiptAction.error}</p>}
+          <ErrorNotice error={filterArrearsError} onRetry={filterArrearsErrorRetry.retry} />
+          <ErrorNotice error={pdfExportError} onRetry={() => void printFilteredStudents()} />
+          <ErrorNotice error={receiptAction.error} />
           {receiptAction.pending.length > 0 && <p role="status">Préparation du PDF…</p>}
           <div className="grid w-full min-w-0 grid-cols-1 items-stretch gap-2 box-border sm:grid-cols-2 lg:flex lg:flex-nowrap lg:items-center lg:gap-1.5">
               <select value={controlClassKey} onChange={(event) => setControlClassKey(event.target.value)} className="h-10 min-w-0 w-full rounded border border-slate-200 bg-white px-2 text-sm lg:flex-1 lg:basis-0" aria-label="Classe">
@@ -1553,7 +1556,7 @@ export function ControlModule({
               <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
               <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
             </div>
-            {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
+            <ErrorNotice error={paymentError} onRetry={() => void savePayment()} />
             <select aria-label="Type de frais" value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || (payableFeeTypes.length === 0 && paymentArrears.length === 0) || paymentSubmitting} className="input disabled:opacity-60">
               <optgroup label={`Année actuelle — ${year.name}`}>
                 {payableFeeTypes.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} — {year.name} — {formatMoney(fee.amount)}</option>)}
@@ -1563,7 +1566,7 @@ export function ControlModule({
               </optgroup>}
             </select>
             {arrearsLoading && <p className="text-sm text-slate-500">Recherche des arriérés antérieurs…</p>}
-            {arrearsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{arrearsError}</p>}
+            <ErrorNotice error={arrearsErrorLoad} onRetry={arrearsErrorLoadRetry.retry} /><ErrorNotice error={arrearsError} />
             {selectedPaymentDebt && <p className="rounded bg-amber-50 p-3 text-sm font-semibold text-amber-800">Créance de {selectedPaymentDebt.yearName} · encaissement en {year.name} · montant en {selectedPaymentDebt.currency}</p>}
             {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
             <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
@@ -1592,7 +1595,7 @@ export function ControlModule({
       )}
       {user.role === "cashier" && cashierControlDrawer && (
         <AdminDrawer title={cashierDrawerTitle} onClose={() => setCashierControlDrawer(null)} closeLabel={`Fermer ${cashierDrawerTitle}`}>
-          {receiptAction.error && <p role="alert" className="text-red-700">{receiptAction.error}</p>}
+          <ErrorNotice error={receiptAction.error} />
           {receiptAction.pending.length > 0 && <p role="status">Préparation du PDF…</p>}
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'enregistrement
@@ -1623,7 +1626,7 @@ export function ControlModule({
                 {paymentStudentQuery.trim() === "" && (
                   <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Saisissez un nom ou un matricule pour afficher les élèves.</p>
                 )}
-                {paymentStudentQuery.trim() !== "" && paymentStudentResults.length === 0 && (
+                {showNoPaymentStudentFound(paymentStudentQuery, paymentStudentResults.length, Boolean(selectedPaymentStudent)) && (
                   <p className="rounded bg-slate-50 p-3 text-sm text-slate-500">Aucun élève trouvé.</p>
                 )}
                 {!selectedPaymentStudent && paymentStudentResults.length > 0 && (
@@ -1644,8 +1647,9 @@ export function ControlModule({
                   </div>
                 )}
                 {selectedPaymentStudent && (
-                  <div className="flex min-w-0 items-center gap-2 rounded bg-mint/10 py-1.5 pl-3 pr-1.5 text-sm font-semibold text-mint">
-                    <span className="min-w-0 flex-1 break-words">Élève sélectionné : {selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}</span>
+                  <div role="group" aria-label="Élève sélectionné" className="flex min-w-0 items-center gap-2 rounded bg-mint/10 py-1.5 pl-3 pr-1.5 text-sm font-semibold text-mint">
+                    <span className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{selectedPaymentStudent.nom} {selectedPaymentStudent.postnom} {selectedPaymentStudent.prenom}</span>
+                    {paymentStudentRecordRights.canEdit && <button type="button" aria-label="Modifier la fiche de l’élève" title="Modifier la fiche de l’élève" onClick={() => setPaymentStudentRecord({ mode: "edit", student: selectedPaymentStudent })} disabled={paymentSubmitting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint disabled:opacity-50"><Edit3 className="h-4 w-4" aria-hidden="true" /></button>}
                     <button type="button" aria-label="Effacer l’élève sélectionné" title="Effacer l’élève sélectionné" onClick={clearPaymentStudent} disabled={paymentSubmitting} className="flex h-9 w-9 shrink-0 items-center justify-center rounded hover:bg-mint/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-mint disabled:opacity-50"><X className="h-4 w-4" aria-hidden="true" /></button>
                   </div>
                 )}
@@ -1656,7 +1660,7 @@ export function ControlModule({
               <Metric label="Payé" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.paid, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.paid)} />
                 <Metric label="Solde" value={selectedPaymentDebt ? formatCurrencyMoney(selectedPaymentFeeBalance.remaining, selectedPaymentDebt.currency) : formatMoney(selectedPaymentFeeBalance.remaining)} />
               </div>
-              {paymentError && <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{paymentError}</p>}
+              <ErrorNotice error={paymentError} onRetry={() => void savePayment()} />
               <select aria-label="Type de frais" value={selectedFeeTypeValue} onChange={(event) => { setFeeTypeId(event.target.value); setPaymentError(""); }} disabled={!selectedPaymentStudent || (payableFeeTypes.length === 0 && paymentArrears.length === 0) || paymentSubmitting} className="input disabled:opacity-60">
                 <optgroup label={`Année actuelle — ${year.name}`}>
                   {payableFeeTypes.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} — {year.name} — {formatMoney(fee.amount)}</option>)}
@@ -1666,7 +1670,7 @@ export function ControlModule({
                 </optgroup>}
               </select>
               {arrearsLoading && <p className="text-sm text-slate-500">Recherche des arriérés antérieurs…</p>}
-              {arrearsError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{arrearsError}</p>}
+              <ErrorNotice error={arrearsErrorLoad} onRetry={arrearsErrorLoadRetry.retry} /><ErrorNotice error={arrearsError} />
               {selectedPaymentDebt && <p className="rounded bg-amber-50 p-3 text-sm font-semibold text-amber-800">Créance de {selectedPaymentDebt.yearName} · encaissement en {year.name} · montant en {selectedPaymentDebt.currency}</p>}
               {selectedPaymentFee && selectedPaymentFeeRemaining === 0 && <p className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800">Ce type de frais est déjà soldé.</p>}
               <MoneyInput value={amount} onChange={setAmount} max={selectedPaymentFeeRemaining} disabled={isPaymentEntryDisabled} className="input disabled:opacity-60" />
@@ -1674,7 +1678,32 @@ export function ControlModule({
                 Description
                 <textarea value={paymentNote} onChange={(event) => setPaymentNote(event.target.value)} maxLength={1000} className="input min-h-20" placeholder="Description du paiement (facultatif)" />
               </label>
-              <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              <div className={paymentStudentRecordRights.canCreate ? "grid min-w-0 grid-cols-2 gap-2" : "grid min-w-0"}>
+                {paymentStudentRecordRights.canCreate && <button type="button" onClick={() => setPaymentStudentRecord({ mode: "create" })} disabled={paymentSubmitting} className="secondary-button min-w-0 justify-center gap-1 whitespace-nowrap px-2 text-[13px] sm:text-sm disabled:opacity-50"><Plus className="h-4 w-4 shrink-0" aria-hidden="true" /> Ajouter un élève</button>}
+                <button onClick={savePayment} disabled={isPaymentEntryDisabled || paymentSubmitting} className="primary-button min-w-0 w-full justify-center whitespace-normal" type="button"><Plus className="h-4 w-4 shrink-0" /> {paymentSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
+              </div>
+              {paymentStudentRecord && (paymentStudentRecordRights.canCreate || paymentStudentRecordRights.canEdit) && (
+                <StudentRecordDrawer
+                  data={data}
+                  school={school}
+                  year={year}
+                  updateData={updateData}
+                  uid={createId}
+                  target={paymentStudentRecord}
+                  capabilities={paymentStudentRecordRights}
+                  studentRecords={data.students}
+                  parents={yearData.parents}
+                  classChoices={getSchoolClassChoices(school)}
+                  onClose={() => setPaymentStudentRecord(null)}
+                  onSaved={(student) => {
+                    // Retour au paiement : l'élève enregistré est sélectionné, ses montants se recalculent.
+                    setPaymentStudentRecord(null);
+                    selectPaymentStudent(student);
+                    setCashierControlFeedback("Élève enregistré. Vous pouvez enregistrer son paiement.");
+                    setCashierControlFeedbackDrawer("payment");
+                  }}
+                />
+              )}
             </>
           )}
           {cashierControlDrawer === "former" && <FormerStudentPaymentForm school={school} year={year} students={yearData.students} payments={yearData.payments} onRecorded={() => { void refreshExpenseCashBalance().catch(() => {}); }} />}
@@ -1745,7 +1774,7 @@ export function ControlModule({
                 className="input"
                 placeholder="Référence / pièce (facultatif)"
               />
-              {expenseError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseError}</p>}
+              <ErrorNotice error={expenseError} onRetry={() => void saveExpense()} />
               <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseRubricBlocked || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button w-full justify-center" type="button"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
             </>
           )}
@@ -1758,7 +1787,7 @@ export function ControlModule({
       )}
       {historyOpen && (
         <AdminDrawer title="Historique" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique">
-          {receiptAction.error && <p role="alert" className="text-red-700">{receiptAction.error}</p>}
+          <ErrorNotice error={receiptAction.error} />
           {receiptAction.pending.length > 0 && <p role="status">Préparation du PDF…</p>}
           <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
             Type d'historique
@@ -1807,7 +1836,7 @@ export function ControlModule({
               <label className="grid gap-1">Nouveau montant<MoneyInput value={paymentEditAmount} onChange={setPaymentEditAmount} /></label>
               <label className="grid gap-1">Raison obligatoire<textarea className="input" maxLength={500} value={paymentEditReason} onChange={(event) => setPaymentEditReason(event.target.value)} /></label>
               <label className="grid gap-1">Saisissez exactement MODIFIER CE PAIEMENT<input className="input" autoComplete="off" value={paymentEditConfirmation} onChange={(event) => setPaymentEditConfirmation(event.target.value)} /></label>
-              {paymentEditError && <p role="alert" className="text-red-700">{paymentEditError}</p>}
+              <ErrorNotice error={paymentEditError} onRetry={() => void savePaymentCorrection()} />
               <div className="flex flex-wrap gap-2"><button type="button" className="primary-button justify-center" disabled={Boolean(financialMutationId) || !paymentEditReason.trim() || !(Number(paymentEditAmount) > 0) || paymentEditConfirmation !== "MODIFIER CE PAIEMENT"} onClick={() => void savePaymentCorrection()}>Enregistrer</button><button type="button" className="secondary-button justify-center" onClick={() => setPaymentEditTarget(null)}>Annuler</button></div>
             </div>}
             {renderPaymentHistoryPagination()}
@@ -1815,7 +1844,7 @@ export function ControlModule({
           {historyKind === "expenses" && renderExpenseHistoryContent()}
           {historyKind === "cashInflows" && <div className="grid gap-2">
             {cashInflowHistory.isInitialLoading && <p>Chargement des entrées de caisse…</p>}
-            {cashInflowHistory.loadError && <p role="alert" className="text-red-700">{cashInflowHistory.loadError}</p>}
+            <ErrorNotice error={cashInflowHistory.loadError} onRetry={() => void cashInflowHistory.loadFirstPage()} />
             {cashInflowHistory.items.map((inflow) => <article key={inflow.id} className="rounded border border-slate-200 p-3 text-sm">
               <p className="font-semibold text-ink">Autres entrées de caisse · {cashInflowNatureLabel(inflow)}</p>
               <p>{formatCurrencyMoney(inflow.amount, inflow.currency)} · {inflow.entryDate} · {inflow.source}</p>
@@ -1862,7 +1891,7 @@ export function ControlModule({
               placeholder="Description de la dépense"
             />
           </label>
-          {expenseEditError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{expenseEditError}</p>}
+          <ErrorNotice error={expenseEditError} onRetry={() => void updateExpense()} />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <button onClick={closeEditExpense} className="secondary-button justify-center" type="button">Annuler</button>
             <button onClick={updateExpense} disabled={!canManageExpenses || financialMutationId === expenseEditTarget.id || expenseEditDeltaCents > 0 && (expenseCashLoading || !expenseCashBalance || expenseEditCashInsufficient)} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
