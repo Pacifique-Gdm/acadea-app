@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AdminDrawer } from "../../components/ui";
 import type { FeeAllocationRubric } from "../../types/feeAllocation";
 import { AllocationApiError, loadSocialParts, publishSocialParts, type PublishSocialParts, type SocialPartItem } from "../../services/feeAllocation";
@@ -33,9 +33,10 @@ export function TypedConfirmation({ value, onChange, disabled, label = `Pour pub
   </label>;
 }
 
-/** Lignes de la partie 2 (cas sociaux) : rubriques de la partie 1, « Retirer la ligne » / « Remettre la ligne », « Non affecté » automatique. */
-export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyPartOne, copyLabel = "Recopier la partie 1" }: {
-  lines: Line[]; currency: "USD" | "CDF"; disabled?: boolean; onChange: (lines: Line[]) => void; onCopyPartOne: () => void; copyLabel?: string;
+/** Lignes de la partie 2 (cas sociaux) : rubriques de la partie 1, « Retirer la ligne » / « Remettre la ligne », « Non affecté » automatique.
+ * Version 1.20.1 : « Retirer la ligne » sur la même ligne que le pourcentage ; « Recopier… » et un second bouton éventuel, moitié-moitié. */
+export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyPartOne, copyLabel = "Recopier la partie 1", secondAction }: {
+  lines: Line[]; currency: "USD" | "CDF"; disabled?: boolean; onChange: (lines: Line[]) => void; onCopyPartOne: () => void; copyLabel?: string; secondAction?: ReactNode;
 }) {
   const entered = socialPartRubrics(lines);
   const update = (index: number, changes: Partial<Line>) => onChange(lines.map((row, i) => i === index ? { ...row, ...changes } : row));
@@ -47,8 +48,9 @@ export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyP
       : <div key={line.id} className="grid gap-2 rounded border p-2 sm:grid-cols-4">
         <span className="self-center text-sm font-medium">{line.name}</span>
         <label className="grid gap-1 text-sm">Mode<select className="input" aria-label={`Mode ${line.name}`} value={line.mode} onChange={(event) => update(index, { mode: event.target.value as Line["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label>
-        <label className="grid gap-1 text-sm">{line.mode === "percent" ? "Pourcentage (%)" : `Montant (${currency})`}<input className="input" inputMode="decimal" aria-label={`Valeur ${line.name}`} value={line.value} onChange={(event) => update(index, { value: event.target.value })}/></label>
-        <button type="button" className="secondary-button self-end" aria-label={`Retirer la ligne ${line.name}`} onClick={() => update(index, { removed: true })}>Retirer la ligne</button>
+        <div className="grid min-w-0 gap-1 text-sm sm:col-span-2" data-value-row><label htmlFor={`valeur-${line.id}`}>{line.mode === "percent" ? "Pourcentage (%)" : `Montant (${currency})`}</label>
+          <div className="flex min-w-0 items-stretch gap-2"><input id={`valeur-${line.id}`} className="input min-w-0 flex-1" inputMode="decimal" aria-label={`Valeur ${line.name}`} value={line.value} onChange={(event) => update(index, { value: event.target.value })}/>
+            <button type="button" className="secondary-button shrink-0 px-3" aria-label={`Retirer la ligne ${line.name}`} onClick={() => update(index, { removed: true })}>Retirer la ligne</button></div></div>
       </div>)}
     {/* « Non affecté » ne se retire pas : il reçoit toujours le reste, automatiquement. */}
     <div className="grid gap-2 rounded border bg-slate-50 p-2 sm:grid-cols-4" data-unallocated-line>
@@ -56,7 +58,8 @@ export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyP
       <span className="self-center text-sm sm:col-span-3">Reçoit automatiquement le reste : ce qui n'est attribué à aucune rubrique.</span></div>
     {entered.error ? <p role="status" className="text-sm text-amber-800">{entered.error}</p>
       : <p className="text-sm" role="status">{socialPartTotalText(entered.percentBasisPoints, entered.hasFixed)}</p>}
-    <button type="button" className="secondary-button justify-self-start" onClick={onCopyPartOne}>{copyLabel}</button>
+    <div className={`grid min-w-0 gap-2 ${secondAction ? "grid-cols-2" : "grid-cols-1"}`} data-copy-actions>
+      <button type="button" className="secondary-button w-full whitespace-normal px-2 text-center" onClick={onCopyPartOne}>{copyLabel}</button>{secondAction}</div>
   </fieldset>;
 }
 
@@ -147,8 +150,8 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
       {item.social && item.paidWithCurrent > 0 && <p role="note" className="mb-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Attention : {item.paidWithCurrent} cas social{item.paidWithCurrent > 1 ? "aux ont" : " a"} déjà payé ce frais avec la partie 2 en service. Leurs paiements déjà répartis ne changent pas ; leurs prochains paiements suivront la nouvelle partie 2 pour le reste de ce qu'ils doivent.</p>}
       <h3 className="mb-1 text-sm font-semibold">Partie 2 — cas sociaux · {feeLabel(item)}</h3>
       <SocialLinesEditor lines={lines} currency={currency} disabled={locked} onChange={(next) => setLines(item.feeTypeId, next)}
-        onCopyPartOne={() => setLines(item.feeTypeId, socialPartLines(item.partOne.rubrics))} />
-      {items.length > 1 && <button type="button" className="secondary-button mt-2" disabled={locked || !!entered.error} onClick={applyToAll}>Appliquer à tous les frais</button>}
+        onCopyPartOne={() => setLines(item.feeTypeId, socialPartLines(item.partOne.rubrics))}
+        secondAction={items.length > 1 && <button type="button" className="secondary-button w-full whitespace-normal px-2 text-center" disabled={locked || !!entered.error} onClick={applyToAll}>Appliquer à tous les frais</button>} />
       {missing.length > 0 && <div role="note" className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" data-missing-rubrics>
         <p className="font-semibold">Rubriques absentes de certains frais : leur part ira dans « Non affecté ».</p>
         <ul className="mt-1 list-disc pl-5">{missing.map((row) => <li key={row.feeLabel}>« {row.feeLabel} » n'a pas {row.names.length > 1 ? "les rubriques" : "la rubrique"} {row.names.map((name) => `« ${name} »`).join(", ")}.</li>)}</ul></div>}
@@ -166,7 +169,10 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
       <p>La partie 2 s'appliquera aux paiements des cas sociaux arrivés après la publication, y compris à ceux qui ont déjà payé une partie de ce frais. Aucun paiement déjà réparti ne change. {modified.length ? `${modified.length} frais modifié${modified.length > 1 ? "s" : ""} ser${modified.length > 1 ? "ont" : "a"} publié${modified.length > 1 ? "s" : ""} en une seule fois.` : "Aucun frais modifié pour l'instant."}</p>
       {invalid.length > 0 && <p role="alert" className="text-amber-900">À corriger avant de publier : {invalid.map(feeLabel).join(", ")}.</p>}
       <TypedConfirmation value={confirmation} onChange={(value) => { request.current = null; setConfirmation(value); }} disabled={busy || uncertain} />
-      <Action className="primary-button justify-self-stretch sm:justify-self-start" busy={busy} disabled={!uncertain && !ready} onClick={() => void publish()}>{uncertain ? "Vérifier la même demande" : "Publier la partie 2"}</Action>
+      {/* Version 1.20.1 : « Annuler » (ferme sans rien publier) et « Publier la partie 2 », moitié-moitié. */}
+      <div className="grid w-full grid-cols-2 gap-2" data-social-publish-actions>
+        <button type="button" className="secondary-button min-h-11 w-full px-2" disabled={busy} onClick={onClose}>Annuler</button>
+        <Action className="primary-button w-full min-w-0 justify-items-center px-2 text-xs sm:text-sm" busy={busy} disabled={!uncertain && !ready} onClick={() => void publish()}>{uncertain ? "Vérifier la même demande" : "Publier la partie 2"}</Action></div>
     </div>}
   </div></AdminDrawer>;
 }
