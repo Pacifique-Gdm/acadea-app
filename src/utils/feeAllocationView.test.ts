@@ -53,7 +53,7 @@ describe("projection et PDF préparatoires identiques", () => {
   it("exporte seulement la vue choisie avec les vrais indisponibles, sans faux solde", () => {
     const rows = projectAllocations([workspace()], { ...filter, value: allocationFeeKey("s", "f0") });
     const html = feeAllocationPdfSections(rows, "Frais : Minerval", "École s · 2026 · USD").join("");
-    expect(html).toContain("Non affecté"); expect(html).toContain("Préparatoire"); expect(html).toContain("Non disponible"); expect(html).toContain("1ère"); expect(html).not.toContain("2ère");
-    expect(html).toContain("Prévu total de l’année"); expect(html).toContain("réductions et exonérations");
+    expect(html).toContain("Non affecté"); expect(html).not.toContain("Préparatoire"); expect(html).toContain("Non disponible"); // 1.19.1 : plus de cadre « Statut ». expect(html).toContain("1ère"); expect(html).not.toContain("2ère");
+    expect(html).toContain("Prévu total de l’année"); expect(html).not.toContain("réductions et exonérations"); // 1.19.1 : plus de longue explication.
   });
 });

@@ -42,7 +42,7 @@ describe("drawer « Répartition des frais » (lot du 19/11)", () => {
     expect(drawer).toContain("onClick={() => void createNamed(index)}>Ajouter</button>");
     expect(drawer).toContain('placeholder="Nouvelle rubrique" aria-label="Nouvelle rubrique"');
     expect(drawer).toContain('className="input min-w-[11rem] flex-1"');
-    expect(drawer).toContain("sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-start");
+    expect(drawer).toContain("sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)] sm:items-start");
   });
   it("icône « Actualiser » à l'extrémité droite de la ligne du statut, plus sous le statut (21/11)", () => {
     const activation = read("FeeAllocationActivation.tsx");

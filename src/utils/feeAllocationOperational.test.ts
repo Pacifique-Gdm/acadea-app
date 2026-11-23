@@ -28,7 +28,7 @@ describe("projection et PDF du registre rapproché", () => {
     const rows = projectAllocations([workspace()], { kind: "fee", value: JSON.stringify(["school", "different-fee"]), from: "", to: "" });
     expect(rows[0].financial).toMatchObject({ receivedMinor: 0, spentMinor: 2000, availableMinor: 4000 });
     expect(rows[0].feeName).toContain("global");
-    const pdf = feeAllocationPdfSections(rows, "Frais différent", "Fictif").join("");
+    const pdf = feeAllocationPdfSections(rows, "Frais différent", "Fictif", false, { filtered: true }).join("");
     // Lot 27c-1 : trois tableaux sur le même modèle (décision du propriétaire).
     expect(pdf).toContain("Frais différent"); expect(pdf).toContain("Tableau 1 — Élèves normalement inscrits"); expect(pdf).toContain("Tableau 3 — Ensemble"); expect(pdf).toContain("40");
     expect(pdf).toContain("ouverture"); expect(pdf).toContain("dont arriérés"); expect(pdf).not.toContain("brouillon v");

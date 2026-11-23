@@ -1,13 +1,15 @@
 import type { AllocationRow, AllocationFinancialField } from "./feeAllocationView";
 import { allocationTotals, allocationFinancialTotals, buildAllocationTables, noAllocationConfigured, unavailableAllocation } from "./feeAllocationView";
-import { escapePdfHtml, pdfInfoGrid, pdfSection, pdfTable } from "./pdf";
+import { escapePdfHtml, pdfSection, pdfTable } from "./pdf";
 import { formatCurrencyMoney } from "./currency";
 
-/** Lot 27c-1 : les trois tableaux du drawer, avec les mêmes colonnes ; textes justifiés ;
- * l'école, l'année et la devise n'apparaissent qu'une fois, dans l'en-tête (contexte). */
+/** Version 1.19.1 : PDF réduit au titre, à l'école, à l'année, à la date (en-tête), aux tableaux et à leurs totaux.
+ * Chaque tableau commence sur une nouvelle page. Plus de longues explications. */
 const justified = (text: string) => `<p style="text-align: justify">${escapePdfHtml(text)}</p>`;
+/** Une seule ligne courte, sous l'en-tête ou sous un tableau. */
+const shortLine = (text: string) => `<p class="fee-allocation-pdf-note" style="margin: 0 18px 6px; font-size: 8pt">${escapePdfHtml(text)}</p>`;
 
-export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: string, context: string, periodSelected = false, options: { onlyTableThree?: boolean; configured?: boolean; canAdd?: boolean } = {}) {
+export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: string, context: string, periodSelected = false, options: { onlyTableThree?: boolean; configured?: boolean; canAdd?: boolean; filtered?: boolean } = {}) {
   const operational = rows.some(r => r.financial);
   const receivedLabel = periodSelected ? 'Encaissé sur la période' : 'Encaissé selon le filtre';
   const multipleSchools = new Set(rows.map(r => r.schoolId)).size > 1;
@@ -32,18 +34,16 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
     return `${current.length ? pdfTable<AllocationRow>(columns, current, "Aucun montant dans ce tableau.") : ""}${years.map((year) =>
       `<h3 style="margin: 10px 0 4px; font-size: 9pt">Arriérés ${escapePdfHtml(year)}</h3>${pdfTable<AllocationRow>(columns, table.filter((row) => row.arrearsYearName === year), "Aucun montant.")}`).join("")}`;
   };
-  const section = (title: string, table: AllocationRow[]) => pdfSection(title, table.length
+  // Le premier tableau suit l'en-tête ; chacun des suivants commence sur une nouvelle page.
+  const section = (title: string, table: AllocationRow[], index: number) => pdfSection(title, table.length
     ? `${parts(table)}${justified(totalLine(table))}`
-    : justified("Aucun montant dans ce tableau."), { className: "fee-allocation-table-pdf-section" });
-  const info = pdfInfoGrid([{ label: "Établissement, année et devise", value: context }, { label: "Filtre", value: filterLabel },
-    { label: "Statut", value: operational ? "Registre rapproché" : "Préparatoire — aucune activation financière" }]);
+    : justified("Aucun montant dans ce tableau."), { className: "fee-allocation-table-pdf-section", pageBreakBefore: index > 0 });
+  // Une seule ligne courte, seulement si elle est utile : plusieurs écoles, ou un filtre choisi.
+  const head = [...(multipleSchools && context ? [shortLine(context)] : []), ...(options.filtered ? [shortLine(filterLabel)] : [])];
   // Lot du 21/11 : aucune répartition configurée → ni tableaux ni « Non affecté », seulement le message.
-  if (options.configured === false) return [info, justified(noAllocationConfigured(options.canAdd === true))];
-  return [info,
-  justified("Prévu total de l’année : frais nets des élèves actifs, réductions et exonérations comprises, plus les paiements des anciens élèves (comptés du même montant dans le prévu et dans l'encaissé). Un filtre de période ne réduit pas ce prévu annuel. Solde disponible = ouverture + encaissements cumulés − dépenses nettes cumulées. L'ouverture et les dépenses d'une rubrique sont partagées entre les tableaux 1 et 2 à proportion de leurs encaissements ; le tableau 3 additionne les deux."),
+  if (options.configured === false) return [...head, justified(noAllocationConfigured(options.canAdd === true))];
   // Lot « Deux onglets » : le personnel ne reçoit que la ligne d'ensemble (tableau 3) des rubriques partagées.
-  ...(options.onlyTableThree ? [] : [section("Tableau 1 — Élèves normalement inscrits", tables.one), section("Tableau 2 — Cas sociaux et prises en charge", tables.two)]),
-  section(options.onlyTableThree ? "Rubriques partagées — ensemble" : "Tableau 3 — Ensemble (tableaux 1 et 2 additionnés)", tables.three),
-  justified(operational ? "Les encaissements selon le filtre ne sont pas les encaissements cumulés. La situation globale n'est jamais propre à une classe ou à un frais. Les dépenses nettes comprennent les corrections et annulations. « Non affecté » regroupe les frais sans répartition et le reste des frais répartis à moins de 100 % ; dons exclus. Une rubrique sans aucun montant n'est pas affichée."
-    : "Non affecté représente ici les obligations annuelles nettes non réparties, pas une réserve de trésorerie créditée. Le prévu ne crée aucun encaissement ni solde d'ouverture.")];
+  const shown: [string, AllocationRow[]][] = options.onlyTableThree ? [["Rubriques partagées — ensemble", tables.three]]
+    : [["Tableau 1 — Élèves normalement inscrits", tables.one], ["Tableau 2 — Cas sociaux et prises en charge", tables.two], ["Tableau 3 — Ensemble (tableaux 1 et 2 additionnés)", tables.three]];
+  return [...head, ...shown.map(([title, table], index) => section(title, table, index))];
 }

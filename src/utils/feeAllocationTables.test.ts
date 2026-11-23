@@ -71,7 +71,8 @@ describe("lot 27c-1 : trois tableaux sur le même modèle", () => {
     const html = feeAllocationPdfSections(projectAllocations([workspace()], { kind: "fee", value: "", from: "", to: "" }), "Tous les frais", "École fictive · 2027-2028 · USD").join("");
     for (const title of ["Tableau 1 — Élèves normalement inscrits", "Tableau 2 — Cas sociaux et prises en charge", "Tableau 3 — Ensemble"]) expect(html).toContain(title);
     expect(html).toContain("text-align: justify");
-    expect(html.split("2027-2028").length - 1).toBe(1);
+    // Version 1.19.1 : l'année n'est plus que dans l'en-tête du PDF (une seule école), jamais répétée dans les sections.
+    expect(html.split("2027-2028").length - 1).toBe(0);
     expect(html).toContain("Salaires (60 % et 40 %)");
     // Espace clair entre les trois tableaux dans le PDF.
     expect(html.split('class="pdf-section fee-allocation-table-pdf-section"').length - 1).toBe(3);
