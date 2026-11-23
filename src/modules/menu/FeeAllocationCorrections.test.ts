@@ -61,9 +61,9 @@ describe("3 à 11. présentation", () => {
   it("6. « Partager » ouvre un drawer à part, avec la croix", () => {
     expect(sharing).toMatch(/<AdminDrawer title=\{`Partager « \$\{rubric\.name\} »`\} closeLabel="Fermer le partage"/);
   });
-  it("7. « Préparer la nouvelle version » caché pour un frais déjà réparti, avec une phrase", () => {
-    expect(activation).toContain("draft && !draftLocked ? primary('prepare-version', 'Préparer la nouvelle version'");
-    expect(activation).toContain("view?.status !== 'EN_PREPARATION' && workspace.configs.some(c => c.feeTypeId === draft.feeTypeId && c.currentVersionId)");
+  it("7. un frais déjà réparti n'est pas proposé à la publication, avec une phrase (correction 1.20.1 : frais par frais)", () => {
+    expect(activation).toContain("pendingPublications(workspace.configs, view?.versions ?? [], view?.status ?? 'EN_PREPARATION')");
+    expect(activation).toContain("{plan.locked > 0 && !planCount && <p className=\"text-justify text-sm\" data-draft-locked>{DRAFT_LOCKED_TEXT}</p>}");
     expect(DRAFT_LOCKED_TEXT).toContain("déjà réparti");
   });
   it("8. textes justifiés dans le drawer et ses formulaires", () => {

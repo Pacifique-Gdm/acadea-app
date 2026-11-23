@@ -45,6 +45,12 @@ async function proofCandidates(db, tx, body, schoolId, yearId) {
 }
 
 /** Administrator-only evidence view. No write, no client-supplied school/year. */
+/** Versions préparées ou publiées montrées à l'écran (ni rubriques ni montants). */
+function publicVersions(rows, currency) {
+  return rows.filter(v => ["prepared", "published"].includes(v.status) && (!v.currency || v.currency === currency))
+    .map(v => ({ id: v.id, configId: v.configId, feeTypeId: v.feeTypeId, version: v.version, status: v.status, ...(v.socialRubrics?.length ? { hasSocialPart: true } : {}) }));
+}
+
 export async function readAllocationActivation({ db, caller, body, now = new Date().toISOString() }) {
   if (!["admin", "school_admin"].includes(caller.role)) fail("Rapprochement réservé à l'Administrateur.", "permission-denied", 403);
   const proofs = body.action === 'get-history-proofs';
@@ -64,8 +70,11 @@ export async function readAllocationActivation({ db, caller, body, now = new Dat
     const state = (await tx.get(db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`))).data();
     if (["ACTIVE", "PAUSED"].includes(state?.status)) {
       await readOperationalAllocation({ db, transaction: tx, schoolId, schoolYearId: yearId, currency, now });
+      // Correction 1.20.1 : les versions préparées et publiées restent lisibles quand la répartition est active ;
+      // sans elles, « Publier le nouveau frais » n'apparaissait jamais pour un frais ajouté en cours d'année.
+      const activeVersions = await readAllocationPages(db.collection("feeAllocationVersions").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId), tx);
       return { operational: false, schoolId, schoolYearId: yearId, currency, testOnly: scope.testOnly, status: state.status,
-        cutoffAt: state.cutoffAt, rubrics: state.rubrics, versions: [], opening: null, inventory: null };
+        cutoffAt: state.cutoffAt, rubrics: state.rubrics, versions: publicVersions(activeVersions.docs.map(d => d.data()), currency), opening: null, inventory: null };
     }
     const configs = await readAllocationPages(db.collection("feeAllocationConfigs").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId), tx);
     const versions = await readAllocationPages(db.collection("feeAllocationVersions").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId), tx);
@@ -124,8 +133,7 @@ export async function readAllocationActivation({ db, caller, body, now = new Dat
       }
     }
     return { operational: false, schoolId, schoolYearId: yearId, currency, testOnly: scope.testOnly, status: "EN_PREPARATION", cutoffAt: now,
-      rubrics: [...rubrics.values()], versions: versions.docs.map(d => d.data()).filter(v => ["prepared", "published"].includes(v.status))
-        .map(v => ({ id: v.id, configId: v.configId, feeTypeId: v.feeTypeId, version: v.version, status: v.status, ...(v.socialRubrics?.length ? { hasSocialPart: true } : {}) })),
+      rubrics: [...rubrics.values()], versions: publicVersions(versions.docs.map(d => d.data()), currency),
       reconciliation: run ? { ...runPublic(run), stale: runStale } : null,
       singleBlocker,
       evidencePage: { page, hasNext: page + 1 < (run?.pageCount ?? 0), rows: safeRows, fingerprint },
