@@ -49,7 +49,8 @@ export function filterWorkspaceForStaff(workspace, rubricIds) {
     // Aucune configuration (rubriques, pourcentages, versions) : seulement ce qu'il faut pour filtrer par frais et classe.
     configs: workspace.configs.map((c) => ({ id: c.id, schoolId: c.schoolId, schoolYearId: c.schoolYearId, feeTypeId: c.feeTypeId,
       className: c.className, ...(c.classOptionKey ? { classOptionKey: c.classOptionKey } : {}), currency: c.currency, draftRevision: c.draftRevision ?? 0 })),
-    ...(workspace.forecast ? { forecast: { ...workspace.forecast, rows: workspace.forecast.rows.filter((r) => keep.has(r.rubricId))
+    // Le personnel ne voit jamais le nombre de cas sociaux.
+    ...(workspace.forecast ? { forecast: { ...workspace.forecast, socialStudentCount: undefined, rows: workspace.forecast.rows.filter((r) => keep.has(r.rubricId))
       .map(({ socialVersionId: _s, ...row }) => ({ ...row, table: 1 })) } } : {}),
     ...(workspace.rubricCatalog ? { rubricCatalog: workspace.rubricCatalog.filter((r) => keep.has(r.id)) } : {}),
     ledger,

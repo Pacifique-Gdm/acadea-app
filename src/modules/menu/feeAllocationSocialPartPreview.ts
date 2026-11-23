@@ -11,8 +11,9 @@ const decimal = /^[0-9]+(?:[.,][0-9]{1,2})?$/;
 const message = (cause: unknown) => userFacingError(cause, "Partie 2 indisponible.");
 const percentText = (basisPoints: number) => `${(basisPoints / 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %`;
 
-/** Rubriques de la partie 2 saisies (lignes retirées à 0 %), le reste pour « Non affecté », ou une erreur lisible. */
-export function socialPartRubrics(lines: Line[], { unallocatedRemoved = false } = {}): { rubrics: FeeAllocationRubric[]; error: string; percentBasisPoints: number; hasFixed: boolean } {
+/** Rubriques de la partie 2 saisies (lignes retirées à 0 %), le reste pour « Non affecté », ou une erreur lisible.
+ * Version 1.19.0 : « Non affecté » ne se retire plus ; il reçoit toujours le reste (total inférieur à 100 % permis). */
+export function socialPartRubrics(lines: Line[]): { rubrics: FeeAllocationRubric[]; error: string; percentBasisPoints: number; hasFixed: boolean } {
   try {
     const rubrics = lines.map((line): FeeAllocationRubric => {
       if (line.removed) return { id: line.id, name: line.name, mode: "percent", basisPoints: 0 };
@@ -24,15 +25,12 @@ export function socialPartRubrics(lines: Line[], { unallocatedRemoved = false } 
     const percentBasisPoints = rubrics.reduce((sum, rubric) => sum + (rubric.mode === "percent" ? rubric.basisPoints ?? 0 : 0), 0);
     const hasFixed = rubrics.some((rubric) => rubric.mode === "fixed");
     if (percentBasisPoints > 10000) throw new Error(`Le total fait ${percentText(percentBasisPoints)} : il ne doit pas dépasser 100 % de ce que l'élève paie vraiment.`);
-    if (unallocatedRemoved && hasFixed) throw new Error("« Non affecté » est retiré : mettez toutes les lignes en pourcentage pour que le total fasse exactement 100 %.");
-    if (unallocatedRemoved && percentBasisPoints !== 10000) throw new Error(`« Non affecté » est retiré : le total des rubriques doit faire exactement 100 % (actuellement ${percentText(percentBasisPoints)}).`);
     return { error: "", rubrics, percentBasisPoints, hasFixed };
   } catch (cause) { return { rubrics: [], error: message(cause), percentBasisPoints: 0, hasFixed: false }; }
 }
 
 /** Texte du total, toujours visible sous les lignes. */
-export function socialPartTotalText(percentBasisPoints: number, hasFixed: boolean, unallocatedRemoved: boolean) {
-  if (unallocatedRemoved) return `Total des rubriques : ${percentText(percentBasisPoints)} (doit faire exactement 100 %).`;
+export function socialPartTotalText(percentBasisPoints: number, hasFixed: boolean) {
   const rest = Math.max(0, 10000 - percentBasisPoints);
   return `Total des rubriques : ${percentText(percentBasisPoints)}${hasFixed ? " plus les montants fixes" : ""}. Le reste${hasFixed ? "" : ` (${percentText(rest)})`} va dans « Non affecté ».`;
 }
@@ -51,3 +49,31 @@ export function socialPartPreview(partOne: Pick<FeeAllocationVersion, "rubrics" 
     .sort((a, b) => (a.rubricId === UNALLOCATED_RUBRIC_ID ? 1 : 0) - (b.rubricId === UNALLOCATED_RUBRIC_ID ? 1 : 0) || a.name.localeCompare(b.name, "fr"));
 }
 
+
+/** Version 1.19.0 : lignes de la partie 2 d'un frais, pré-remplies ; une rubrique à 0 % dans la partie 2 est une ligne retirée
+ * (sa valeur de la partie 1 reste prête pour la remettre). */
+export function socialPartLines(partOne: FeeAllocationRubric[], social?: FeeAllocationRubric[]): Line[] {
+  const valueOf = (rubric: FeeAllocationRubric) => String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100);
+  return partOne.map((rubric) => {
+    const own = social?.find((item) => item.id === rubric.id);
+    const removed = own?.mode === "percent" && own.basisPoints === 0;
+    const source = own && !removed ? own : rubric;
+    return { id: rubric.id, name: rubric.name, mode: source.mode, value: valueOf(source), ...(removed ? { removed: true } : {}) };
+  });
+}
+
+/** « Appliquer à tous les frais » : recopie les réglages du frais affiché, rubrique par rubrique, sur chaque autre frais.
+ * Une rubrique de l'autre frais absente du frais affiché garde sa valeur. Rend aussi, pour chaque frais, les rubriques
+ * du frais affiché qu'il n'a pas : leur part ira dans « Non affecté ». */
+export function applySocialLinesToAll(source: Line[], targets: { feeTypeId: string; lines: Line[] }[]) {
+  return targets.map(({ feeTypeId, lines }) => ({ feeTypeId,
+    lines: lines.map((line) => { const from = source.find((item) => item.id === line.id); return from ? { ...line, mode: from.mode, value: from.value, removed: from.removed ? true : undefined } : line; })
+      .map(({ removed, ...line }) => removed ? { ...line, removed: true } : line),
+    missing: source.filter((item) => !item.removed && !lines.some((line) => line.id === item.id)).map((item) => item.name) }));
+}
+
+/** Deux jeux de lignes donnent-ils la même partie 2 ? (sert à marquer un frais « modifié »). */
+export function sameSocialLines(a: Line[], b: Line[]) {
+  return a.length === b.length && a.every((line) => { const other = b.find((item) => item.id === line.id);
+    return !!other && !!line.removed === !!other.removed && (line.removed || (line.mode === other.mode && Number(line.value.trim().replace(",", ".")) === Number(other.value.trim().replace(",", ".")))); });
+}

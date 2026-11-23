@@ -36,7 +36,7 @@ export interface FeeAllocationConfig {
   classOptionKey?: string;
   currency: FeeAllocationCurrency;
   draftRevision: number;
-  draft?: { rubrics: FeeAllocationRubric[]; feeAmountMinor: number; updatedAt: string; updatedBy: string };
+  draft?: { rubrics: FeeAllocationRubric[]; socialRubrics?: FeeAllocationRubric[]; feeAmountMinor: number; updatedAt: string; updatedBy: string };
   currentVersionId?: string;
   /** Lot 27c-4 : partie 2 publiée, propre aux cas sociaux. */
   socialVersionId?: string;
@@ -64,6 +64,8 @@ export interface FeeAllocationVersion {
   effectiveFrom: string | null;
   rubrics: FeeAllocationRubric[];
   shares: Array<{ rubricId: string; amountMinor: number }>;
+  /** Version 1.19.0 : partie des cas sociaux saisie avec la partie 1, publiée en même temps (absente = aucune partie 2). */
+  socialRubrics?: FeeAllocationRubric[];
   createdAt: string;
   createdBy: string;
 }

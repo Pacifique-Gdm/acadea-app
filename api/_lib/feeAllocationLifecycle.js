@@ -1,6 +1,8 @@
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { readRubricCatalog } from "./feeAllocationRubrics.js";
-import { validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { socialDraftRubrics, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { SOCIAL_PUBLISH_CONFIRMATION, buildSocialVersion } from "./feeAllocationSocialPart.js";
+import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { toMoneyMinor } from "./money.js";
 import { allocationRunRef, evidenceRevisionRef } from './feeAllocationRevision.js';
 import { assertRunCurrent } from './feeAllocationReconciliation.js';
@@ -19,7 +21,7 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
   if (!["admin", "school_admin"].includes(caller.role)) fail("Action réservée à l'Administrateur.", "permission-denied", 403);
   await readFeeAllocationScope(db, caller, caller.schoolId);
   await readAllocationEligibility(db, null, caller.schoolId, now);
-  const allowed = { "publish-configuration": ["versionId"], "prepare-opening": ["lines", "cashCountMinor", "confirmation"],
+  const allowed = { "publish-configuration": ["versionId", "confirmation"], "prepare-opening": ["lines", "cashCountMinor", "confirmation"],
     "approve-opening": ["openingId", "confirmation"], activate: ["openingId", "confirmation"], pause: ["reason"], resume: ["reason"] };
   if (Object.keys(body).some(k => !["action", "requestId", ...allowed[body.action]].includes(k)) || !id(body.requestId) || body.requestId.length < 12) fail("Demande invalide.", "invalid-argument", 400);
   const fingerprint = hash(body), schoolId = caller.schoolId;
@@ -59,6 +61,11 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
         || checked.shares.some((share, index) => share.rubricId !== version.shares[index]?.rubricId
           || share.amountMinor !== version.shares[index]?.amountMinor
           || Object.keys(version.shares[index]).some(key => !["rubricId", "amountMinor"].includes(key)))) fail("Répartition préparée incohérente.");
+      // Version 1.19.0 : partie des cas sociaux saisie avec la partie 1 → publiée en même temps, après la phrase tapée.
+      const socialRubrics = version.socialRubrics ? socialDraftRubrics(version.socialRubrics, checked.rubrics, version.feeAmountMinor) : null;
+      if (socialRubrics && body.confirmation !== SOCIAL_PUBLISH_CONFIRMATION) fail(`La partie des cas sociaux est différente : tapez exactement « ${SOCIAL_PUBLISH_CONFIRMATION} » pour publier les deux parties.`, "invalid-argument", 400);
+      const oldSocialRef = socialRubrics && config.socialVersionId ? db.doc(`feeAllocationSocialVersions/${config.socialVersionId}`) : null;
+      if (oldSocialRef) await tx.get(oldSocialRef);
       const oldRef = config.currentVersionId ? db.doc(`feeAllocationVersions/${config.currentVersionId}`) : null;
       if (oldRef) await tx.get(oldRef);
       const guardRef = db.doc(`feeAllocationFeeGuards/${version.feeTypeId}`);
@@ -72,7 +79,19 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
       if (live && rubrics.size > 40) fail("Le maximum de 40 rubriques par établissement et année est atteint.");
       tx.update(versionRef, { status: "published", effectiveFrom: now, publishedBy: caller.uid,
         ...(live ? { publicationMode: "new-fee-after-activation", openingId: live.openingId } : {}) });
-      tx.update(configRef, { currentVersionId: version.id });
+      let social = null;
+      if (socialRubrics) {
+        const named = socialRubrics.map((rubric) => ({ ...rubric, name: checked.rubrics.find((item) => item.id === rubric.id).name }));
+        social = buildSocialVersion({ configId: config.id, schoolId, yearId, feeTypeId: version.feeTypeId, partOne: { ...version, rubrics: checked.rubrics }, previous: null,
+          rubrics: validateFeeAllocationRubrics(named, version.feeAmountMinor, { allowZero: true }).rubrics, caller, now });
+        tx.create(db.doc(`feeAllocationSocialVersions/${social.id}`), social);
+        if (oldSocialRef) tx.update(oldSocialRef, { status: "superseded", supersededAt: now });
+        const auditId = `audit_allocation_${hash([caller.uid, schoolId, "social-with-part-one", body.requestId]).slice(0, 32)}`;
+        tx.create(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_ALLOCATION_SOCIAL_PART_PUBLISHED,
+          actor: caller, schoolId, schoolYearId: yearId, resourceType: "feeAllocation", resourceId: config.id,
+          metadata: { feeTypeId: version.feeTypeId, socialVersion: social.version, copyOfPartOne: social.copyOfPartOne, withPartOne: true } }));
+      }
+      tx.update(configRef, { currentVersionId: version.id, ...(social ? { socialVersionId: social.id } : {}) });
       // No opening, balance or historical movement is rewritten. Updating the
       // state also serializes simultaneous publications and in-flight receipts.
       if (live) tx.update(stateRef, { rubrics: [...rubrics.values()], updatedAt: now });
@@ -81,6 +100,7 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
       if (oldRef) tx.update(oldRef, { status: "superseded" });
       tx.set(guardRef, { schoolId, schoolYearId: yearId, configId: config.id, versionId: version.id });
       result.versionId = version.id;
+      if (social) result.socialVersionId = social.id;
     } else if (["prepare-opening", "approve-opening", "activate"].includes(body.action)) {
       if (["ACTIVE", "PAUSED"].includes(state?.status)) fail("Périmètre déjà activé.");
       const run = state?.reconciliationRunId ? (await tx.get(allocationRunRef(db, state.reconciliationRunId))).data() : null;

@@ -14,6 +14,8 @@ const sameShares = (a, b) => Array.isArray(b) && b.every(s => s && typeof s === 
   && new Set(b.map(s => s.rubricId)).size === b.length
   && a.every(s => b.some(t => t.rubricId === s.rubricId && t.amountMinor === s.amountMinor));
 const noop = () => {};
+/** Empreinte d'un cas social d'abord réparti selon la partie 1 : une ancienne version du serveur refuse ce cumul. */
+const fromPartOneDigest = (versionDigest, netMinor) => hash([versionDigest, "social-from-part-one", netMinor]);
 
 /** Legacy emulator fixture boundary, not a hosted activation feature flag. */
 export function isFeeAllocationReceiptSandbox(db, env = process.env) {
@@ -183,28 +185,40 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     shares = validated.shares;
     if (!sameShares(shares, version.shares)) fail("Poids historiques altérés.");
     versionDigest = hash([version.id, version.feeAmountMinor, validated.rubrics, shares, version.effectiveFrom]);
-    if (anchor.socialVersionId !== undefined) {
-      if (!identifier(anchor.socialVersionId) || !safe(anchor.socialNetMinor) || anchor.socialNetMinor > anchor.feeAmountMinor) fail("Partie 2 de l'ancre invalide.");
-      const social = assertSocialVersionBinding((await transaction.get(db.doc(`feeAllocationSocialVersions/${anchor.socialVersionId}`))).data(),
-        { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
-          partOneVersionId: version.id, feeAmountMinor: anchor.feeAmountMinor });
-      if (social.id !== anchor.socialVersionId || Date.parse(social.effectiveFrom) > Date.parse(anchor.anchoredAt)) fail("Partie 2 de l'ancre non vérifiée.");
-      const socialShares = socialCaseShares(validated.rubrics, social.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor);
-      partOneRubrics = validated.rubrics;
-      // L'empreinte change : une ancienne version du serveur refuserait ce cumul au lieu de le partager autrement.
-      socialBaseDigest = hash([versionDigest, "social", social.id, anchor.socialNetMinor, socialShares]);
-      // Correction 27c-4 : nouvelles parties 2 publiées depuis, chacune à partir du cumul payé à ce moment-là.
-      const stored = anchor.socialSegments ?? [];
+    partOneRubrics = validated.rubrics;
+    const readSegments = async (stored) => {
       if (!Array.isArray(stored) || stored.length > 20) fail("Changements de partie 2 invalides.");
-      socialSegments = [{ shares: socialShares, fromMinor: 0 }];
+      const result = [];
       for (const item of stored) {
         if (!item || !identifier(item.socialVersionId) || !safe(item.fromMinor) || !Number.isFinite(Date.parse(item.at))) fail("Changement de partie 2 invalide.");
         const next = assertSocialVersionBinding((await transaction.get(db.doc(`feeAllocationSocialVersions/${item.socialVersionId}`))).data(),
           { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
             partOneVersionId: version.id, feeAmountMinor: anchor.feeAmountMinor });
         if (next.id !== item.socialVersionId || Date.parse(next.effectiveFrom) > Date.parse(item.at)) fail("Changement de partie 2 non vérifié.");
-        socialSegments.push({ shares: socialCaseShares(validated.rubrics, next.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor), fromMinor: item.fromMinor });
+        result.push({ shares: socialCaseShares(validated.rubrics, next.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor), fromMinor: item.fromMinor });
       }
+      return result;
+    };
+    if (anchor.socialVersionId === undefined && anchor.socialFromPartOne === true) {
+      // Correction 27c-4 : cas social d'abord réparti selon la partie 1, puis passé à la partie 2 pour ses paiements suivants.
+      if (!safe(anchor.socialNetMinor) || anchor.socialNetMinor > anchor.feeAmountMinor) fail("Partie 2 de l'ancre invalide.");
+      const stored = anchor.socialSegments ?? [];
+      if (!Array.isArray(stored) || !stored.length) fail("Changements de partie 2 invalides.");
+      socialBaseDigest = fromPartOneDigest(versionDigest, anchor.socialNetMinor);
+      socialSegments = [{ shares, fromMinor: 0 }, ...await readSegments(stored)];
+      versionDigest = segmentsDigest(stored, socialSegments);
+    } else if (anchor.socialVersionId !== undefined) {
+      if (!identifier(anchor.socialVersionId) || !safe(anchor.socialNetMinor) || anchor.socialNetMinor > anchor.feeAmountMinor) fail("Partie 2 de l'ancre invalide.");
+      const social = assertSocialVersionBinding((await transaction.get(db.doc(`feeAllocationSocialVersions/${anchor.socialVersionId}`))).data(),
+        { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
+          partOneVersionId: version.id, feeAmountMinor: anchor.feeAmountMinor });
+      if (social.id !== anchor.socialVersionId || Date.parse(social.effectiveFrom) > Date.parse(anchor.anchoredAt)) fail("Partie 2 de l'ancre non vérifiée.");
+      const socialShares = socialCaseShares(validated.rubrics, social.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor);
+      // L'empreinte change : une ancienne version du serveur refuserait ce cumul au lieu de le partager autrement.
+      socialBaseDigest = hash([versionDigest, "social", social.id, anchor.socialNetMinor, socialShares]);
+      // Correction 27c-4 : nouvelles parties 2 publiées depuis, chacune à partir du cumul payé à ce moment-là.
+      const stored = anchor.socialSegments ?? [];
+      socialSegments = [{ shares: socialShares, fromMinor: 0 }, ...await readSegments(stored)];
       versionDigest = segmentsDigest(stored, socialSegments);
     }
   } else if (anchor.socialVersionId !== undefined) fail("Partie 2 sans version de partie 1.");
@@ -246,6 +260,26 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
         socialSegments = [...socialSegments, { shares: socialCaseShares(partOneRubrics, next.rubrics, anchor.feeAmountMinor, anchor.socialNetMinor), fromMinor: before }];
         nextDigest = segmentsDigest(all, socialSegments);
         rebase = { socialSegments: all, socialCurrentVersionId: next.id };
+      }
+    }
+  } else if (!socialSegments && anchor.configVersionId && anchor.socialVersionId === undefined && socialCaseNow && payment && !previous
+    && anchorSnap.exists && !arrears && source.schoolYearId === collectionYear) {
+    // Correction 27c-4 : cas social déjà réparti selon la partie 1, partie 2 publiée depuis. Ses paiements SUIVANTS
+    // suivent la partie 2 pour le reste de son net ; les mouvements déjà écrits ne changent jamais.
+    const current = (await transaction.get(db.doc(`feeAllocationConfigs/${feeAllocationConfigId(source.schoolId, collectionYear, source.feeTypeId)}`))).data();
+    if (current?.socialVersionId && current.schoolId === source.schoolId && current.feeTypeId === source.feeTypeId && current.currentVersionId === anchor.configVersionId) {
+      const next = (await transaction.get(db.doc(`feeAllocationSocialVersions/${current.socialVersionId}`))).data();
+      const netMinor = toMoneyMinor(supportBalance(student, { ...fee, id: source.feeTypeId }).net);
+      if (next?.status === "published" && next.partOneVersionId === anchor.configVersionId && Date.parse(next.effectiveFrom) <= Date.parse(source.createdAt)
+        && safe(netMinor) && netMinor <= anchor.feeAmountMinor && before < netMinor) {
+        assertSocialVersionBinding(next, { schoolId: source.schoolId, schoolYearId: source.schoolYearId, feeTypeId: source.feeTypeId, currency: source.currency,
+          partOneVersionId: anchor.configVersionId, feeAmountMinor: anchor.feeAmountMinor });
+        const all = [{ socialVersionId: next.id, fromMinor: before, at: source.createdAt }];
+        socialSegments = [{ shares, fromMinor: 0 }, { shares: socialCaseShares(partOneRubrics, next.rubrics, anchor.feeAmountMinor, netMinor), fromMinor: before }];
+        socialBaseDigest = fromPartOneDigest(versionDigest, netMinor);
+        nextDigest = segmentsDigest(all, socialSegments);
+        anchor = { ...anchor, socialNetMinor: netMinor };
+        rebase = { socialFromPartOne: true, socialNetMinor: netMinor, socialSegments: all, socialCurrentVersionId: next.id };
       }
     }
   }

@@ -11,6 +11,8 @@ export type AllocationWorkspace = {
   sharedRubricIds?: string[]; rubricCatalog?: { id: string; name: string; hidden: boolean }[];
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   forecast?: { status: 'complete'; revision: string | null; calculatedAt: string; studentCount: number;
+    /** Version 1.19.0 : nombre de cas sociaux de l'année (Administrateur seulement ; absent dans la vue du personnel). */
+    socialStudentCount?: number;
     rows: { feeTypeId: string; className: string; classOptionKey: string | null; rubricId: string; rubricName: string; amountMinor: number; arrearsYearName?: string; studentsCount: number;
       /** Lot 27c-1 : tableau 1 (élèves normaux) ou 2 (cas sociaux) ; part de la rubrique dans le tarif. */
       table?: 1 | 2; rubricShare?: number; tariffMinor?: number; rubricMode?: "percent" | "fixed" | null; basisPoints?: number | null }[] };
@@ -22,7 +24,9 @@ export type AllocationWorkspace = {
     balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number }[] };
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;
-  targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[] };
+  targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[];
+  /** Version 1.19.0 : partie des cas sociaux (mêmes rubriques), publiée en même temps que la partie 1. */
+  socialRubrics?: Array<{ id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number }> };
 export type AllocationEvidence = { collection: string; id: string; amountMinor: number | null; createdAt: string | null; reason: string | null; nature: string; receiptNumber: string | null; currency: 'USD' | 'CDF' | null };
 export type AllocationProof = { type: 'financialIdempotency' | 'personnelPayments'; id: string; nature: string; amount: number; currency: 'USD' | 'CDF' | null; createdAt: string | null; receiptNumber: string | null };
 export type AllocationActivationView = {
@@ -32,7 +36,7 @@ export type AllocationActivationView = {
   evidencePage?: { page: number; hasNext: boolean; fingerprint: string | null; rows: AllocationEvidence[] };
   singleBlocker?: AllocationEvidence | null;
   rubrics: Array<{ id: string; name: string }>;
-  versions: Array<{ id: string; configId: string; feeTypeId: string; version: number; status: "prepared" | "published" }>;
+  versions: Array<{ id: string; configId: string; feeTypeId: string; version: number; status: "prepared" | "published"; hasSocialPart?: true }>;
   opening: null | { id: string; status: "proposed" | "approved" | "activated"; stale: boolean; cutoffAt: string;
     approvedByCurrentUser: boolean; lines: Array<{ rubricId: string; amountMinor: number }>; cashCountMinor: number };
   inventory: null | { schoolAvailableMinor: number; cashAvailableMinor: number; fingerprint: string; evidenceCount: number;
@@ -131,18 +135,25 @@ export const renameRubric = (schoolId: string, rubricId: string, name: string) =
 export const setRubricHidden = (schoolId: string, rubricId: string, hidden: boolean) => allocationRequest<{ rubric: AllocationCatalogRubric }>("set-rubric-hidden", { schoolId, rubricId, hidden, requestId: rubricRequestId() });
 export const deleteRubric = (schoolId: string, rubricId: string) => allocationRequest<{ deletedId: string }>("delete-rubric", { schoolId, rubricId, requestId: rubricRequestId() });
 
-/** Lot 27c-4 : partie 2 (cas sociaux) d'un frais dont la partie 1 est publiée. */
-export async function loadSocialPart(schoolId: string, feeTypeId: string) {
-  const result = await allocationRequest<{ partOne: FeeAllocationVersion | null; social: FeeAllocationSocialVersion | null; history: FeeAllocationSocialVersion[]; paidWithCurrent?: number }>("get-social-part", { schoolId, feeTypeId });
-  if (!("partOne" in result) || !Array.isArray(result.history)) throw new AllocationApiError("Partie 2 non confirmée.");
-  return result;
+/** Version 1.19.0 : partie 2 (cas sociaux) de TOUS les frais répartis, dans un seul formulaire. */
+export type SocialPartItem = { feeTypeId: string; feeName: string; className: string | null; classOptionKey: string | null;
+  partOne: FeeAllocationVersion; social: FeeAllocationSocialVersion | null; paidWithCurrent: number };
+export async function loadSocialParts(schoolId: string) {
+  const result = await allocationRequest<{ items: SocialPartItem[] }>("get-social-parts", { schoolId });
+  if (!Array.isArray(result.items) || result.items.some((item) => !item?.partOne || !Array.isArray(item.partOne.rubrics))) throw new AllocationApiError("Partie 2 non confirmée.");
+  return result.items;
 }
-export type PublishSocialPart = { feeTypeId: string; requestId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null;
-  rubrics: Array<{ id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number }>; unallocatedRemoved?: boolean };
-export async function publishSocialPart(request: PublishSocialPart) {
-  const result = await allocationRequest<{ social: FeeAllocationSocialVersion }>("publish-social-part", request);
-  if (!result.social || result.social.feeTypeId !== request.feeTypeId || result.social.partOneVersionId !== request.expectedPartOneVersionId) throw new AllocationApiError("Publication non confirmée. Vérifiez la même demande avant de recommencer.");
-  return result.social;
+export type SocialPartRubricInput = { id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number };
+export type PublishSocialParts = { requestId: string; confirmation: string;
+  items: Array<{ feeTypeId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null; rubrics: SocialPartRubricInput[] }> };
+/** Tous les frais modifiés en une seule fois : tout passe ou rien ne passe. */
+export async function publishSocialParts(request: PublishSocialParts) {
+  const result = await allocationRequest<{ socials: FeeAllocationSocialVersion[] }>("publish-social-parts", request);
+  if (!Array.isArray(result.socials) || result.socials.length !== request.items.length
+    || request.items.some((item) => !result.socials.some((social) => social.feeTypeId === item.feeTypeId && social.partOneVersionId === item.expectedPartOneVersionId))) {
+    throw new AllocationApiError("Publication non confirmée. Vérifiez la même demande avant de recommencer.");
+  }
+  return result.socials;
 }
 
 /** Lot « Deux onglets et partage des rubriques ». */

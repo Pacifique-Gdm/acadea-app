@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { evidenceRevisionRef } from './feeAllocationRevision.js';
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
-import { FeeAllocationError, assertFeeAllocationActivationBlocked, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { FeeAllocationError, assertFeeAllocationActivationBlocked, socialDraftRubrics, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 
 const identifier = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
 const sha = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -125,6 +125,8 @@ async function mutateDraft({ db, caller, body, prepare }) {
         || config.className !== fee.className || (config.classOptionKey ?? null) !== (fee.classOptionKey ?? null)
         || config.currency !== currency) conflict("Le tarif, la classe, l'option ou la devise a changé depuis le brouillon.");
       const validated = validateFeeAllocationRubrics(config.draft.rubrics, feeAmountMinor);
+      // Version 1.19.0 : la partie des cas sociaux du brouillon suit la version ; elle sera publiée en même temps.
+      const socialRubrics = socialDraftRubrics(config.draft.socialRubrics, validated.rubrics, feeAmountMinor);
       const versionId = `allocation_version_${sha([configId, body.expectedRevision]).slice(0, 40)}`;
       const versionRef = db.doc(`feeAllocationVersions/${versionId}`);
       const priorVersion = await transaction.get(versionRef);
@@ -132,7 +134,7 @@ async function mutateDraft({ db, caller, body, prepare }) {
       const version = { id: versionId, configId, schoolId, schoolYearId: yearId, feeTypeId: body.feeTypeId,
         className: fee.className, ...(fee.classOptionKey ? { classOptionKey: fee.classOptionKey } : {}), currency,
         feeAmountMinor, version: body.expectedRevision, status: "prepared", effectiveFrom: null,
-        rubrics: validated.rubrics, shares: validated.shares, createdAt: now, createdBy: caller.uid };
+        rubrics: validated.rubrics, shares: validated.shares, ...(socialRubrics ? { socialRubrics } : {}), createdAt: now, createdBy: caller.uid };
       transaction.create(versionRef, version);
       result = { version, operational: false };
       auditType = AUDIT_EVENT_TYPES.FINANCE_ALLOCATION_VERSION_PREPARED;

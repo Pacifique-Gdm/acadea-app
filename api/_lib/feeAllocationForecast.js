@@ -71,14 +71,17 @@ export function calculateAllocationForecast({ students, fees, configs, versions,
 export function socialForecastLines({ student, fee, net, tariff, checked, version, social, anchors, socialVersions }) {
   if (!(net > 0)) return [];
   const anchor = version ? anchors.find((a) => a.studentId === student.id && a.feeTypeId === fee.id && a.configVersionId === version.id) : null;
-  if (anchor && anchor.socialVersionId === undefined) return allocateFeeReceiptCumulative(checked.shares, net);
+  // Correction 27c-4 : un cas social d'abord réparti selon la partie 1 passe à la partie 2 pour ses paiements suivants.
+  const fromPartOne = anchor?.socialFromPartOne === true;
+  if (anchor && anchor.socialVersionId === undefined && !fromPartOne) return allocateFeeReceiptCumulative(checked.shares, net);
   if (anchor) {
-    const ids = [anchor.socialVersionId, ...(anchor.socialSegments ?? []).map((item) => item.socialVersionId)];
+    const ids = [...(fromPartOne ? [] : [anchor.socialVersionId]), ...(anchor.socialSegments ?? []).map((item) => item.socialVersionId)];
     const found = ids.map((id) => socialVersions.find((v) => v.id === id && v.partOneVersionId === version.id));
-    if (found.every(Boolean) && Number.isSafeInteger(anchor.socialNetMinor)) {
+    if (ids.length && found.every(Boolean) && Number.isSafeInteger(anchor.socialNetMinor)) {
       try {
-        const segments = found.map((v, index) => ({ shares: socialCaseShares(checked.rubrics, v.rubrics, tariff, anchor.socialNetMinor),
-          fromMinor: index === 0 ? 0 : anchor.socialSegments[index - 1].fromMinor }));
+        const segments = [...(fromPartOne ? [{ shares: checked.shares, fromMinor: 0 }] : []),
+          ...found.map((v, index) => ({ shares: socialCaseShares(checked.rubrics, v.rubrics, tariff, anchor.socialNetMinor),
+            fromMinor: fromPartOne ? anchor.socialSegments[index].fromMinor : index === 0 ? 0 : anchor.socialSegments[index - 1].fromMinor }))];
         return socialSegmentLines(checked.shares, segments, anchor.socialNetMinor, net);
       } catch { /* même règle qu'un élève sans paiement réparti */ }
     }
@@ -143,8 +146,11 @@ export async function readAllocationForecast({ db, schoolId, yearId, currency, f
       for (const id of missing) socialVersions.push({ ...(await tx.get(db.doc(`feeAllocationSocialVersions/${id}`))).data(), id });
     }
     const calculatedAt = new Date(now).toISOString();
-    const forecast = calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions, socialVersions, anchors,
-      schoolId, yearId, currency, operational: ['ACTIVE', 'PAUSED'].includes(status) });
+    // Version 1.19.0 : nombre de cas sociaux de l'année (aucune identité), pour « Ajouter une répartition ».
+    const socialStudentCount = data(students).filter((st) => st.schoolId === schoolId && st.schoolYearId === yearId && st.status === 'ACTIVE' && !st.deletedAt
+      && Object.values(st.financialSupport ?? {}).some((d) => d?.schoolYearId === yearId && Object.values(d.lines ?? {}).some((l) => (l?.reductionMinor ?? 0) > 0))).length;
+    const forecast = { ...calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions, socialVersions, anchors,
+      schoolId, yearId, currency, operational: ['ACTIVE', 'PAUSED'].includes(status) }), socialStudentCount };
     const activeStudents = data(students).filter(st => st.schoolId === schoolId && st.schoolYearId === yearId && st.status === 'ACTIVE' && !st.deletedAt);
     return { fees, configs, forecast: { ...forecast, revision, calculatedAt }, activeStudents, activeYear: year.data(),
       save: { revision, parts: { fees: feeRows, configs: configRows, state: status }, forecast, savedAt: calculatedAt } };
