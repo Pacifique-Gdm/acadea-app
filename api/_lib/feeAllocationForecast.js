@@ -146,8 +146,11 @@ export async function readAllocationForecast({ db, schoolId, yearId, currency, f
       for (const id of missing) socialVersions.push({ ...(await tx.get(db.doc(`feeAllocationSocialVersions/${id}`))).data(), id });
     }
     const calculatedAt = new Date(now).toISOString();
-    const forecast = calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions, socialVersions, anchors,
-      schoolId, yearId, currency, operational: ['ACTIVE', 'PAUSED'].includes(status) });
+    // Version 1.19.0 : nombre de cas sociaux de l'année (aucune identité), pour « Ajouter une répartition ».
+    const socialStudentCount = data(students).filter((st) => st.schoolId === schoolId && st.schoolYearId === yearId && st.status === 'ACTIVE' && !st.deletedAt
+      && Object.values(st.financialSupport ?? {}).some((d) => d?.schoolYearId === yearId && Object.values(d.lines ?? {}).some((l) => (l?.reductionMinor ?? 0) > 0))).length;
+    const forecast = { ...calculateAllocationForecast({ students: data(students), fees: feeRows, configs: configRows, versions, socialVersions, anchors,
+      schoolId, yearId, currency, operational: ['ACTIVE', 'PAUSED'].includes(status) }), socialStudentCount };
     const activeStudents = data(students).filter(st => st.schoolId === schoolId && st.schoolYearId === yearId && st.status === 'ACTIVE' && !st.deletedAt);
     return { fees, configs, forecast: { ...forecast, revision, calculatedAt }, activeStudents, activeYear: year.data(),
       save: { revision, parts: { fees: feeRows, configs: configRows, state: status }, forecast, savedAt: calculatedAt } };

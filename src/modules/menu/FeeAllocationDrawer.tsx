@@ -18,7 +18,8 @@ import { feeAllocationPdfSections } from "../../utils/feeAllocationPdf";
 import { FeeAllocationActivation } from "./FeeAllocationActivation";
 import { useAllocationChangeCounters } from "../../services/feeAllocationChangeCounter";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
-import { SocialPartEditor } from "./FeeAllocationSocialPart";
+import { SocialLinesEditor, SocialPartEditor } from "./FeeAllocationSocialPart";
+import { socialPartRubrics, type SocialPartLine } from "./feeAllocationSocialPartPreview";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
@@ -243,8 +244,8 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       {detailConfigs.map(config => <section key={config.id} className="my-3 rounded border p-3"><h3 className="mb-2 text-sm font-semibold">{detailWorkspace?.fees.find(f => f.id === config.feeTypeId)?.name ?? 'Frais'} · {allocationClassLabel(config.classOptionKey || config.className)}</h3><div className="flex flex-wrap gap-2"><Action busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(config)}>Consulter les versions</Action>{config.currentVersionId && <button type="button" className="secondary-button" onClick={() => setSocialPart(config)}>Partie 2 — cas sociaux{config.socialVersionId ? " (publiée)" : ""}</button>}{configurable && !config.currentVersionId && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy} onClick={() => void showVersions(config, true)}>Préparer une version</Action></>}</div></section>)}
       {detailBusy && <p role="status">Vérification serveur…</p>}{versions && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded border p-2 text-sm">Version {version.version} · {version.status} · {version.createdAt.slice(0, 10)} · {version.currency}<ul>{version.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, version.currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></li>)}{!versions.length && <li>Aucune version préparée.</li>}</ul>}
     </div></AdminDrawer>}
-    {socialPart && <SocialPartEditor config={socialPart} feeName={detailWorkspace?.fees.find(f => f.id === socialPart.feeTypeId)?.name ?? 'Frais'}
-      classLabel={allocationClassLabel(socialPart.classOptionKey || socialPart.className)} currency={socialPart.currency}
+    {/* Version 1.19.0 : un seul formulaire pour tous les frais, ouvert sur le frais d'où l'on a cliqué. */}
+    {socialPart && <SocialPartEditor schoolId={socialPart.schoolId} initialFeeTypeId={socialPart.feeTypeId} currency={socialPart.currency}
       canPublish={configurable && current} onClose={() => setSocialPart(null)} onPublished={() => void refresh("reload")} />}
     {editor && <AllocationEditor workspace={editor.workspace} config={editor.config} onClose={() => setEditor(null)} onSaved={() => { setEditor(null); setNotice("Brouillons enregistrés et confirmés par le serveur. Aucune activation financière."); void refresh("reload"); }} />}
   </div>;
@@ -262,6 +263,13 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
   const [catalog, setCatalog] = useState<AllocationCatalogRubric[] | null>(null);
   const [newName, setNewName] = useState<{ index: number; value: string } | null>(null);
   const [creating, setCreating] = useState(false);
+  // Version 1.19.0 : s'il y a des cas sociaux, leur partie (pré-remplie avec les mêmes pourcentages) s'affiche sous celle des élèves normaux.
+  // Seules les lignes changées par l'Administrateur sont gardées à part ; les autres suivent la partie des élèves normaux.
+  const showSocial = workspace.forecast?.socialStudentCount !== 0;
+  const [socialOverrides, setSocialOverrides] = useState<Record<string, Omit<SocialPartLine, "id" | "name">>>(() => Object.fromEntries((config?.draft?.socialRubrics ?? []).map((rubric) => [rubric.id,
+    rubric.mode === "percent" && rubric.basisPoints === 0 ? { mode: "percent" as const, value: "0", removed: true } : { mode: rubric.mode, value: String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100) }])));
+  const socialLines: SocialPartLine[] = rubrics.filter((rubric) => rubric.id).map((rubric) => ({ id: rubric.id, name: rubric.name || "Rubrique", ...(socialOverrides[rubric.id] ?? { mode: rubric.mode, value: rubric.value }) }));
+  const social = showSocial ? socialPartRubrics(socialLines) : null;
   useEffect(() => {
     const controller = new AbortController();
     void loadRubricCatalog(workspace.school.id, controller.signal).then((result) => setCatalog(result.rubrics)).catch((cause) => { if (!controller.signal.aborted) setErrorLoad(message(cause)); });
@@ -306,7 +314,7 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
   }
   const update = (index: number, changes: Partial<RubricInput>) => setRubrics((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, ...changes } : row));
   const save = useCallback(async () => {
-    if (locked.current || (!request.current && preview.error)) return;
+    if (locked.current || (!request.current && (preview.error || social?.error))) return;
     locked.current = true; setBusy(true); setError("");
     try {
       if (!request.current) {
@@ -318,13 +326,15 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
         }
         request.current = { schoolYearId: workspace.year.id, baseFeeTypeId: feeId, requestId: newId(),
           rubrics: preview.rubrics.map((rubric) => ({ ...rubric, id: created.current.get(rubric.id) ?? rubric.id })),
-          targets: selected.map((id) => ({ feeTypeId: id, expectedRevision: workspace.configs.find((item) => item.feeTypeId === id)?.draftRevision ?? 0 })) };
+          targets: selected.map((id) => ({ feeTypeId: id, expectedRevision: workspace.configs.find((item) => item.feeTypeId === id)?.draftRevision ?? 0 })),
+          // Identique à la partie des élèves normaux : le serveur ne crée aucune partie 2.
+          ...(social && !social.error ? { socialRubrics: social.rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id: created.current.get(id) ?? id, mode, ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) })) } : {}) };
       }
       await saveAllocationDrafts(request.current); request.current = null; onSaved();
     }
     catch (cause) { const pending = !(cause instanceof AllocationApiError && cause.confirmedRejection); setUncertain(pending); if (!pending) request.current = null; setError(message(cause)); }
     finally { locked.current = false; setBusy(false); setCreating(false); }
-  }, [preview, workspace, feeId, selected, onSaved]);
+  }, [preview, social, workspace, feeId, selected, onSaved]);
   return <AdminDrawer title={config ? "Reprendre le brouillon" : "Ajouter une répartition"} closeLabel="Fermer la configuration" width="wide" onClose={() => { if (!busy) onClose(); }}><div className="text-justify" data-justified>
     <p className="mb-3 text-sm">{workspace.school.name} · {workspace.year.name} · {workspace.currency}. Enregistrement préparatoire uniquement.</p>
     <fieldset disabled={busy || uncertain} className="grid gap-3">
@@ -338,10 +348,19 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
         {newName?.index === index && <span className="flex flex-wrap gap-2" data-new-rubric><input className="input min-w-[11rem] flex-1" maxLength={80} placeholder="Nouvelle rubrique" aria-label="Nouvelle rubrique" value={newName.value} onChange={(event) => setNewName({ index, value: event.target.value })}/><button type="button" className="secondary-button shrink-0" disabled={creating || !newName.value.trim()} onClick={() => void createNamed(index)}>Ajouter</button></span>}</label><label className="grid gap-1 text-sm">Mode<select className="input" value={rubric.mode} onChange={(event) => update(index, { mode: event.target.value as RubricInput["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label><label className="grid gap-1 text-sm">{rubric.mode === "percent" ? "Pourcentage (%)" : `Montant (${workspace.currency})`}<input className="input" inputMode="decimal" value={rubric.value} onChange={(event) => update(index, { value: event.target.value })}/></label><button type="button" className="secondary-button self-end" disabled={rubrics.length === 1} onClick={() => { setNewName(null); setRubrics((rows) => rows.filter((_, rowIndex) => rowIndex !== index)); }}>Retirer la ligne</button></div>)}
       <button type="button" className="secondary-button" disabled={rubrics.length >= 40} onClick={() => setRubrics((rows) => [...rows, { id: "", name: "", mode: "percent", value: "" }])}>+ Ajouter une ligne</button>
     </fieldset>
+    {showSocial && <section className="mt-4 grid gap-2 rounded border p-3" aria-label="Partie des cas sociaux" data-social-draft>
+      <h3 className="font-bold">Cas sociaux et prises en charge</h3>
+      <p className="text-sm">Partie des élèves qui ont une réduction ou une prise en charge. Elle reprend les mêmes rubriques ; les pourcentages s'appliquent à ce que l'élève paie vraiment (tarif moins sa réduction), et le reste va dans « Non affecté ». Elle sera publiée en même temps que la partie des élèves normaux ; si elle est différente, la phrase « PUBLIER LA PARTIE DEUX » sera demandée.</p>
+      {socialLines.length ? <SocialLinesEditor lines={socialLines} currency={workspace.currency} disabled={busy || uncertain} copyLabel="Recopier la partie des élèves normaux"
+        onChange={(next) => { request.current = null; setSocialOverrides(Object.fromEntries(next.filter((line) => { const own = rubrics.find((rubric) => rubric.id === line.id); return !own || line.removed || own.mode !== line.mode || own.value !== line.value; })
+          .map((line) => [line.id, { mode: line.mode, value: line.value, ...(line.removed ? { removed: true } : {}) }]))); }}
+        onCopyPartOne={() => { request.current = null; setSocialOverrides({}); }} />
+        : <p className="text-sm text-slate-600">Choisissez d'abord les rubriques des élèves normaux.</p>}
+    </section>}
     <h3 className="mt-4 font-bold">Aperçu par classe</h3>{preview.error && <p role="status" className="text-sm text-amber-800">{preview.error}</p>}
     {preview.rows.map((row) => <section key={row.fee.id} className="my-2 rounded border p-3 text-sm"><h4 className="font-semibold">{allocationClassLabel(row.fee.classOptionKey || row.fee.className)} · {formatCurrencyMoney(row.fee.amount, workspace.currency)}</h4><ul>{row.shares.map((share) => <li key={share.rubricId}>{row.rubrics.find((rubric) => rubric.id === share.rubricId)?.name ?? "Non affecté"} : {formatCurrencyMoney(share.amountMinor / 100, workspace.currency)} · {(share.amountMinor / toMoneyMinor(row.fee.amount) * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} %</li>)}</ul></section>)}
     <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />{uncertain && <p className="my-2 text-sm">L'enregistrement a peut-être abouti. La vérification renvoie exactement la même demande, sans nouvelle répartition.</p>}
     {/* Version 1.15.2 : les deux boutons se partagent toute la largeur, moitié-moitié. */}
-    <div className="mt-4 grid w-full grid-cols-2 gap-2" data-editor-actions><button type="button" className="secondary-button w-full justify-center" disabled={busy} onClick={onClose}>Annuler</button><Action className="primary-button w-full justify-items-center" busy={busy} disabled={!uncertain && !!preview.error} onClick={() => void save()}>{uncertain ? "Vérifier la même demande" : "Enregistrer"}</Action></div>
+    <div className="mt-4 grid w-full grid-cols-2 gap-2" data-editor-actions><button type="button" className="secondary-button w-full justify-center" disabled={busy} onClick={onClose}>Annuler</button><Action className="primary-button w-full justify-items-center" busy={busy} disabled={!uncertain && (!!preview.error || !!social?.error)} onClick={() => void save()}>{uncertain ? "Vérifier la même demande" : "Enregistrer"}</Action></div>
   </div></AdminDrawer>;
 }

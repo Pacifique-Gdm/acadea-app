@@ -7,6 +7,7 @@ import { AllocationActionButton as Action } from "./AllocationActionButton";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
+import { SOCIAL_PUBLISH_PHRASE, TypedConfirmation } from "./FeeAllocationSocialPart";
 
 const errorText = (e: unknown) => userFacingError(e, "Confirmation serveur indisponible.");
 const parseAmount = (value: string) => {
@@ -47,6 +48,8 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const [busy, setBusy] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const [errorLoad, setErrorLoad] = useState(""), errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [confirmation, setConfirmation] = useState(""), [cash, setCash] = useState("");
+  // Version 1.19.0 : phrase tapée quand la partie des cas sociaux, publiée en même temps, diffère de la partie 1.
+  const [socialConfirmation, setSocialConfirmation] = useState("");
   const [amounts, setAmounts] = useState<Record<string, string>>({}), [reason, setReason] = useState("");
   const [uncertain, setUncertain] = useState(false);
   const pending = useRef<{ action: string; body: Record<string, unknown> } | null>(null);
@@ -99,7 +102,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
     let confirmed = false;
     try {
       const result = await allocationRequest<{ decision?: string; reason?: string }>(pending.current.action, pending.current.body);
-      pending.current = null; setUncertain(false); setConfirmation(""); confirmed = true;
+      pending.current = null; setUncertain(false); setConfirmation(""); setSocialConfirmation(""); confirmed = true;
       setNotice(result.decision === 'rejected' ? `Justification refusée : ${result.reason ?? 'preuve non vérifiée'}`
         : result.decision === 'accepted' ? 'Justification vérifiée et conservée. Relancez le rapprochement avant toute approbation.'
           : "Opération confirmée par le serveur. Aucune autre école n'a été activée.");
@@ -148,6 +151,12 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const rows = view?.evidencePage?.rows ?? [], run = view?.reconciliation;
   const prepared = view?.versions.find(v => v.status === 'prepared' && workspace.configs.some(c => c.feeTypeId === v.feeTypeId && c.draftRevision === v.version));
   const draft = workspace.configs.find(c => c.draft && !view?.versions.some(v => v.feeTypeId === c.feeTypeId && v.version === c.draftRevision));
+  const withSocial = prepared?.hasSocialPart === true;
+  const publishBody = () => prepared ? { versionId: prepared.id, ...(withSocial ? { confirmation: socialConfirmation } : {}) } : {};
+  const socialBlock = withSocial && <div className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-justify text-sm" data-social-with-part-one>
+    <p>Ce frais a une partie des cas sociaux différente de celle des élèves normaux. Les deux parties seront publiées en même temps.</p>
+    <TypedConfirmation value={socialConfirmation} onChange={(value) => { pending.current = null; setSocialConfirmation(value); }} disabled={fieldsLocked} /></div>;
+  const socialMissing = withSocial && socialConfirmation !== SOCIAL_PUBLISH_PHRASE;
   const readableDate = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleDateString('fr-FR') : 'Date non justifiée';
   const label = (row: AllocationEvidence) => row.nature + (row.receiptNumber ? ' · reçu ' + row.receiptNumber : '') + ' · ' + readableDate(row.createdAt) + ' · ' + (row.amountMinor === null ? 'Montant non justifié' : row.currency ? formatCurrencyMoney(row.amountMinor / 100, row.currency) : (row.amountMinor / 100).toLocaleString('fr-FR') + ' (devise non justifiée)');
   const payrollOnly = run?.blockedCount === 1 && view?.singleBlocker?.nature === 'Paiement de personnel';
@@ -170,7 +179,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
       {run && <p role="status" className="text-sm">{run.scanned} écritures examinées · {run.blockedCount ? payrollOnly ? '1 paiement de personnel à vérifier' : run.blockedCount + ' écriture(s) à vérifier' : 'aucune écriture signalée'}. {run.stale ? 'Les écritures ont changé : vérification à actualiser.' : run.status === 'COMPLETE' ? 'Vérification terminée.' : run.status === 'RUNNING' ? 'Vérification en cours.' : run.reason}</p>}
       {view.status === 'EN_PREPARATION' ? <>
         {actionRow(!workspace.configs.length ? <p className="text-sm">Utilisez « + Ajouter » pour préparer la première répartition.</p>
-          : prepared ? primary('publish-configuration', 'Publier la répartition', () => void mutate('publish-configuration', { versionId: prepared.id }))
+          : prepared ? primary('publish-configuration', 'Publier la répartition', () => void mutate('publish-configuration', publishBody()), socialMissing)
           : draft ? primary('prepare-version', 'Préparer une version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision }))
           : !run || run.stale ? primary('start-reconciliation', 'Vérifier le solde de départ', () => void mutate('start-reconciliation', {}))
           : run.status === 'RUNNING' ? primary('continue', 'Continuer la vérification', () => void continueScan())
@@ -180,6 +189,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
           : (!opening || opening.stale) ? primary('prepare-opening', 'Confirmer le solde de départ', () => void submitOpening(), confirmation !== phrase || !view.rubrics.length)
           : opening.status === 'proposed' ? primary('approve-opening', 'Approuver le solde de départ', () => void mutate('approve-opening', { openingId: opening.id, confirmation }), confirmation !== phrase)
           : primary('activate', 'Activer la répartition', () => void mutate('activate', { openingId: opening.id, confirmation }), confirmation !== phrase || !opening.approvedByCurrentUser))}
+        {prepared && socialBlock}
         {scanning && <button className="secondary-button justify-self-start" type="button" onClick={() => { stopScan.current = true; }}>Suspendre la vérification après cette étape</button>}
         <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ActivationSteps /><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde approuvé n’est pas une activation.</p></details>
         {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
@@ -205,7 +215,8 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
           {opening?.status === 'approved' && !opening.approvedByCurrentUser && <p role="alert">Seul l’administrateur qui a approuvé peut confirmer l’activation.</p>}
         </fieldset>}
       </> : <>
-        {actionRow(prepared ? primary('publish-configuration', 'Publier le nouveau frais', () => void mutate('publish-configuration', { versionId: prepared.id }))
+        {prepared && socialBlock}
+        {actionRow(prepared ? primary('publish-configuration', 'Publier le nouveau frais', () => void mutate('publish-configuration', publishBody()), socialMissing)
           : draft && !draftLocked ? primary('prepare-version', 'Préparer la nouvelle version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision })) : null)}
         {draftLocked && !prepared && <p className="text-justify text-sm" data-draft-locked>{DRAFT_LOCKED_TEXT}</p>}
         {(prepared || (draft && !draftLocked)) && <p className="text-justify text-sm">La publication explicite concernera uniquement les nouveaux encaissements confirmés ensuite. Les anciens paiements et le solde de départ restent inchangés.</p>}

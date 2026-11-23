@@ -1,131 +1,172 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AdminDrawer } from "../../components/ui";
-import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationSocialVersion, FeeAllocationVersion } from "../../types/feeAllocation";
-import { AllocationApiError, loadSocialPart, publishSocialPart, type PublishSocialPart } from "../../services/feeAllocation";
+import type { FeeAllocationRubric } from "../../types/feeAllocation";
+import { AllocationApiError, loadSocialParts, publishSocialParts, type PublishSocialParts, type SocialPartItem } from "../../services/feeAllocation";
 import { sameAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
-import { socialPartPreview, socialPartRubrics, socialPartTotalText, type SocialPartLine as Line } from "./feeAllocationSocialPartPreview";
+import { applySocialLinesToAll, sameSocialLines, socialPartLines, socialPartPreview, socialPartRubrics, socialPartTotalText, type SocialPartLine as Line } from "./feeAllocationSocialPartPreview";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
+import { allocationClassLabel } from "../../utils/feeAllocationView";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
 
-/** Lot 27c-4 : partie 2 de la répartition, propre aux cas sociaux. */
-const valueOf = (rubric: FeeAllocationRubric) => String((rubric.mode === "fixed" ? rubric.fixedMinor ?? 0 : rubric.basisPoints ?? 0) / 100);
-/** Toutes les lignes du Tableau 1, pré-remplies ; une rubrique à 0 % dans la partie 2 est une ligne retirée (sa valeur de la partie 1 reste prête pour la remettre). */
-const toLines = (partOne: FeeAllocationRubric[], social?: FeeAllocationRubric[]): Line[] => partOne.map((rubric) => {
-  const own = social?.find((item) => item.id === rubric.id);
-  const removed = own?.mode === "percent" && own.basisPoints === 0;
-  const source = own && !removed ? own : rubric;
-  return { id: rubric.id, name: rubric.name, mode: source.mode, value: valueOf(source), ...(removed ? { removed: true } : {}) };
-});
+/** Phrase tapée par l'Administrateur pour publier une partie 2 (identique au serveur). */
+export const SOCIAL_PUBLISH_PHRASE = "PUBLIER LA PARTIE DEUX";
 const message = (cause: unknown) => userFacingError(cause, "Partie 2 indisponible.");
 const newId = () => crypto.randomUUID().replaceAll("-", "");
 const decimal = /^[0-9]+(?:[.,][0-9]{1,2})?$/;
+const feeLabel = (item: Pick<SocialPartItem, "feeName" | "className" | "classOptionKey">) => `${item.feeName} · ${allocationClassLabel(item.classOptionKey || item.className || "")}`;
+const toInput = (rubrics: FeeAllocationRubric[]) => rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, mode, ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) }));
 
-export function SocialPartEditor({ config, feeName, classLabel, currency, canPublish, onClose, onPublished }: {
-  config: FeeAllocationConfig; feeName: string; classLabel: string; currency: "USD" | "CDF"; canPublish: boolean; onClose: () => void; onPublished: () => void;
+/** Champ de la phrase de confirmation : tapée à la main (pas de coller, pas de glisser, pas de remplissage automatique). */
+export function TypedConfirmation({ value, onChange, disabled, label = `Pour publier, tapez vous-même « ${SOCIAL_PUBLISH_PHRASE} »` }: { value: string; onChange: (value: string) => void; disabled?: boolean; label?: string }) {
+  const block = (event: { preventDefault: () => void }) => event.preventDefault();
+  // Nom changeant pour que le navigateur ne propose jamais de remplissage automatique.
+  const [name] = useState(() => `confirmation-partie-2-${newId()}`);
+  return <label className="grid gap-1 text-sm">{label}
+    <input className="input" value={value} disabled={disabled} aria-label="Phrase de confirmation de la partie 2" autoComplete="off" autoCorrect="off" autoCapitalize="characters" spellCheck={false}
+      name={name} data-typed-confirmation onPaste={block} onDrop={block} onDragOver={block} onContextMenu={block}
+      onChange={(event) => { const native = event.nativeEvent as InputEvent; if (native?.inputType === "insertFromPaste" || native?.inputType === "insertFromDrop" || native?.inputType === "insertReplacementText") return; onChange(event.target.value); }} />
+    {value && value !== SOCIAL_PUBLISH_PHRASE && <span className="text-xs text-amber-800">La phrase n'est pas encore exacte.</span>}
+  </label>;
+}
+
+/** Lignes de la partie 2 (cas sociaux) : rubriques de la partie 1, « Retirer la ligne » / « Remettre la ligne », « Non affecté » automatique. */
+export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyPartOne, copyLabel = "Recopier la partie 1" }: {
+  lines: Line[]; currency: "USD" | "CDF"; disabled?: boolean; onChange: (lines: Line[]) => void; onCopyPartOne: () => void; copyLabel?: string;
 }) {
-  const [partOne, setPartOne] = useState<FeeAllocationVersion | null>(null);
-  const [social, setSocial] = useState<FeeAllocationSocialVersion | null>(null);
-  const [history, setHistory] = useState<FeeAllocationSocialVersion[]>([]);
-  const [paidWithCurrent, setPaidWithCurrent] = useState(0);
-  const [lines, setLines] = useState<Line[]>([]);
-  const [net, setNet] = useState("");
-  const [unallocatedRemoved, setUnallocatedRemoved] = useState(false);
+  const entered = socialPartRubrics(lines);
+  const update = (index: number, changes: Partial<Line>) => onChange(lines.map((row, i) => i === index ? { ...row, ...changes } : row));
+  return <fieldset disabled={disabled} className="grid gap-2">
+    {lines.map((line, index) => line.removed
+      ? <div key={line.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed bg-slate-50 p-2" data-removed-line>
+        <span className="text-sm"><span className="font-medium line-through">{line.name}</span> — ligne retirée : elle ne reçoit plus rien des cas sociaux.</span>
+        <button type="button" className="secondary-button" onClick={() => update(index, { removed: false })}>Remettre la ligne</button></div>
+      : <div key={line.id} className="grid gap-2 rounded border p-2 sm:grid-cols-4">
+        <span className="self-center text-sm font-medium">{line.name}</span>
+        <label className="grid gap-1 text-sm">Mode<select className="input" aria-label={`Mode ${line.name}`} value={line.mode} onChange={(event) => update(index, { mode: event.target.value as Line["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label>
+        <label className="grid gap-1 text-sm">{line.mode === "percent" ? "Pourcentage (%)" : `Montant (${currency})`}<input className="input" inputMode="decimal" aria-label={`Valeur ${line.name}`} value={line.value} onChange={(event) => update(index, { value: event.target.value })}/></label>
+        <button type="button" className="secondary-button self-end" aria-label={`Retirer la ligne ${line.name}`} onClick={() => update(index, { removed: true })}>Retirer la ligne</button>
+      </div>)}
+    {/* « Non affecté » ne se retire pas : il reçoit toujours le reste, automatiquement. */}
+    <div className="grid gap-2 rounded border bg-slate-50 p-2 sm:grid-cols-4" data-unallocated-line>
+      <span className="self-center text-sm font-medium">Non affecté</span>
+      <span className="self-center text-sm sm:col-span-3">Reçoit automatiquement le reste : ce qui n'est attribué à aucune rubrique.</span></div>
+    {entered.error ? <p role="status" className="text-sm text-amber-800">{entered.error}</p>
+      : <p className="text-sm" role="status">{socialPartTotalText(entered.percentBasisPoints, entered.hasFixed)}</p>}
+    <button type="button" className="secondary-button justify-self-start" onClick={onCopyPartOne}>{copyLabel}</button>
+  </fieldset>;
+}
+
+/** Version 1.19.0 : une partie 2 par frais, mais un seul formulaire pour tous les frais répartis au Tableau 1. */
+export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPublish, onClose, onPublished }: {
+  schoolId: string; initialFeeTypeId: string; currency: "USD" | "CDF"; canPublish: boolean; onClose: () => void; onPublished: () => void;
+}) {
+  const [items, setItems] = useState<SocialPartItem[]>([]);
+  const [selected, setSelected] = useState(initialFeeTypeId);
+  /** Réglages de chaque frais, gardés quand on change de frais dans la liste. */
+  const [drafts, setDrafts] = useState<Record<string, Line[]>>({});
+  const [nets, setNets] = useState<Record<string, string>>({});
+  const [missing, setMissing] = useState<{ feeLabel: string; names: string[] }[]>([]);
+  const [confirmation, setConfirmation] = useState("");
   const [loading, setLoading] = useState(true), [busy, setBusy] = useState(false), [uncertain, setUncertain] = useState(false);
-  const [error, setError] = useState(""), [notice, setNotice] = useState(""), [confirming, setConfirming] = useState(false);
-  const [errorLoad, setErrorLoad] = useState("");
+  const [error, setError] = useState(""), [notice, setNotice] = useState(""), [errorLoad, setErrorLoad] = useState("");
   const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
-  const request = useRef<PublishSocialPart | null>(null);
+  const request = useRef<PublishSocialParts | null>(null);
+  const [reload, setReload] = useState(0);
   useEffect(() => {
     let alive = true;
-    void loadSocialPart(config.schoolId, config.feeTypeId).then((result) => {
+    void loadSocialParts(schoolId).then((result) => {
       if (!alive) return;
-      setPartOne(result.partOne); setSocial(result.social); setHistory(result.history); setPaidWithCurrent(result.paidWithCurrent ?? 0);
-      if (result.partOne) {
-        setLines(toLines(result.partOne.rubrics, result.social?.rubrics)); setUnallocatedRemoved(result.social?.unallocatedRemoved === true);
-        setNet(String(result.partOne.feeAmountMinor / 200));
-      }
+      setItems(result);
+      setDrafts(Object.fromEntries(result.map((item) => [item.feeTypeId, socialPartLines(item.partOne.rubrics, item.social?.rubrics)])));
+      setNets(Object.fromEntries(result.map((item) => [item.feeTypeId, String(item.partOne.feeAmountMinor / 200)])));
+      setSelected((current) => result.some((item) => item.feeTypeId === current) ? current : result[0]?.feeTypeId ?? "");
     }).catch((cause) => { if (alive) setErrorLoad(message(cause)); }).finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [config.schoolId, config.feeTypeId, errorLoadRetry.token]);
-  const entered = useMemo(() => socialPartRubrics(lines, { unallocatedRemoved }), [lines, unallocatedRemoved]);
+  }, [schoolId, errorLoadRetry.token, reload]);
+  const saved = useMemo(() => new Map(items.map((item) => [item.feeTypeId, socialPartLines(item.partOne.rubrics, item.social?.rubrics)])), [items]);
+  const modified = useMemo(() => items.filter((item) => drafts[item.feeTypeId] && !sameSocialLines(drafts[item.feeTypeId], saved.get(item.feeTypeId) ?? [])), [items, drafts, saved]);
+  const item = items.find((entry) => entry.feeTypeId === selected) ?? null;
+  const lines = useMemo(() => item ? drafts[item.feeTypeId] ?? [] : [], [item, drafts]);
+  const entered = useMemo(() => socialPartRubrics(lines), [lines]);
+  const net = item ? nets[item.feeTypeId] ?? "" : "";
   const preview = useMemo(() => {
-    if (!partOne || entered.error) return { rows: [], error: entered.error };
+    if (!item || entered.error) return { rows: [], error: entered.error };
     try {
       if (!decimal.test(net.trim())) throw new Error("Montant net du cas social invalide.");
-      return { rows: socialPartPreview(partOne, entered.rubrics, toMoneyMinor(Number(net.replace(",", ".")))), error: "" };
+      return { rows: socialPartPreview(item.partOne, entered.rubrics, toMoneyMinor(Number(net.replace(",", ".")))), error: "" };
     } catch (cause) { return { rows: [], error: message(cause) }; }
-  }, [partOne, entered, net]);
-  const copy = partOne && !entered.error && !unallocatedRemoved && sameAllocationRubrics(partOne.rubrics, entered.rubrics);
-  const changed = () => { request.current = null; setConfirming(false); };
-  const update = (index: number, changes: Partial<Line>) => { changed(); setLines((rows) => rows.map((row, i) => i === index ? { ...row, ...changes } : row)); };
+  }, [item, entered, net]);
+  // Les frais modifiés qui ont une erreur bloquent la publication (on les nomme).
+  const invalid = modified.filter((entry) => socialPartRubrics(drafts[entry.feeTypeId]).error);
+  const changed = () => { request.current = null; setNotice(""); };
+  const setLines = (feeTypeId: string, next: Line[]) => { changed(); setDrafts((all) => ({ ...all, [feeTypeId]: next })); };
+  function applyToAll() {
+    if (!item) return;
+    changed();
+    const others = items.filter((entry) => entry.feeTypeId !== item.feeTypeId).map((entry) => ({ feeTypeId: entry.feeTypeId, lines: drafts[entry.feeTypeId] ?? [] }));
+    const result = applySocialLinesToAll(lines, others);
+    setDrafts((all) => ({ ...all, ...Object.fromEntries(result.map((row) => [row.feeTypeId, row.lines])) }));
+    setMissing(result.filter((row) => row.missing.length).map((row) => ({ feeLabel: feeLabel(items.find((entry) => entry.feeTypeId === row.feeTypeId)!), names: row.missing })));
+    setNotice(`Réglages de « ${feeLabel(item)} » recopiés sur ${others.length} autre${others.length > 1 ? "s" : ""} frais, rubrique par rubrique.`);
+  }
   async function publish() {
-    if (!partOne || busy || (!request.current && (entered.error || preview.error))) return;
+    if (busy || (!request.current && (!modified.length || invalid.length || confirmation !== SOCIAL_PUBLISH_PHRASE))) return;
     setBusy(true); setError("");
-    request.current ??= { feeTypeId: config.feeTypeId, requestId: newId(), expectedPartOneVersionId: partOne.id, expectedSocialVersionId: social?.id ?? null,
-      rubrics: entered.rubrics.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, mode, ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) })),
-      ...(unallocatedRemoved ? { unallocatedRemoved: true } : {}) };
+    request.current ??= { requestId: newId(), confirmation, items: modified.map((entry) => ({ feeTypeId: entry.feeTypeId, expectedPartOneVersionId: entry.partOne.id,
+      expectedSocialVersionId: entry.social?.id ?? null, rubrics: toInput(socialPartRubrics(drafts[entry.feeTypeId]).rubrics) })) };
     try {
-      const published = await publishSocialPart(request.current);
-      request.current = null; setUncertain(false); setConfirming(false);
-      setSocial(published); setPaidWithCurrent(0); setHistory((items) => [published, ...items.filter((item) => item.id !== published.id).map((item) => item.status === "published" ? { ...item, status: "superseded" as const } : item)]);
-      setNotice(`Partie 2 publiée (version ${published.version}). Elle s'appliquera aux cas sociaux dont le premier paiement de ce frais arrivera à partir de maintenant.`);
-      onPublished();
+      const published = await publishSocialParts(request.current);
+      request.current = null; setUncertain(false); setConfirmation(""); setMissing([]);
+      setNotice(`Partie 2 publiée pour ${published.length} frais. Elle s'applique aux prochains paiements des cas sociaux ; les paiements déjà répartis ne changent pas.`);
+      setReload((n) => n + 1); onPublished();
     } catch (cause) {
       const pending = !(cause instanceof AllocationApiError && cause.confirmedRejection);
       setUncertain(pending); if (!pending) request.current = null; setError(message(cause));
     } finally { setBusy(false); }
   }
+  const locked = !canPublish || busy || uncertain;
+  const ready = !!modified.length && !invalid.length && confirmation === SOCIAL_PUBLISH_PHRASE;
   return <AdminDrawer title="Partie 2 — cas sociaux" closeLabel="Fermer la partie 2" width="wide" onClose={() => { if (!busy) onClose(); }}><div className="text-justify" data-justified>
-    <p className="mb-2 text-sm font-semibold">{feeName} · {classLabel}</p>
-    <p className="mb-3 text-sm text-slate-700">Répartition propre aux élèves qui ont une réduction ou une prise en charge sur ce frais. Les pourcentages s'appliquent à ce que l'élève doit vraiment payer (tarif moins sa réduction). Toutes les lignes de la partie 1 sont reprises : retirez celles qui ne doivent plus rien recevoir des cas sociaux, puis répartissez les pourcentages sur les lignes restantes. Sans partie 2, la partie 1 s'applique.</p>
     {loading && <div aria-hidden className="h-40 animate-pulse rounded bg-slate-100" />}
-    {!loading && !partOne && !error && <p role="status" className="text-sm">Publiez d'abord la partie 1 de ce frais.</p>}
-    {partOne && <>
+    <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} />
+    {!loading && !errorLoad && !items.length && <p role="status" className="text-sm">Publiez d'abord la partie 1 d'au moins un frais.</p>}
+    {item && <>
+      <label className="mb-2 grid gap-1 text-sm font-semibold">Frais
+        <select className="input" aria-label="Frais de la partie 2" value={selected} disabled={busy} onChange={(event) => setSelected(event.target.value)}>
+          {items.map((entry) => <option key={entry.feeTypeId} value={entry.feeTypeId}>{feeLabel(entry)}{modified.some((m) => m.feeTypeId === entry.feeTypeId) ? " — modifié" : ""}</option>)}
+        </select></label>
+      {modified.length > 0 && <p className="mb-2 text-sm" role="status" data-modified-fees>Frais modifiés, pas encore publiés : {modified.map(feeLabel).join(", ")}.</p>}
+      <p className="mb-3 text-sm text-slate-700">Répartition propre aux élèves qui ont une réduction ou une prise en charge sur ce frais. Les pourcentages s'appliquent à ce que l'élève paie vraiment (tarif moins sa réduction). Le total peut être inférieur à 100 % : le reste va automatiquement dans « Non affecté ». Sans partie 2, la partie 1 s'applique.</p>
       <section className="mb-3 rounded border p-3 text-sm"><h3 className="mb-1 font-semibold">Partie 1 — élèves normalement inscrits (publiée)</h3>
-        <ul>{partOne.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></section>
-      <p className="mb-2 text-sm" role="status">{social ? `Partie 2 en service : version ${social.version}, publiée le ${social.effectiveFrom.slice(0, 10)}${social.copyOfPartOne ? " (identique à la partie 1)" : ""}.` : "Aucune partie 2 publiée : les cas sociaux suivent la partie 1."}</p>
-      {social && paidWithCurrent > 0 && <p role="note" className="mb-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Attention : {paidWithCurrent} cas social{paidWithCurrent > 1 ? "aux ont" : " a"} déjà payé ce frais avec la partie 2 en service. Si vous publiez une nouvelle partie 2, leurs paiements déjà répartis ne changent pas ; leurs prochains paiements suivront la nouvelle partie 2 pour le reste de ce qu'ils doivent.</p>}
-      <fieldset disabled={!canPublish || busy || uncertain} className="grid gap-2">
-        <legend className="mb-1 text-sm font-semibold">Partie 2 — cas sociaux</legend>
-        {lines.map((line, index) => line.removed
-          ? <div key={line.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed bg-slate-50 p-2" data-removed-line>
-            <span className="text-sm"><span className="font-medium line-through">{line.name}</span> — ligne retirée : elle ne reçoit plus rien des cas sociaux.</span>
-            <button type="button" className="secondary-button" onClick={() => update(index, { removed: false })}>Remettre la ligne</button></div>
-          : <div key={line.id} className="grid gap-2 rounded border p-2 sm:grid-cols-4">
-          <span className="self-center text-sm font-medium">{line.name}</span>
-          <label className="grid gap-1 text-sm">Mode<select className="input" aria-label={`Mode ${line.name}`} value={line.mode} onChange={(event) => update(index, { mode: event.target.value as Line["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label>
-          <label className="grid gap-1 text-sm">{line.mode === "percent" ? "Pourcentage (%)" : `Montant (${currency})`}<input className="input" inputMode="decimal" aria-label={`Valeur ${line.name}`} value={line.value} onChange={(event) => update(index, { value: event.target.value })}/></label>
-          <button type="button" className="secondary-button self-end" aria-label={`Retirer la ligne ${line.name}`} onClick={() => update(index, { removed: true })}>Retirer la ligne</button>
-        </div>)}
-        {unallocatedRemoved
-          ? <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-dashed bg-slate-50 p-2" data-removed-line>
-            <span className="text-sm"><span className="font-medium line-through">Non affecté</span> — ligne retirée : tout doit aller aux rubriques.</span>
-            <button type="button" className="secondary-button" onClick={() => { changed(); setUnallocatedRemoved(false); }}>Remettre la ligne</button></div>
-          : <div className="grid gap-2 rounded border p-2 sm:grid-cols-4" data-unallocated-line>
-            <span className="self-center text-sm font-medium">Non affecté</span>
-            <span className="self-center text-sm sm:col-span-2">Reçoit automatiquement ce qui n'est attribué à aucune rubrique.</span>
-            <button type="button" className="secondary-button self-end" aria-label="Retirer la ligne Non affecté" onClick={() => { changed(); setUnallocatedRemoved(true); }}>Retirer la ligne</button></div>}
-        {!entered.error && <p className="text-sm" role="status">{socialPartTotalText(entered.percentBasisPoints, entered.hasFixed, unallocatedRemoved)}</p>}
-        <button type="button" className="secondary-button justify-self-start" onClick={() => { changed(); setUnallocatedRemoved(false); setLines(toLines(partOne.rubrics)); }}>Recopier la partie 1</button>
-      </fieldset>
+        <ul>{item.partOne.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></section>
+      <p className="mb-2 text-sm" role="status">{item.social ? `Partie 2 en service : version ${item.social.version}, publiée le ${item.social.effectiveFrom.slice(0, 10)}${item.social.copyOfPartOne ? " (identique à la partie 1)" : ""}.` : "Aucune partie 2 publiée pour ce frais : les cas sociaux suivent la partie 1."}</p>
+      {item.social && item.paidWithCurrent > 0 && <p role="note" className="mb-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">Attention : {item.paidWithCurrent} cas social{item.paidWithCurrent > 1 ? "aux ont" : " a"} déjà payé ce frais avec la partie 2 en service. Leurs paiements déjà répartis ne changent pas ; leurs prochains paiements suivront la nouvelle partie 2 pour le reste de ce qu'ils doivent.</p>}
+      <h3 className="mb-1 text-sm font-semibold">Partie 2 — cas sociaux · {feeLabel(item)}</h3>
+      <SocialLinesEditor lines={lines} currency={currency} disabled={locked} onChange={(next) => setLines(item.feeTypeId, next)}
+        onCopyPartOne={() => setLines(item.feeTypeId, socialPartLines(item.partOne.rubrics))} />
+      {items.length > 1 && <button type="button" className="secondary-button mt-2" disabled={locked || !!entered.error} onClick={applyToAll}>Appliquer à tous les frais</button>}
+      {missing.length > 0 && <div role="note" className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" data-missing-rubrics>
+        <p className="font-semibold">Rubriques absentes de certains frais : leur part ira dans « Non affecté ».</p>
+        <ul className="mt-1 list-disc pl-5">{missing.map((row) => <li key={row.feeLabel}>« {row.feeLabel} » n'a pas {row.names.length > 1 ? "les rubriques" : "la rubrique"} {row.names.map((name) => `« ${name} »`).join(", ")}.</li>)}</ul></div>}
       <h3 className="mt-4 font-bold">Aperçu en {currency}</h3>
-      <label className="my-2 grid max-w-xs gap-1 text-sm">Montant net d'un cas social ({currency}, tarif {formatCurrencyMoney(partOne.feeAmountMinor / 100, currency)})<input className="input" inputMode="decimal" aria-label="Montant net du cas social" value={net} onChange={(event) => setNet(event.target.value)}/></label>
+      <label className="my-2 grid max-w-xs gap-1 text-sm">Montant net d'un cas social ({currency}, tarif {formatCurrencyMoney(item.partOne.feeAmountMinor / 100, currency)})<input className="input" inputMode="decimal" aria-label="Montant net du cas social" value={net} onChange={(event) => setNets((all) => ({ ...all, [item.feeTypeId]: event.target.value }))}/></label>
       {preview.error ? <p role="status" className="text-sm text-amber-800">{preview.error}</p>
-        : <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[420px] text-sm" aria-label="Aperçu partie 1 et partie 2"><thead><tr><th scope="col" className="border-b p-2 text-left">Rubrique</th><th scope="col" className="border-b p-2 text-left">Élève normal (paie {formatCurrencyMoney(partOne.feeAmountMinor / 100, currency)})</th><th scope="col" className="border-b p-2 text-left">Cas social (paie {formatCurrencyMoney(Number(net.replace(",", ".")), currency)})</th></tr></thead>
+        : <div className="max-w-full overflow-x-auto"><table className="w-full min-w-[420px] text-sm" aria-label="Aperçu partie 1 et partie 2"><thead><tr><th scope="col" className="border-b p-2 text-left">Rubrique</th><th scope="col" className="border-b p-2 text-left">Élève normal (paie {formatCurrencyMoney(item.partOne.feeAmountMinor / 100, currency)})</th><th scope="col" className="border-b p-2 text-left">Cas social (paie {formatCurrencyMoney(Number(net.replace(",", ".")), currency)})</th></tr></thead>
           <tbody>{preview.rows.map((row) => <tr key={row.rubricId}><td className="border-b p-2">{row.name}</td><td className="border-b p-2">{formatCurrencyMoney(row.normalMinor / 100, currency)}</td><td className="border-b p-2">{formatCurrencyMoney(row.socialMinor / 100, currency)}</td></tr>)}</tbody></table></div>}
-      {copy && <p className="mt-2 text-xs text-slate-600">Identique à la partie 1 : les cas sociaux reçoivent exactement les mêmes montants qu'avec la partie 1.</p>}
-      <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
-      {notice && <p role="status" className="my-3 text-sm text-emerald-700">{notice}</p>}
-      {uncertain && <p className="my-2 text-sm">La publication a peut-être abouti. La vérification renvoie exactement la même demande.</p>}
-      {canPublish && (confirming || uncertain ? <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm">
-          <p>La partie 2 s'appliquera aux cas sociaux dont le <b>premier paiement</b> de ce frais arrivera après la publication. Un cas social déjà réparti selon une partie 2 précédente suivra celle-ci pour ses prochains paiements. Un cas social déjà réparti selon la partie 1 la garde pour ce frais. Aucun paiement déjà réparti ne change.</p>
-          <div className="mt-2 flex flex-wrap gap-2"><button type="button" className="secondary-button" disabled={busy || uncertain} onClick={() => setConfirming(false)}>Revenir</button><Action className="primary-button" busy={busy} onClick={() => void publish()}>{uncertain ? "Vérifier la même demande" : "Confirmer la publication"}</Action></div></div>
-        : <div className="mt-4"><button type="button" className="primary-button" disabled={!!entered.error || !!preview.error} onClick={() => setConfirming(true)}>Publier la partie 2</button></div>)}
-      {history.length > 0 && <details className="mt-4 text-sm"><summary className="cursor-pointer">Versions de la partie 2</summary><ul className="mt-2 grid gap-1">{history.map((item) => <li key={item.id}>Version {item.version} · {item.status === "published" ? "en service" : "remplacée"} · {item.effectiveFrom.slice(0, 10)}{item.copyOfPartOne ? " · identique à la partie 1" : ""}</li>)}</ul></details>}
+      {!entered.error && sameAllocationRubrics(item.partOne.rubrics, entered.rubrics) && <p className="mt-2 text-xs text-slate-600">Identique à la partie 1 : les cas sociaux reçoivent exactement les mêmes montants qu'avec la partie 1.</p>}
     </>}
+    <ErrorNotice error={error} />
+    {notice && <p role="status" className="my-3 text-sm text-emerald-700">{notice}</p>}
+    {uncertain && <p className="my-2 text-sm">La publication a peut-être abouti. La vérification renvoie exactement la même demande.</p>}
+    {canPublish && items.length > 0 && <div className="mt-4 grid gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm" data-social-publish>
+      <p>La partie 2 s'appliquera aux paiements des cas sociaux arrivés après la publication, y compris à ceux qui ont déjà payé une partie de ce frais. Aucun paiement déjà réparti ne change. {modified.length ? `${modified.length} frais modifié${modified.length > 1 ? "s" : ""} ser${modified.length > 1 ? "ont" : "a"} publié${modified.length > 1 ? "s" : ""} en une seule fois.` : "Aucun frais modifié pour l'instant."}</p>
+      {invalid.length > 0 && <p role="alert" className="text-amber-900">À corriger avant de publier : {invalid.map(feeLabel).join(", ")}.</p>}
+      <TypedConfirmation value={confirmation} onChange={(value) => { request.current = null; setConfirmation(value); }} disabled={busy || uncertain} />
+      <Action className="primary-button justify-self-stretch sm:justify-self-start" busy={busy} disabled={!uncertain && !ready} onClick={() => void publish()}>{uncertain ? "Vérifier la même demande" : "Publier la partie 2"}</Action>
+    </div>}
   </div></AdminDrawer>;
 }

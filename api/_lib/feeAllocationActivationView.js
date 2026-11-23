@@ -125,7 +125,7 @@ export async function readAllocationActivation({ db, caller, body, now = new Dat
     }
     return { operational: false, schoolId, schoolYearId: yearId, currency, testOnly: scope.testOnly, status: "EN_PREPARATION", cutoffAt: now,
       rubrics: [...rubrics.values()], versions: versions.docs.map(d => d.data()).filter(v => ["prepared", "published"].includes(v.status))
-        .map(v => ({ id: v.id, configId: v.configId, feeTypeId: v.feeTypeId, version: v.version, status: v.status })),
+        .map(v => ({ id: v.id, configId: v.configId, feeTypeId: v.feeTypeId, version: v.version, status: v.status, ...(v.socialRubrics?.length ? { hasSocialPart: true } : {}) })),
       reconciliation: run ? { ...runPublic(run), stale: runStale } : null,
       singleBlocker,
       evidencePage: { page, hasNext: page + 1 < (run?.pageCount ?? 0), rows: safeRows, fingerprint },
