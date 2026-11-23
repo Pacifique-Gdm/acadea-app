@@ -96,6 +96,9 @@ export default async function handler(req, res) {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
         ? await requireActiveCoordinationActor(auth, db, token)
         : await requireActiveApiUser(db, caller);
+      // Un compte sans école ni coordination (le Super administrateur, par exemple) n'a aucun accès à la répartition :
+      // refus clair (403) au lieu d'une erreur interne du limiteur de demandes.
+      if (!actor?.schoolId && !actor?.coordinationId) throw new FeeAllocationError(403, "permission-denied", "Accès à la répartition interdit.");
       const allocationAction = requestedAction.slice("fee-allocation.".length);
       const mutation = ["save-draft", "save-drafts", "prepare-version", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "publish-social-part", "publish-social-parts", "set-rubric-share", "revoke-share"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
       await enforceApiRateLimit({ db, actorId: actor.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
