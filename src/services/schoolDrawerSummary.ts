@@ -2,6 +2,7 @@ import { getCurrentFirebaseIdToken } from "./auth";
 import { resolveApiUrl } from "../config/apiUrl";
 import { apiErrorMessage } from "../utils/rateLimitErrors";
 import type { AuditLog } from "../types";
+import { parseJustifications, type AllocationJustificationsResult } from "../components/AllocationJustifications";
 
 /**
  * Lot SA-4 : drawer d'école léger. Le serveur envoie les nombres déjà calculés et l'historique page par page ;
@@ -66,6 +67,12 @@ export async function loadSchoolDrawerDetail(schoolId: string, schoolYearId: str
 export async function loadSchoolHistoryPage(schoolId: string, schoolYearId: string, cursor: string): Promise<SchoolHistoryPage> {
   const payload = await postSchoolDrawer({ action: "school-history", schoolId, schoolYearId, cursor }, "Historique de l'école indisponible.");
   return parseSchoolHistoryPage(payload.history);
+}
+
+/** Lot « 3 étapes » : justifications de la répartition d'une école (Super administrateur), photos par lien de 10 minutes. */
+export async function loadSchoolJustifications(schoolId: string, schoolYearId: string): Promise<AllocationJustificationsResult> {
+  const payload = await postSchoolDrawer({ action: "school-justifications", schoolId, schoolYearId }, "Justifications indisponibles.") as { justifications?: unknown };
+  return parseJustifications(payload.justifications);
 }
 
 /** Ajoute une page à l'historique déjà affiché, sans doublon. */

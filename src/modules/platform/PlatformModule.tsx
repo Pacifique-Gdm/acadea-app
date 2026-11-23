@@ -19,7 +19,8 @@ import { useRealtimeCoordinations } from "../../hooks/useRealtimeCoordinations";
 import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hooks/useRealtimeSchoolUsers";
 import { savePlatformSettings } from "../../services/firestoreData";
 import { loadAllPlatformSchools, loadPlatformSchoolWithYears } from "../../services/superAdminData";
-import { appendSchoolHistoryPage, loadSchoolDrawerDetail, loadSchoolHistoryPage } from "../../services/schoolDrawerSummary";
+import { appendSchoolHistoryPage, loadSchoolDrawerDetail, loadSchoolHistoryPage, loadSchoolJustifications } from "../../services/schoolDrawerSummary";
+import { AllocationJustifications } from "../../components/AllocationJustifications";
 import { platformStatsTimeLabel, type PlatformStats } from "../../services/platformStats";
 import { manageSchool, provisionSchoolAdmin, provisionSchoolUser, removeSchoolAdmin, setSchoolAdminStatus } from "../../services/provisioning";
 import { isSchoolAiAssistantEnabled, loadSchoolAiAssistantSetting, resetSchoolAiMonthlyUsage, saveSchoolAiAssistantSetting, schoolAiUsageThisMonth, validateSchoolAiMonthlyLimit } from "../../services/schoolAiAssistant";
@@ -1774,6 +1775,8 @@ export function PlatformModule({
               <div className="grid gap-3">
                 <AuditTimeline logs={drawerLogs} />
                 <ErrorNotice error={historyError} onRetry={loadMoreSchoolHistory} />
+                {drawerYear && <section className="grid gap-1 rounded border p-3" aria-label="Justifications de la répartition des frais"><h3 className="text-sm font-semibold">Répartition des frais : justifications des écritures</h3>
+                  <AllocationJustifications key={drawerKey} load={() => loadSchoolJustifications(drawerSchool.id, drawerYear.id)} /></section>}
                 {drawerData?.history.hasMore && (
                   <button type="button" className="secondary-button justify-center" disabled={historyLoading} onClick={loadMoreSchoolHistory} data-school-history-more>
                     {historyLoading ? "Chargement…" : "Voir plus"}

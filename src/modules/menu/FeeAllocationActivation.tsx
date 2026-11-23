@@ -11,6 +11,7 @@ import { pendingPublications } from "./feeAllocationPublishPlan";
 import { allocationClassLabel } from "../../utils/feeAllocationView";
 import { openingPlan, reasonReady } from "./feeAllocationOpeningPlan";
 import { proofPhotoProblem, uploadProofPhoto } from "../../services/feeAllocationProofPhoto";
+import { AllocationJustifications, parseJustifications } from "../../components/AllocationJustifications";
 
 const errorText = (e: unknown) => userFacingError(e, "Confirmation serveur indisponible.");
 /** Lot « 3 étapes » : phrases tapées par l'Administrateur. */
@@ -151,6 +152,8 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
       }
     } finally { locked.current = false; setBusy(false); setActionBusy(""); }
   }
+  // Lot « 3 étapes » : justifications consultables avant et après l'activation (Administrateur de l'école seulement).
+  const loadJustifications = async () => parseJustifications(await allocationRequest<unknown>('get-justifications', {}));
   const money = (n: number) => formatCurrencyMoney(n / 100, view?.currency ?? workspace.currency);
   const opening = view?.opening;
   const activationPhrase = view?.testOnly ? "ACTIVER LA REPARTITION FICTIVE" : "ACTIVER LA REPARTITION DE MON ETABLISSEMENT";
@@ -355,12 +358,14 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
             <Action busy={busy && actionBusy === 'cancel-opening'} disabled={fieldsLocked || cancelPhrase !== CANCEL_OPENING_PHRASE} className="secondary-button justify-self-start" onClick={() => void mutate('cancel-opening', { openingId: opening.id, confirmation: cancelPhrase })}>Confirmer l’annulation</Action></div>}
         </fieldset>}
         <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ActivationSteps /><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde validé n’est pas une activation.</p></details>
+        <AllocationJustifications load={loadJustifications} />
         {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
         {!!run?.pageCount && <Action busy={busy && actionBusy === 'evidence'} disabled={fieldsLocked} className="secondary-button justify-self-start" onClick={() => { setEvidenceOpen(v => !v); if (!evidenceOpen && blockedOnly) void refresh(0, false, 'evidence'); }}>{evidenceOpen ? 'Masquer les pièces' : 'Voir les pièces vérifiées'}</Action>}
       </> : <>
         {actionRow(planCount ? primary('publish-all', planCount > 1 ? `Publier les nouveaux frais (${planCount} classes)` : 'Publier le nouveau frais', () => void publishAll(), socialMissing) : null)}
         {planBlock}
         {plan.locked > 0 && !planCount && <p className="text-justify text-sm" data-draft-locked>{DRAFT_LOCKED_TEXT}</p>}
+        <AllocationJustifications load={loadJustifications} />
         {planCount > 0 && <p className="text-justify text-sm">La publication explicite concernera uniquement les nouveaux encaissements confirmés ensuite. Les anciens paiements et le solde de départ restent inchangés.</p>}
         {view.status === 'PAUSED' && <><button className="secondary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setPauseForm(v => !v)}>Reprendre la répartition</button>{pauseForm && <fieldset className="grid gap-2" disabled={fieldsLocked}><label>Motif audité<textarea className="input" value={reason} maxLength={500} onChange={e => setReason(e.target.value)}/></label><Action busy={busy && actionBusy === 'resume'} disabled={reason.trim().length < 5} onClick={() => void mutate('resume', { reason })}>Confirmer la reprise</Action></fieldset>}</>}
       </>}

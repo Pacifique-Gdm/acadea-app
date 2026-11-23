@@ -31,3 +31,14 @@ describe("écran d'activation en 3 étapes", () => {
     expect(ALLOCATION_SETUP_BANNER).toContain("répartis à l'activation");
   });
 });
+
+describe("justifications consultables plus tard", () => {
+  it("l'Administrateur les voit dans « Répartition des frais » (avant et après l'activation), le Super administrateur dans la fiche de l'école", () => {
+    expect(activation.match(/<AllocationJustifications load=\{loadJustifications\} \/>/g)?.length).toBe(2);
+    expect(activation).toContain("allocationRequest<unknown>('get-justifications'");
+    const platform = read("../platform/PlatformModule.tsx");
+    expect(platform).toContain("loadSchoolJustifications(drawerSchool.id, drawerYear.id)");
+    // Le panneau d'activation n'est monté que pour l'Administrateur de l'école.
+    expect(read("./FeeAllocationDrawer.tsx")).toContain('user.role === "school_admin" && workspaces.length === 1 && !loading && workspaces[0].canConfigure && <FeeAllocationActivation');
+  });
+});

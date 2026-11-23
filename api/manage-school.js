@@ -10,6 +10,7 @@ import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
 import { readPlatformStats } from "./_lib/platformStats.js";
 import { cachedSchoolSearchEntries, searchSchoolEntries } from "./_lib/schoolSearchIndex.js";
 import { isSafeSchoolScopeId, readSchoolDrawerSummary, readSchoolHistoryPage } from "./_lib/schoolDrawerSummary.js";
+import { readJustifications, justificationPhotoSigner } from "./_lib/feeAllocationJustifications.js";
 
 export const maxDuration = 300;
 
@@ -171,6 +172,17 @@ export default async function handler(req, res) {
         sort: choice(body.sort, ["az", "recent", "users"]),
         page: Number.isInteger(body.page) && body.page >= 0 && body.page < 10_000 ? body.page : 0,
       }));
+      return;
+    }
+    if (requestedAction === "school-justifications") {
+      // Lot « 3 étapes » : le Super administrateur consulte les justifications de la répartition d'une école (photos par lien de 10 minutes).
+      const justificationSchoolId = normalizeText(body.schoolId), justificationYearId = normalizeText(body.schoolYearId);
+      if (!isSafeSchoolScopeId(justificationSchoolId) || !isSafeSchoolScopeId(justificationYearId)) {
+        sendJson(res, 400, { error: "École ou année scolaire invalide.", code: "invalid-argument" });
+        return;
+      }
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "platform.school-justifications", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      sendJson(res, 200, { justifications: await readJustifications({ db, schoolId: justificationSchoolId, schoolYearId: justificationYearId, signPhoto: justificationPhotoSigner(initAdmin().bucket) }) });
       return;
     }
     if (requestedAction === "school-drawer" || requestedAction === "school-history") {
