@@ -6,6 +6,8 @@ import react from "@vitejs/plugin-react";
 import { validateFirebaseEnvironment } from "./src/config/environment";
 
 const buildId = process.env.VERCEL_GIT_COMMIT_SHA?.trim() || process.env.VERCEL_DEPLOYMENT_ID?.trim() || String(Date.now());
+/** Numéro de version affiché aux utilisateurs (package.json), recopié dans /version.json à chaque construction. */
+const appVersion = String(JSON.parse(readFileSync(resolve(process.cwd(), "package.json"), "utf8")).version ?? "");
 const ocrAssets = [
   ["tesseract.js/dist/worker.min.js", "worker.min.js"],
   ["tesseract.js-core/tesseract-core-lstm.wasm.js", "tesseract-core-lstm.wasm.js"],
@@ -84,7 +86,9 @@ export default defineConfig(({ mode }) => {
           fileName: "version.json",
           source: JSON.stringify(
             {
+              // « version » reste l'identifiant de la construction (commit) : les vérifications de mise en ligne le comparent.
               version: buildId,
+              appVersion,
               generatedAt: new Date().toISOString(),
             },
             null,
