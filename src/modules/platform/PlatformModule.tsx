@@ -1091,7 +1091,7 @@ export function PlatformModule({
         entry.data = { ...entry.data, history: appendSchoolHistoryPage(entry.data.history, page) };
         setDrawerDetail((current) => (current?.key === key ? { key, data: entry.data } : current));
       })
-      .catch((cause: unknown) => setHistoryError(cause instanceof Error ? cause.message : "Historique de l'école indisponible."))
+      .catch((cause: unknown) => setHistoryError(userFacingError(cause, "Historique de l'école indisponible.")))
       .finally(() => setHistoryLoading(false));
   }
 
@@ -1773,7 +1773,7 @@ export function PlatformModule({
             {detailTab === "history" && (
               <div className="grid gap-3">
                 <AuditTimeline logs={drawerLogs} />
-                {historyError && <p role="alert" className="text-sm text-red-700">{historyError}</p>}
+                <ErrorNotice error={historyError} onRetry={loadMoreSchoolHistory} />
                 {drawerData?.history.hasMore && (
                   <button type="button" className="secondary-button justify-center" disabled={historyLoading} onClick={loadMoreSchoolHistory} data-school-history-more>
                     {historyLoading ? "Chargement…" : "Voir plus"}
