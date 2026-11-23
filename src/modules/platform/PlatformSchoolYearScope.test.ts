@@ -8,9 +8,9 @@ describe("détail école Super Administrateur", () => {
   it("expose un seul sélecteur d'année et recharge les données annuelles", () => {
     expect(platform).toContain('aria-label="Année scolaire consultée"');
     expect(platform).toContain("changeDrawerYear");
-    expect(platform).toContain("getPlatformSchoolStats(drawerSchool.id, data, drawerYear?.id)");
-    expect(platform).toContain("drawerYear?.id ? student.schoolYearId === drawerYear.id");
-    expect(platform).toContain("log.schoolYearId === drawerYear.id");
+    // Lot SA-4 : nombres et historique de l'année affichée calculés par le serveur.
+    expect(platform).toContain("loadSchoolDrawerDetail(schoolId, schoolYearId)");
+    expect(platform).toContain("mergeSchoolHistory(data.auditLogs, drawerData?.history.logs ?? [], drawerSchool.id, drawerYear?.id)");
     expect(platform).toContain("item.activeSchoolYearId === drawerYear.id");
   });
 

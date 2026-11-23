@@ -7,7 +7,10 @@ describe("PlatformModule historical dates", () => {
 
     expect(source).toContain('import { activityTimestamp } from "../../utils/activityHistory"');
     expect(source).not.toMatch(/createdAt[^\n]*localeCompare|localeCompare\([^\n]*createdAt/);
-    expect(source.match(/activityTimestamp\([^)]*\.createdAt\)/g)).toHaveLength(6);
+    expect(source.match(/activityTimestamp\([^)]*\.createdAt\)/g)).toHaveLength(4);
+    // Lot SA-4 : le tri de l'historique du drawer passe aussi par activityTimestamp.
+    const cache = readFileSync(new URL("./schoolDrawerCache.ts", import.meta.url), "utf8");
+    expect(cache).toContain("activityTimestamp(second.createdAt) - activityTimestamp(first.createdAt)");
   });
 
   it("formats the platform audit timeline through the shared timestamp normalizer", () => {

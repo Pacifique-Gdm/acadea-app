@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.20.0] — 2026-11-23 — Fonctionnalité
+- Super administrateur, drawer d'une école plus léger : nombres (élèves, parents, comptes, classes) calculés par le serveur en une seule demande, historique affiché 10 lignes à la fois avec « Voir plus » (index de l'historique), au lieu de télécharger toutes les données de l'école.
+
 ## [1.19.0] — 2026-11-23 — Fonctionnalité
 - Partie 2 — cas sociaux : un seul formulaire pour tous les frais (liste des frais, « Appliquer à tous les frais », frais marqués « modifié »), une seule publication avec la phrase « PUBLIER LA PARTIE DEUX » tapée à la main, « Non affecté » reçoit toujours le reste (total inférieur à 100 % permis), partie des cas sociaux dans « Ajouter une répartition » publiée en même temps, et un cas social qui avait déjà payé selon la partie 1 suit la partie 2 pour ses paiements suivants.
 
