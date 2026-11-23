@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.20.3] — 2026-11-23 — Correction
+- La page /version.json montre le numéro de version et la date de mise en ligne, et n'est plus gardée en mémoire par le navigateur
+
 ## [1.20.2] — 2026-11-23 — Correction
 - Répartition des frais : boutons des formulaires mieux placés (« Annuler », « Appliquer à tous les frais », « Retirer la ligne ») et PDF court, un tableau par page
 
