@@ -71,7 +71,7 @@ describe("projection et PDF du registre rapproché", () => {
     expect(earlier.every(r => r.financial!.availableMinor === 0)).toBe(true);
     expect(w).toEqual(before);
     const html = feeAllocationPdfSections(emptyRows, "Période sans mouvement", "USD").join("");
-    for (const heading of ["Tableau 3 — Ensemble", "Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"]) expect(html).toContain(heading);
+    for (const heading of ["Tableau 3 — Ensemble", "Ouverture", "Encaissé (cumul)", "Dépensé (cumul)", "Disponible"]) expect(html).toContain(heading);
     expect(html).toContain("$60,00"); expect(html).toContain("$255,00"); expect(html).toContain("$42,00");
   });
   it("refuse une réservation non expliquée au lieu de présenter une égalité trompeuse", () => {

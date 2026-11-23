@@ -11,6 +11,8 @@ export type PdfTableColumn<T> = {
   header: string;
   render: (item: T, index: number) => string | number;
   align?: "left" | "right" | "center";
+  /** Part fixe de la largeur ; utilisée seulement si toutes les colonnes en ont une. */
+  weight?: number;
 };
 
 export type PdfMetric = {
@@ -123,6 +125,10 @@ export function pdfTable<T>(columns: PdfTableColumn<T>[], rows: T[], emptyLabel:
 
 function buildPdfColumnWidths<T>(columns: PdfTableColumn<T>[], renderedRows: Array<Array<string | number>>) {
   if (columns.length === 0) return [];
+  if (columns.every((column) => (column.weight ?? 0) > 0)) {
+    const fixedTotal = columns.reduce((sum, column) => sum + (column.weight ?? 0), 0);
+    return columns.map((column) => Number((((column.weight ?? 0) / fixedTotal) * 100).toFixed(2)));
+  }
 
   const weights = columns.map((column, columnIndex) => {
     const headerWeight = column.header.length * 1.25;
@@ -981,6 +987,10 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     }
     /* Répartition des frais : un espace clair entre les trois tableaux. */
     .pdf-section.fee-allocation-table-pdf-section { margin-top: 24px; padding-top: 10px; border-top: 1px solid #d8dee6; }
+    /* Répartition des frais (1.20.1) : un en-tête passe à la ligne entre deux mots, jamais au milieu d'un mot. */
+    .acadea-pdf .fee-allocation-table-pdf-section th { padding: 5px; font-size: 9.5px; }
+    .acadea-pdf .fee-allocation-table-pdf-section th, .acadea-pdf .fee-allocation-table-pdf-section th * { overflow-wrap: normal; word-break: keep-all; }
+    .acadea-pdf .fee-allocation-table-pdf-section td, .acadea-pdf .fee-allocation-table-pdf-section td * { overflow-wrap: break-word; }
     .medical-record-pdf .pdf-section { margin-bottom: 6px; }
     .medical-record-pdf .pdf-section h2 { margin-bottom: 4px; padding-bottom: 3px; font-size: 9.5pt; }
     .medical-record-pdf .info-grid { gap: 5px 7px; margin-bottom: 3px; }

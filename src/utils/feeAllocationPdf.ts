@@ -9,19 +9,24 @@ const justified = (text: string) => `<p style="text-align: justify">${escapePdfH
 /** Une seule ligne courte, sous l'en-tête ou sous un tableau. */
 const shortLine = (text: string) => `<p class="fee-allocation-pdf-note" style="margin: 0 18px 6px; font-size: 8pt">${escapePdfHtml(text)}</p>`;
 
+/** Part de la largeur (en %) de chaque colonne : assez pour le plus long mot de chaque en-tête (« Disponible », « Ouverture »). */
+export const FEE_ALLOCATION_PDF_WEIGHTS = { operational: [22, 12, 16, 12, 12, 12, 14], preparatory: [52, 22, 26] } as const;
+
 export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: string, context: string, periodSelected = false, options: { onlyTableThree?: boolean; configured?: boolean; canAdd?: boolean; filtered?: boolean } = {}) {
   const operational = rows.some(r => r.financial);
-  const receivedLabel = periodSelected ? 'Encaissé sur la période' : 'Encaissé selon le filtre';
+  // Version 1.20.1 : en-têtes courts, largeurs fixées, aucun mot coupé (voir FEE_ALLOCATION_PDF_WEIGHTS).
+  const receivedLabel = periodSelected ? 'Encaissé (période)' : 'Encaissé (filtre)';
   const multipleSchools = new Set(rows.map(r => r.schoolId)).size > 1;
   const money = (minor: number, currency: "CDF" | "USD") => formatCurrencyMoney(minor / 100, currency);
   const name = (row: AllocationRow) => `${row.rubricName}${row.percentLabel ? ` (${row.percentLabel})` : ""}${multipleSchools ? ` · ${row.schoolName}` : ""}${row.percentDetail ? ` — ${row.percentDetail}` : ""}${row.financial ? "" : ` · ${row.feeName} · ${row.classLabel}`}${row.stale ? " · tarif à revérifier" : ""}`;
   const globalFields = ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const;
-  const globalLabels = ["Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"];
+  const globalLabels = ["Ouverture", "Encaissé (cumul)", "Dépensé (cumul)", "Disponible"];
+  const weights = FEE_ALLOCATION_PDF_WEIGHTS[operational ? "operational" : "preparatory"];
   const columns = [
-    { header: "Rubrique", render: name },
-    { header: "Prévu total de l’année", render: (row: AllocationRow) => money(row.amountMinor, row.currency), align: "right" as const },
-    { header: receivedLabel, render: (row: AllocationRow) => row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
-    ...(operational ? globalFields.map((field: AllocationFinancialField, i) => ({ header: globalLabels[i], render: (row: AllocationRow) => row.financial ? money(row.financial[field], row.currency) : "Non disponible" })) : []),
+    { header: "Rubrique", render: name, weight: weights[0] },
+    { header: "Prévu de l’année", render: (row: AllocationRow) => money(row.amountMinor, row.currency), align: "right" as const, weight: weights[1] },
+    { header: receivedLabel, weight: weights[2], render: (row: AllocationRow) => row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
+    ...(operational ? globalFields.map((field: AllocationFinancialField, i) => ({ header: globalLabels[i], weight: weights[3 + i], render: (row: AllocationRow) => row.financial ? money(row.financial[field], row.currency) : "Non disponible" })) : []),
   ];
   const totalLine = (table: AllocationRow[]) => allocationTotals(table).map(total => `Total ${total.currency} : prévu ${money(total.amountMinor, total.currency)}${operational ? ` · ${globalLabels.map((label, i) => {
     const value = allocationFinancialTotals(table, globalFields[i]).find(t => t.currency === total.currency)?.value;
