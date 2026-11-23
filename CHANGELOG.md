@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.20.2] — 2026-11-23 — Correction
+- Répartition des frais : boutons des formulaires mieux placés (« Annuler », « Appliquer à tous les frais », « Retirer la ligne ») et PDF court, un tableau par page
+
 ## [1.20.1] — 2026-11-23 — Correction
 - Répartition des frais : quand la répartition est active, « Publier le nouveau frais » apparaît et fonctionne pour un frais ajouté en milieu d'année ; chaque frais à publier est repéré pour lui-même ; un seul bouton prépare puis publie toutes les classes ; bouton direct « Partie 2 — cas sociaux » dans le drawer.
 
