@@ -250,7 +250,8 @@ const part2 = [{ id: "a".repeat(32), mode: "percent", basisPoints: 3000 }, { id:
 const withDocGet = (db) => { db.doc = path => ({ path, get: async () => ({ id: path.split("/").at(-1), exists: db.records.has(path), data: () => structuredClone(db.records.get(path)) }) }); return db; };
 let socialRequest = 0;
 const publish = (db, rubricsInput = part2, extra = {}, at = "2026-11-13T09:00:00.000Z") => manageSocialPart({ db: withDocGet(db), caller: admin, now: at,
-  body: { action: "publish-social-part", feeTypeId: "fee", requestId: `social-request-${String(++socialRequest).padStart(4, "0")}`, expectedPartOneVersionId: "version", expectedSocialVersionId: null, rubrics: rubricsInput, ...extra } });
+  body: { action: "publish-social-parts", requestId: `social-request-${String(++socialRequest).padStart(4, "0")}`, confirmation: "PUBLIER LA PARTIE DEUX",
+    items: [{ feeTypeId: "fee", expectedPartOneVersionId: "version", expectedSocialVersionId: null, rubrics: rubricsInput, ...extra }] } }).then((result) => ({ ...result, social: result.socials[0] }));
 const reduce = (db, minor) => { db.records.get("students/student").financialSupport = { d: { id: "d", schoolYearId: "year", lines: { fee: { reductionMinor: minor } } } }; };
 const anchors = db => [...db.records].filter(([p]) => p.startsWith("feeAllocationAnchors/")).map(([, d]) => d);
 const lineMap = lines => Object.fromEntries(lines.filter(l => l.amountMinor).map(l => [l.rubricId, l.amountMinor]));
@@ -306,7 +307,7 @@ describe("lot 27c-4 : publication de la partie 2", () => {
   });
   it("refuse un autre rôle, une rubrique en trop ou manquante, et une partie 1 changée", async () => {
     const db = withDocGet(fixture());
-    await expect(manageSocialPart({ db, caller: cashier, body: { action: "publish-social-part", feeTypeId: "fee" } })).rejects.toMatchObject({ status: 403 });
+    await expect(manageSocialPart({ db, caller: cashier, body: { action: "publish-social-parts", requestId: "social-request-cashier", confirmation: "PUBLIER LA PARTIE DEUX", items: [] } })).rejects.toMatchObject({ status: 403 });
     await expect(publish(db, part2.slice(0, 2))).rejects.toMatchObject({ status: 400 });
     await expect(publish(db, [...part2, { id: "d".repeat(32), mode: "percent", basisPoints: 100 }])).rejects.toMatchObject({ status: 400 });
     await expect(publish(db, part2, { expectedPartOneVersionId: "other" })).rejects.toMatchObject({ status: 409 });
@@ -482,11 +483,58 @@ describe("partie 2 : lignes retirées", () => {
     expect(lineMap(movement.lines)["a".repeat(32)]).toBeUndefined();
     expect(movement.lines.reduce((sum, l) => sum + l.amountMinor, 0)).toBe(5000);
   });
-  it("« Non affecté » retiré : total exactement 100 % en pourcentages, sinon refus clair", async () => {
-    const full = [{ id: "a".repeat(32), mode: "percent", basisPoints: 0 }, { id: "b".repeat(32), mode: "percent", basisPoints: 5000 }, { id: "c".repeat(32), mode: "percent", basisPoints: 5000 }];
-    await expect(publish(fixture(), full.map((r, i) => i === 2 ? { ...r, basisPoints: 4000 } : r), { unallocatedRemoved: true })).rejects.toMatchObject({ status: 400, message: expect.stringContaining("exactement 100 %") });
-    await expect(publish(fixture(), withoutA, { unallocatedRemoved: true })).rejects.toMatchObject({ status: 400 });
-    const { social } = await publish(fixture(), full, { unallocatedRemoved: true });
-    expect(social.unallocatedRemoved).toBe(true);
+  it("« Non affecté » ne se retire plus : il reçoit toujours le reste, total inférieur à 100 % accepté, supérieur refusé", async () => {
+    // Exemple de l'utilisateur : il paie 60 $, école 20 % = 12 $, enseignants 40 % = 24 $, les 24 $ restants en « Non affecté ».
+    const db = fixture();
+    const under = [{ id: "a".repeat(32), mode: "percent", basisPoints: 2000 }, { id: "b".repeat(32), mode: "percent", basisPoints: 0 }, { id: "c".repeat(32), mode: "percent", basisPoints: 4000 }];
+    await publish(db, under); reduce(db, 4000); await create(db, 60);
+    expect(lineMap(movements(db)[0].lines)).toEqual({ ["a".repeat(32)]: 1200, ["c".repeat(32)]: 2400, UNALLOCATED: 2400 });
+    await expect(publish(fixture(), under, { unallocatedRemoved: true })).rejects.toMatchObject({ status: 400 });
+    await expect(publish(fixture(), under.map((r) => ({ ...r, basisPoints: 5000 })))).rejects.toMatchObject({ status: 400, message: expect.stringContaining("dépassent") });
+  });
+});
+
+describe("version 1.19.0 : un seul formulaire, tous les frais modifiés publiés ensemble", () => {
+  const second = (db) => {
+    const configId = feeAllocationConfigId("school", "year", "fee2");
+    db.records.set("feeTypes/fee2", { id: "fee2", schoolId: "school", schoolYearId: "year", amount: 80, name: "Minerval", className: "2ème", createdAt: "2026-09-01" });
+    db.records.set(`feeAllocationConfigs/${configId}`, { id: configId, schoolId: "school", schoolYearId: "year", feeTypeId: "fee2", className: "2ème", currentVersionId: "version2" });
+    db.records.set("feeAllocationVersions/version2", { id: "version2", configId, schoolId: "school", schoolYearId: "year", feeTypeId: "fee2", className: "2ème", currency: "USD", feeAmountMinor: 8000,
+      status: "published", effectiveFrom: "2026-09-01", rubrics: structuredClone(rubrics.slice(0, 1)), shares: validateFeeAllocationRubrics(rubrics.slice(0, 1), 8000).shares });
+    return db;
+  };
+  const body = (items, confirmation = "PUBLIER LA PARTIE DEUX") => ({ action: "publish-social-parts", requestId: `social-batch-${String(++socialRequest).padStart(4, "0")}`, confirmation, items });
+  const one = { feeTypeId: "fee", expectedPartOneVersionId: "version", expectedSocialVersionId: null, rubrics: part2 };
+  const two = { feeTypeId: "fee2", expectedPartOneVersionId: "version2", expectedSocialVersionId: null, rubrics: [{ id: "a".repeat(32), mode: "percent", basisPoints: 1000 }] };
+  const socials = (db) => [...db.records].filter(([p]) => p.startsWith("feeAllocationSocialVersions/")).map(([, d]) => d);
+  it("deux frais publiés en une seule fois", async () => {
+    const db = withDocGet(second(fixture()));
+    const result = await manageSocialPart({ db, caller: admin, now, body: body([one, two]) });
+    expect(result.socials.map((s) => s.feeTypeId).sort()).toEqual(["fee", "fee2"]);
+    expect(socials(db)).toHaveLength(2);
+  });
+  it("tout passe ou rien ne passe : un frais refusé, aucun n'est publié", async () => {
+    const db = withDocGet(second(fixture()));
+    await expect(manageSocialPart({ db, caller: admin, now, body: body([one, { ...two, expectedPartOneVersionId: "autre" }]) })).rejects.toMatchObject({ status: 409 });
+    expect(socials(db)).toHaveLength(0);
+    expect(db.records.get(`feeAllocationConfigs/${feeAllocationConfigId("school", "year", "fee")}`).socialVersionId).toBeUndefined();
+  });
+  it("la phrase « PUBLIER LA PARTIE DEUX » est exigée, exactement", async () => {
+    const db = withDocGet(fixture());
+    for (const wrong of [null, "", "publier la partie deux", "PUBLIER LA PARTIE 2", " PUBLIER LA PARTIE DEUX"]) {
+      await expect(manageSocialPart({ db, caller: admin, now, body: body([one], wrong) })).rejects.toMatchObject({ status: 400 });
+    }
+    expect(socials(db)).toHaveLength(0);
+  });
+  it("l'ancienne publication d'un seul frais (page ancienne) est refusée avec un message clair", async () => {
+    const db = withDocGet(fixture());
+    await expect(manageSocialPart({ db, caller: admin, now, body: { action: "publish-social-part", feeTypeId: "fee", requestId: "social-request-old01", expectedPartOneVersionId: "version", expectedSocialVersionId: null, rubrics: part2 } }))
+      .rejects.toMatchObject({ status: 409, message: expect.stringContaining("Actualisez") });
+  });
+  it("la lecture rend tous les frais répartis avec leur partie 1 et leur partie 2", async () => {
+    const db = withDocGet(second(fixture()));
+    await manageSocialPart({ db, caller: admin, now, body: body([one]) });
+    const { items } = await manageSocialPart({ db, caller: admin, body: { action: "get-social-parts" } });
+    expect(items.map((i) => [i.feeTypeId, i.partOne.id, i.social?.feeTypeId ?? null])).toEqual([["fee", "version", "fee"], ["fee2", "version2", null]]);
   });
 });

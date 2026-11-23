@@ -96,7 +96,7 @@ export default async function handler(req, res) {
         ? await requireActiveCoordinationActor(auth, db, token)
         : await requireActiveApiUser(db, caller);
       const allocationAction = requestedAction.slice("fee-allocation.".length);
-      const mutation = ["save-draft", "save-drafts", "prepare-version", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "publish-social-part", "set-rubric-share", "revoke-share"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
+      const mutation = ["save-draft", "save-drafts", "prepare-version", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "publish-social-part", "publish-social-parts", "set-rubric-share", "revoke-share"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
       await enforceApiRateLimit({ db, actorId: actor.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
         action: requestedAction, idempotencyKey: mutation ? body.requestId : undefined,
         // Bounded ledger pages share a 60/min budget with financial creation;
