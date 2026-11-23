@@ -3,6 +3,7 @@ import { evidenceRevisionRef } from './feeAllocationRevision.js';
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { FeeAllocationError, assertFeeAllocationActivationBlocked, socialDraftRubrics, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { isSchoolAdminRole, withoutSocialConfig, withoutSocialVersion } from "./feeAllocationSocialPrivacy.js";
 
 const identifier = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);
 const sha = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -180,7 +181,9 @@ export async function manageFeeAllocationPhase1({ db, caller, body }) {
   if (body.action === "check-activation") return { state, ready: false, blockers: ["phases-2-3-4-5-not-validated", "opening-not-approved"], operational: false };
   if (body.action === "list-configurations") {
     const snapshot = await db.collection("feeAllocationConfigs").where("schoolId", "==", schoolId).where("schoolYearId", "==", yearId).get();
-    return { configs: snapshot.docs.map((item) => item.data()), operational: false };
+    const configs = snapshot.docs.map((item) => item.data());
+    // Seul l'Administrateur reçoit la partie 2 (cas sociaux) d'un frais.
+    return { configs: isSchoolAdminRole(caller.role) ? configs : configs.map(withoutSocialConfig), operational: false };
   }
   if (!identifier(body.feeTypeId)) invalid("Frais invalide.");
   const configId = feeAllocationConfigId(schoolId, yearId, body.feeTypeId);
@@ -190,7 +193,8 @@ export async function manageFeeAllocationPhase1({ db, caller, body }) {
   if (config.schoolId !== schoolId || config.schoolYearId !== yearId || config.feeTypeId !== body.feeTypeId) denied();
   if (body.action === "list-versions") {
     const snapshot = await db.collection("feeAllocationVersions").where("configId", "==", configId).get();
-    return { versions: snapshot.docs.map((item) => item.data()), operational: false };
+    const versions = snapshot.docs.map((item) => item.data());
+    return { versions: isSchoolAdminRole(caller.role) ? versions : versions.map(withoutSocialVersion), operational: false };
   }
   if (body.action === "validate-draft") {
     if (role(caller.role) !== "school_admin") denied();
