@@ -16,6 +16,10 @@ export const allocationLifecycleActions = new Set(["publish-configuration", "pre
 export const VALIDATE_OPENING_PHRASE = "VALIDER LE SOLDE DE DEPART";
 export const CANCEL_OPENING_PHRASE = "ANNULER LE SOLDE DE DEPART";
 const REASON_MIN = 10, REASON_MAX = 500;
+/** Libellés des historiques (Administrateur, Coordination). */
+const AUDIT_LABELS = { "publish-configuration": "Répartition des frais publiée", "prepare-opening": "Solde de départ proposé", "approve-opening": "Solde de départ approuvé",
+  "validate-opening": "Solde de départ validé", "cancel-opening": "Solde de départ annulé", activate: "Répartition des frais activée",
+  "activate-without-history": "Répartition des frais activée (aucune écriture)", resume: "Répartition des frais reprise" };
 const reasonOk = value => typeof value === "string" && value.trim().length >= REASON_MIN && value.length <= REASON_MAX;
 const signed = value => Number.isSafeInteger(value);
 const active = p => p && p.active !== false && !["inactive", "disabled", "suspended", "deleted", "deleting"].includes(p.status);
@@ -235,8 +239,9 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
       tx.update(stateRef, { status: body.action === "pause" ? "PAUSED" : "ACTIVE", updatedAt: now, updatedBy: caller.uid });
     }
     const auditId = `allocation_${hash([schoolId, body.requestId, caller.uid])}`;
-    tx.create(db.doc(`auditLogs/${auditId}`), { id: auditId, schoolId, schoolYearId: yearId, action: `fee-allocation.${body.action}`,
-      actorId: caller.uid, createdAt: now, reason: body.reason ?? null, requestFingerprint: fingerprint, testOnly: scope.testOnly });
+    // Libellé simple montré dans les historiques ; le code technique reste dans « actionCode ».
+    tx.create(db.doc(`auditLogs/${auditId}`), { id: auditId, schoolId, schoolYearId: yearId, action: AUDIT_LABELS[body.action] ?? "Répartition des frais", actionCode: `fee-allocation.${body.action}`,
+      actorId: caller.uid, actorName: typeof user.name === "string" && user.name ? user.name.slice(0, 120) : "Administrateur", createdAt: now, reason: body.reason ?? null, requestFingerprint: fingerprint, testOnly: scope.testOnly });
     tx.create(receiptRef, { schoolId, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });

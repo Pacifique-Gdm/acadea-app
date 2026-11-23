@@ -186,3 +186,16 @@ describe("lot « 3 étapes » — bandeau du caissier (point 5)", () => {
     expect(await getAllocationSpendOptions({ db, caller: cashier, body: {}, now })).toMatchObject({ required: false, setupInProgress: true });
   });
 });
+
+describe("lot « 3 étapes » — historique lisible", () => {
+  it("écrit un libellé simple et le nom de l'auteur, sans code technique à l'écran", async () => {
+    const db = school();
+    db.records.set("users/admin", { ...db.records.get("users/admin"), name: "Directrice fictive" });
+    await lifecycle(db, "publish-configuration", { versionId: "version" });
+    await reconcileFixture(db, admin, now);
+    await lifecycle(db, "activate-without-history", { confirmation: ACTIVATE });
+    const logs = [...db.records].filter(([k]) => k.startsWith("auditLogs/allocation_")).map(([, v]) => v);
+    expect(logs.map((l) => l.action).sort()).toEqual(["Répartition des frais activée (aucune écriture)", "Répartition des frais publiée"]);
+    expect(logs.every((l) => l.actorName === "Directrice fictive" && l.actionCode.startsWith("fee-allocation."))).toBe(true);
+  });
+});
