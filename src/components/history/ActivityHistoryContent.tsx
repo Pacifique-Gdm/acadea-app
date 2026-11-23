@@ -6,6 +6,7 @@ import { ACTIVITY_HISTORY_PAGE_SIZE, activityHistoryActors, buildActivityHistory
 import type { ActivityHistoryItem, ActivityHistoryYearData } from "../../utils/activityHistory";
 import { ErrorNotice } from "../ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
+import { localDateInputValue } from "../../utils/coordinationDates";
 
 export function ActivityHistoryContent({
   user,
@@ -27,8 +28,9 @@ export function ActivityHistoryContent({
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | ActivityHistoryItem["type"]>("all");
   const [actorFilter, setActorFilter] = useState("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  // Historique de l'Administrateur : par défaut, la période est « aujourd'hui » (date locale) et la liste correspond à aujourd'hui.
+  const [fromDate, setFromDate] = useState(() => (role === "admin" ? localDateInputValue() : ""));
+  const [toDate, setToDate] = useState(() => (role === "admin" ? localDateInputValue() : ""));
   const [visibleCount, setVisibleCount] = useState(ACTIVITY_HISTORY_PAGE_SIZE);
   const [pedagogicalLogs, setPedagogicalLogs] = useState<AuditLog[]>([]);
   const [pedagogicalCursor, setPedagogicalCursor] = useState<PedagogicalHistoryCursor | null>(null);
@@ -146,7 +148,7 @@ export function ActivityHistoryContent({
 
       <div className="min-w-0 max-w-full space-y-2">
         {filteredItems.length === 0 && (
-          <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">Aucune activité disponible.</p>
+          <p className="rounded border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">{role === "admin" && fromDate && fromDate === toDate && fromDate === localDateInputValue() ? "Aucune activité aujourd’hui. Changez les dates pour voir les jours précédents." : "Aucune activité disponible."}</p>
         )}
         {shownItems.map((item) => (
           <article key={item.id} className="box-border w-full min-w-0 max-w-full rounded border border-slate-200 bg-white p-3 text-sm">

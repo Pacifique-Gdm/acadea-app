@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { completeAllocationFixture } from "./feeAllocationLifecycle.test.js";
 import { manageFeeAllocationLifecycle } from "./feeAllocationLifecycle.js";
 import { manageAllocationReconciliation } from "./feeAllocationReconciliation.js";
-import { readJustifications, readSchoolAdminJustifications, justificationPhotoSigner } from "./feeAllocationJustifications.js";
+import { readJustifications, readScopedJustifications, justificationPhotoSigner } from "./feeAllocationJustifications.js";
 import { reconcileFixture } from "./feeAllocationTestHelpers.js";
 
 /** Lot « 3 étapes » : une justification (motif, photo) se consulte plus tard, seulement par l'Administrateur
- * de l'école (ici) et le Super administrateur (`manage-school`, action « school-justifications »). */
+ * de l'école et la coordination (ou sous-coordination) qui supervise l'école. Le Super administrateur est refusé. */
 const now = "2026-11-13T10:00:00.000Z";
 const admin = { uid: "admin", role: "school_admin", schoolId: "school" };
 const photoPath = "fee-allocation-proofs/school/admin/recu-papier-0012.jpg";
@@ -29,7 +29,7 @@ async function justifiedSchool() {
 describe("consultation des justifications", () => {
   it("l'Administrateur de l'école voit le motif, l'écriture, l'auteur et la photo (lien de 10 minutes)", async () => {
     const db = await justifiedSchool();
-    const result = await readSchoolAdminJustifications({ db, caller: admin, body: { action: "get-justifications" }, signPhoto });
+    const result = await readScopedJustifications({ db, caller: admin, body: { action: "get-justifications" }, signPhoto });
     expect(result.rows).toHaveLength(1);
     expect(result.rows[0]).toMatchObject({ decision: "accepted", kind: "declaration", reason: "Ancien cahier de caisse, reçu papier n° 12.", nature: "Paiement scolaire",
       amount: 30, currency: "USD", receiptNumber: "R-12", actorName: "Directrice fictive", hasPhoto: true, photoUrl: `https://lien-signe.invalid/${photoPath}` });
@@ -42,26 +42,25 @@ describe("consultation des justifications", () => {
     const opening = await manageFeeAllocationLifecycle({ db, caller: admin, now, body: { action: "validate-opening", requestId: "justif-validate-0001", cashCountMinor: 3000,
       lines: [{ rubricId: "a".repeat(32), amountMinor: 3000 }], confirmation: "VALIDER LE SOLDE DE DEPART" } });
     await manageFeeAllocationLifecycle({ db, caller: admin, now, body: { action: "activate", requestId: "justif-activate-0001", openingId: opening.openingId, confirmation: "ACTIVER LA REPARTITION DE MON ETABLISSEMENT" } });
-    expect((await readSchoolAdminJustifications({ db, caller: admin, body: { action: "get-justifications" }, signPhoto })).rows).toHaveLength(1);
+    expect((await readScopedJustifications({ db, caller: admin, body: { action: "get-justifications" }, signPhoto })).rows).toHaveLength(1);
   });
 
   it.each([
     ["caissier", { uid: "cashier", role: "cashier", schoolId: "school" }],
-    ["coordination", { uid: "coord", role: "coordination_admin", schoolId: "school" }],
-    ["sous-coordination", { uid: "subcoord", role: "sub_coordination_admin", schoolId: "school" }],
     ["enseignant (personnel)", { uid: "teacher", role: "teacher", schoolId: "school" }],
     ["secrétaire", { uid: "secretary", role: "secretary", schoolId: "school" }],
+    ["Super administrateur", { uid: "platform", role: "super_admin" }],
   ])("refuse le rôle %s", async (_label, caller) => {
     const db = await justifiedSchool();
-    await expect(readSchoolAdminJustifications({ db, caller, body: { action: "get-justifications" }, signPhoto })).rejects.toMatchObject({ status: 403 });
+    await expect(readScopedJustifications({ db, caller, body: { action: "get-justifications" }, signPhoto })).rejects.toMatchObject({ status: 403 });
   });
 
   it("refuse un Administrateur dont le profil n'est plus actif ou d'une autre école", async () => {
     const db = await justifiedSchool();
     db.records.set("users/admin", { ...db.records.get("users/admin"), status: "inactive" });
-    await expect(readSchoolAdminJustifications({ db, caller: admin, body: { action: "get-justifications" }, signPhoto })).rejects.toMatchObject({ status: 403 });
+    await expect(readScopedJustifications({ db, caller: admin, body: { action: "get-justifications" }, signPhoto })).rejects.toMatchObject({ status: 403 });
     const other = await justifiedSchool();
-    await expect(readSchoolAdminJustifications({ db: other, caller: { ...admin, schoolId: "foreign" }, body: { action: "get-justifications" }, signPhoto })).rejects.toThrow();
+    await expect(readScopedJustifications({ db: other, caller: { ...admin, schoolId: "foreign" }, body: { action: "get-justifications" }, signPhoto })).rejects.toThrow();
   });
 
   it("ne montre jamais la photo d'une autre école, et le lien n'est signé que pour le dossier des justifications", async () => {
@@ -72,5 +71,47 @@ describe("consultation des justifications", () => {
     const bucket = { file: (path) => ({ getSignedUrl: async () => [`signé:${path}`] }) };
     await expect(justificationPhotoSigner(bucket)("schools/school/student-photos/x/y.jpg")).rejects.toThrow("invalide");
     await expect(justificationPhotoSigner(bucket)(photoPath)).resolves.toBe(`signé:${photoPath}`);
+  });
+});
+
+/** Coordination « coord1 » qui supervise « school » ; sous-coordination « sub1 » rattachée à « school » ; « coord2 » sans lien. */
+function supervise(db) {
+  db.records.set("schools/school", { ...db.records.get("schools/school"), activeCoordinationId: "coord1" });
+  db.records.set("coordinations/coord1", { id: "coord1", status: "active" });
+  db.records.set("coordinations/coord2", { id: "coord2", status: "active" });
+  db.records.set("coordinationSchools/coord1__school", { schoolId: "school", active: true });
+  db.records.set("users/coord", { role: "coordination_admin", coordinationId: "coord1", active: true, status: "active", name: "Coordinateur fictif" });
+  db.records.set("users/coord2", { role: "coordination_admin", coordinationId: "coord2", active: true, status: "active" });
+  db.records.set("users/sub", { role: "sub_coordination_admin", coordinationId: "coord1", subCoordinationId: "sub1", active: true, status: "active" });
+  db.records.set("subCoordinations/sub1", { id: "sub1", coordinationId: "coord1", coordinatorUserId: "sub", active: true, status: "active" });
+  db.records.set("subCoordinationSchools/sub1__school", { schoolId: "school", coordinationId: "coord1", active: true });
+  db.records.set("users/sub2", { role: "sub_coordination_admin", coordinationId: "coord1", subCoordinationId: "sub2", active: true, status: "active" });
+  db.records.set("subCoordinations/sub2", { id: "sub2", coordinationId: "coord1", coordinatorUserId: "sub2", active: true, status: "active" });
+}
+const coordinator = { uid: "coord", role: "coordination_admin", coordinationId: "coord1" };
+const subCoordinator = { uid: "sub", role: "sub_coordination_admin", coordinationId: "coord1", subCoordinationId: "sub1" };
+
+describe("justifications — Coordinateur et Sous-coordinateur", () => {
+  it.each([["Coordinateur", coordinator], ["Sous-coordinateur", subCoordinator]])("%s : voit les justifications d'une école qu'il supervise", async (_label, caller) => {
+    const db = await justifiedSchool(); supervise(db);
+    const result = await readScopedJustifications({ db, caller, body: { action: "get-justifications", schoolId: "school" }, signPhoto });
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ reason: "Ancien cahier de caisse, reçu papier n° 12.", photoUrl: `https://lien-signe.invalid/${photoPath}` });
+  });
+  it.each([
+    ["Coordinateur d'une autre coordination", { uid: "coord2", role: "coordination_admin", coordinationId: "coord2" }],
+    ["Sous-coordinateur sans cette école", { uid: "sub2", role: "sub_coordination_admin", coordinationId: "coord1", subCoordinationId: "sub2" }],
+  ])("%s : refusé", async (_label, caller) => {
+    const db = await justifiedSchool(); supervise(db);
+    await expect(readScopedJustifications({ db, caller, body: { action: "get-justifications", schoolId: "school" }, signPhoto })).rejects.toMatchObject({ status: 403 });
+  });
+  it("refusé dès que l'école n'est plus rattachée à la coordination", async () => {
+    const db = await justifiedSchool(); supervise(db);
+    db.records.set("coordinationSchools/coord1__school", { schoolId: "school", active: false });
+    await expect(readScopedJustifications({ db, caller: coordinator, body: { action: "get-justifications", schoolId: "school" }, signPhoto })).rejects.toMatchObject({ status: 403 });
+  });
+  it("un Administrateur d'école ne peut pas demander une autre école", async () => {
+    const db = await justifiedSchool();
+    await expect(readScopedJustifications({ db, caller: admin, body: { action: "get-justifications", schoolId: "autre-ecole" }, signPhoto })).rejects.toMatchObject({ status: 403 });
   });
 });

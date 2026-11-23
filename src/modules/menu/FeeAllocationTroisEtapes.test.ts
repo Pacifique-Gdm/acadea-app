@@ -33,11 +33,12 @@ describe("écran d'activation en 3 étapes", () => {
 });
 
 describe("justifications consultables plus tard", () => {
-  it("l'Administrateur les voit dans « Répartition des frais » (avant et après l'activation), le Super administrateur dans la fiche de l'école", () => {
+  it("l'Administrateur les voit dans « Répartition des frais » (avant et après l'activation), la coordination dans son « Historique » ; jamais le Super administrateur", () => {
     expect(activation.match(/<AllocationJustifications load=\{loadJustifications\} \/>/g)?.length).toBe(2);
     expect(activation).toContain("allocationRequest<unknown>('get-justifications'");
-    const platform = read("../platform/PlatformModule.tsx");
-    expect(platform).toContain("loadSchoolJustifications(drawerSchool.id, drawerYear.id)");
+    expect(read("../platform/PlatformModule.tsx")).not.toContain("AllocationJustifications");
+    expect(read("../../services/schoolDrawerSummary.ts")).not.toContain("justifications");
+    expect(read("../coordination/CoordinationMenu.tsx")).toContain('allocationRequest<unknown>("get-justifications", { schoolId: drawerSchoolId })');
     // Le panneau d'activation n'est monté que pour l'Administrateur de l'école.
     expect(read("./FeeAllocationDrawer.tsx")).toContain('user.role === "school_admin" && workspaces.length === 1 && !loading && workspaces[0].canConfigure && <FeeAllocationActivation');
   });

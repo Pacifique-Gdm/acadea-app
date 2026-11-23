@@ -18,7 +18,7 @@ import { manageFeeAllocationSharing, sharingActions } from "./_lib/feeAllocation
 import { allocationLifecycleActions, manageFeeAllocationLifecycle, getAllocationSpendOptions } from "./_lib/feeAllocationLifecycle.js";
 import { readAllocationActivation } from "./_lib/feeAllocationActivationView.js";
 import { reconciliationActions, manageAllocationReconciliation } from "./_lib/feeAllocationReconciliation.js";
-import { readSchoolAdminJustifications, justificationPhotoSigner } from "./_lib/feeAllocationJustifications.js";
+import { readScopedJustifications, justificationPhotoSigner } from "./_lib/feeAllocationJustifications.js";
 import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
 import { verifyMaintenanceCaller } from "./_lib/maintenanceAuth.js";
 import { runAllocationMaintenance, runAllocationNightlyCheck } from "./_lib/feeAllocationMaintenance.js";
@@ -103,9 +103,9 @@ export default async function handler(req, res) {
         // Bounded ledger pages share a 60/min budget with financial creation;
         // retain a finite budget while allowing a 3,001-row export to finish.
         ...(mutation || ['get-workspace', 'get-forecast-revision', 'get-shared-workspace', 'get-shared-revision'].includes(allocationAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
-      // Lot « 3 étapes » : justifications (motif, photo) consultées par l'Administrateur de l'école, avant et après l'activation.
+      // Lot « 3 étapes » : justifications (motif, photo) consultées par l'Administrateur de l'école et la coordination qui la supervise.
       if (allocationAction === "get-justifications") {
-        return sendJson(res, 200, await readSchoolAdminJustifications({ db, caller: actor, body: { ...body, action: allocationAction }, signPhoto: justificationPhotoSigner(initAdmin().bucket) }));
+        return sendJson(res, 200, await readScopedJustifications({ db, caller: actor, body: { ...body, action: allocationAction }, signPhoto: justificationPhotoSigner(initAdmin().bucket) }));
       }
       const manage = rubricActions.has(allocationAction) ? manageFeeAllocationRubrics
         : socialPartActions.has(allocationAction) ? manageSocialPart

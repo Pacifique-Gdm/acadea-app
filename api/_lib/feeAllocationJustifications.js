@@ -2,7 +2,8 @@ import { allocationFail as fail, allocationIdentifier as id } from './feeAllocat
 import { readFeeAllocationScope, readFeeAllocationYear } from './feeAllocationPhase1.js';
 
 /** Lot « 3 étapes » : consultation des justifications d'écritures (motif écrit, photo, preuve Acadéa),
- * avant comme après l'activation. Réservée à l'Administrateur de l'école et au Super administrateur.
+ * avant comme après l'activation. Réservée à l'Administrateur de l'école et au Coordinateur / Sous-coordinateur
+ * qui supervise l'école. Le Super administrateur ne voit pas les données financières des écoles : il est refusé.
  * Les photos ne sont jamais lisibles directement : le serveur joint une adresse de lecture valable 10 minutes. */
 export const JUSTIFICATION_PHOTO_TTL_MS = 10 * 60 * 1000;
 const MAX_ROWS = 200;
@@ -46,13 +47,19 @@ export async function readJustifications({ db, schoolId, schoolYearId, signPhoto
   return { schoolId, schoolYearId, rows, truncated: snapshot.docs.length > MAX_ROWS, photoUrlMinutes: JUSTIFICATION_PHOTO_TTL_MS / 60000 };
 }
 
-/** Administrateur de l'école : son école, son année active. Tout autre rôle est refusé. */
-export async function readSchoolAdminJustifications({ db, caller, body, signPhoto }) {
-  if (!['school_admin', 'admin'].includes(caller.role)) fail("Consultation réservée à l'Administrateur de l'école.", 'permission-denied', 403);
-  if (Object.keys(body).some((key) => !['action'].includes(key))) fail('Demande invalide.', 'invalid-argument', 400);
+const SCHOOL_ADMIN = ['school_admin', 'admin'], COORDINATION = ['coordination_admin', 'sub_coordination_admin'];
+
+/** Administrateur de l'école (son école) ; Coordinateur et Sous-coordinateur (seulement une école qu'ils supervisent,
+ * contrôlée par `readFeeAllocationScope`). Année active de l'école. Tout autre rôle est refusé (403). */
+export async function readScopedJustifications({ db, caller, body, signPhoto }) {
+  const coordination = COORDINATION.includes(caller.role);
+  if (!SCHOOL_ADMIN.includes(caller.role) && !coordination) fail("Consultation réservée à l'Administrateur de l'école et à la coordination qui la supervise.", 'permission-denied', 403);
+  if (Object.keys(body).some((key) => !['action', 'schoolId'].includes(key))) fail('Demande invalide.', 'invalid-argument', 400);
+  const requested = coordination ? body.schoolId : (body.schoolId ?? caller.schoolId);
+  if (!id(requested) || (!coordination && requested !== caller.schoolId)) fail('École non autorisée.', 'permission-denied', 403);
   const profile = (await db.doc(`users/${caller.uid}`).get()).data();
-  if (inactive(profile) || !['school_admin', 'admin'].includes(profile.role) || profile.schoolId !== caller.schoolId) fail('Compte non autorisé.', 'permission-denied', 403);
-  const { school, schoolId } = await readFeeAllocationScope(db, caller, caller.schoolId);
+  if (inactive(profile) || (coordination ? profile.role !== caller.role : !SCHOOL_ADMIN.includes(profile.role) || profile.schoolId !== caller.schoolId)) fail('Compte non autorisé.', 'permission-denied', 403);
+  const { school, schoolId } = await readFeeAllocationScope(db, caller, requested);
   const { yearId } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
   return { operational: false, ...(await readJustifications({ db, schoolId, schoolYearId: yearId, signPhoto })) };
 }
