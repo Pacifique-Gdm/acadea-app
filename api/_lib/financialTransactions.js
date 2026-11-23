@@ -631,9 +631,9 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     ...(body.expectedFeeAmount !== undefined || body.proposedAt !== undefined ? { offlineProposal: true, proposedAt: body.proposedAt ?? null } : {}),
   };
   const writeAllocation = await prepareFeeAllocationReceipt({ db, transaction, caller, payment, requestId: hash, now });
-  await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId,
+  const cash = await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId,
     currency: payment.currency, yearCurrency: currency, deltaCents: toMoneyMinor(amount), now });
-  writeAllocation();
+  writeAllocation(cash);
   transaction.set(db.doc(`payments/${paymentId}`), payment);
   transaction.set(counterRef, { schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, kind: "receipt", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   transaction.set(prefixCounterRef, { schoolId: caller.schoolId, prefix, kind: "receipt-prefix", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });

@@ -199,6 +199,23 @@ service firebase.storage {
       allow read, write: if false;
     }
 
+    // Lot « 3 étapes » de la répartition : photo facultative d'une justification d'écriture,
+    // envoyée par l'Administrateur de son école, jamais remplacée ni effacée ; lue seulement par le serveur.
+    match /fee-allocation-proofs/{schoolId}/{uploaderId}/{fileName} {
+      allow read: if false;
+      allow create: if signedIn()
+        && role() == "school_admin"
+        && request.auth.uid == uploaderId
+        && tenantSchoolId() == schoolId
+        && schoolAcceptsWrites(schoolId)
+        && resource == null
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches("image/(jpeg|png|webp)")
+        && fileName.matches("^[A-Za-z0-9_-]{8,80}[.](jpg|png|webp)$");
+      allow update, delete: if false;
+    }
+
     match /message-uploads/{schoolId}/{senderId}/{draftId}/{fileName} {
       allow read: if false;
       allow create: if signedIn()

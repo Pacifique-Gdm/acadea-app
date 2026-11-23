@@ -32,14 +32,19 @@ export type AllocationProof = { type: 'financialIdempotency' | 'personnelPayment
 export type AllocationActivationView = {
   operational: false; schoolId: string; schoolYearId: string; currency: "USD" | "CDF"; testOnly: boolean;
   status: "EN_PREPARATION" | "ACTIVE" | "PAUSED"; cutoffAt: string;
-  reconciliation?: null | { id: string; status: "RUNNING" | "BLOCKED" | "COMPLETE"; pageCount: number; scanned: number; evidenceCount: number; blockedCount: number; sequence: number; stale: boolean; reason: string | null };
+  reconciliation?: null | { id: string; status: "RUNNING" | "BLOCKED" | "COMPLETE"; pageCount: number; scanned: number; evidenceCount: number; blockedCount: number; sequence: number; stale: boolean; reason: string | null; deficitMinor?: number };
+  /** Lot « 3 étapes » : encaissements reçus depuis la vérification (répartis à l'activation). */
+  setupPayments?: { count: number; receivedMinor: number };
+  /** Lot « 3 étapes », B : aucune écriture cette année → un seul écran « Activer ». */
+  emptyHistory?: boolean;
   evidencePage?: { page: number; hasNext: boolean; fingerprint: string | null; rows: AllocationEvidence[] };
   singleBlocker?: AllocationEvidence | null;
   rubrics: Array<{ id: string; name: string }>;
   versions: Array<{ id: string; configId: string; feeTypeId: string; version: number; status: "prepared" | "published"; hasSocialPart?: true }>;
   opening: null | { id: string; status: "proposed" | "approved" | "activated"; stale: boolean; cutoffAt: string;
-    approvedByCurrentUser: boolean; lines: Array<{ rubricId: string; amountMinor: number }>; cashCountMinor: number };
-  inventory: null | { schoolAvailableMinor: number; cashAvailableMinor: number; fingerprint: string; evidenceCount: number;
+    approvedByCurrentUser: boolean; lines: Array<{ rubricId: string; amountMinor: number }>; cashCountMinor: number;
+    cashGapMinor?: number; reasons?: { deficit: string | null; cashGap: string | null; unallocated: string | null } | null };
+  inventory: null | { schoolAvailableMinor: number; cashAvailableMinor: number; cashExpectedMinor?: number; deficitMinor?: number; fingerprint: string; evidenceCount: number;
     page: number; hasNext: boolean; evidence: Array<{ collection: string; id: string; amountMinor: number; createdAt: string }> };
 };
 export async function loadAllocationActivation(schoolId: string, page = 0, fingerprint?: string, blockedOnly = false) {

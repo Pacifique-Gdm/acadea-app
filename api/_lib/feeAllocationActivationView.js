@@ -1,5 +1,6 @@
 import { readFeeAllocationScope } from "./feeAllocationPhase1.js";
-import { allocationRunRef, readAllocationRevision } from './feeAllocationRevision.js';
+import { allocationRunRef } from './feeAllocationRevision.js';
+import { readRunFreshness } from './feeAllocationSetupPayments.js';
 import { runPublic } from './feeAllocationReconciliation.js';
 import { readAllocationPages } from "./feeAllocationPagination.js";
 import { allocationHash as hash, allocationStateId, allocationFail as fail, readAllocationEligibility, readOperationalAllocation } from "./feeAllocationRuntime.js";
@@ -90,8 +91,9 @@ export async function readAllocationActivation({ db, caller, body, now = new Dat
     }
     const run = state?.reconciliationRunId ? (await tx.get(allocationRunRef(db, state.reconciliationRunId))).data() : null;
     if (run && (run.schoolId !== schoolId || run.schoolYearId !== yearId || run.currency !== currency)) fail('Rapprochement étranger.');
-    const revision = await readAllocationRevision(db, tx, schoolId, yearId);
-    const runStale = !!run && run.revision !== revision;
+    // Lot « 3 étapes », point 5 : des encaissements reçus depuis la vérification ne la rendent pas caduque.
+    const freshness = run ? await readRunFreshness(db, tx, run, schoolId, yearId, currency, { throwIfStale: false }) : { stale: false, setupCount: 0, setupReceivedMinor: 0 };
+    const runStale = !!run && freshness.stale;
     const fingerprint = run ? hash([run.id, run.chain, run.revision]) : null;
     if (body.fingerprint && (body.fingerprint !== fingerprint || runStale)) fail("Les pièces ont changé : recommencez leur consultation.");
     const proposal = state?.lastOpeningId ? (await tx.get(db.doc(`feeAllocationOpeningAudits/${state.lastOpeningId}`))).data() : null;
@@ -135,12 +137,17 @@ export async function readAllocationActivation({ db, caller, body, now = new Dat
     return { operational: false, schoolId, schoolYearId: yearId, currency, testOnly: scope.testOnly, status: "EN_PREPARATION", cutoffAt: now,
       rubrics: [...rubrics.values()], versions: publicVersions(versions.docs.map(d => d.data()), currency),
       reconciliation: run ? { ...runPublic(run), stale: runStale } : null,
+      setupPayments: { count: freshness.setupCount, receivedMinor: freshness.setupReceivedMinor },
+      // Lot « 3 étapes », B : aucune écriture cette année → un seul écran « Activer ».
+      emptyHistory: !!run && !runStale && run.status === 'COMPLETE' && !run.blockedCount && !run.evidenceCount && !run.receivedMinor && !run.spentMinor && !run.otherMinor && !freshness.setupCount,
       singleBlocker,
       evidencePage: { page, hasNext: page + 1 < (run?.pageCount ?? 0), rows: safeRows, fingerprint },
       opening: proposal ? { id: proposal.id, status: proposal.status, stale: !!stale, cutoffAt: proposal.cutoffAt,
-        approvedByCurrentUser: proposal.approvedBy === caller.uid, lines: proposal.lines, cashCountMinor: proposal.cashCountMinor } : null,
+        approvedByCurrentUser: proposal.approvedBy === caller.uid, lines: proposal.lines, cashCountMinor: proposal.cashCountMinor,
+        cashGapMinor: proposal.cashGapMinor ?? 0, reasons: proposal.reasons ?? null } : null,
       inventory: run?.status === 'COMPLETE' && !runStale ? { schoolAvailableMinor: run.receivedMinor - run.spentMinor,
         cashAvailableMinor: run.receivedMinor - run.spentMinor + run.otherMinor,
+        cashExpectedMinor: run.receivedMinor - run.spentMinor + run.otherMinor + freshness.setupReceivedMinor, deficitMinor: run.deficitMinor ?? 0,
         fingerprint, evidenceCount: run.evidenceCount, page, hasNext: page + 1 < run.pageCount, evidence: safeRows.filter(row => row.collection !== 'feeAllocationConfigs') } : null };
   });
 }

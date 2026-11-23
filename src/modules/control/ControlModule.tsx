@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } from "lucide-react";
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
-import { AllocationRubricSelect, formatRubricAmount, rubricSpendCheck, useAllocationSpendOptions } from "../../components/AllocationRubricSelect";
+import { ALLOCATION_SETUP_BANNER, AllocationRubricSelect, formatRubricAmount, rubricSpendCheck, useAllocationSpendOptions } from "../../components/AllocationRubricSelect";
 import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
 import { FormerStudentPaymentForm } from "../../components/finance/FormerStudentPaymentForm";
 import { isArchivedStudent } from "../../utils/formerStudents";
@@ -1612,6 +1612,7 @@ export function ControlModule({
           )}
           {cashierControlDrawer === "payment" && (
             <>
+              {expenseSpend.options?.setupInProgress && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-justify text-sm" data-allocation-setup-banner>{ALLOCATION_SETUP_BANNER}</p>}
               <div className="grid min-w-0 gap-2">
                 <label className="flex min-w-0 items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2">
                   <Search className="h-4 w-4 shrink-0 text-slate-400" />

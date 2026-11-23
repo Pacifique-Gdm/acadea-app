@@ -18,6 +18,7 @@ import { manageFeeAllocationSharing, sharingActions } from "./_lib/feeAllocation
 import { allocationLifecycleActions, manageFeeAllocationLifecycle, getAllocationSpendOptions } from "./_lib/feeAllocationLifecycle.js";
 import { readAllocationActivation } from "./_lib/feeAllocationActivationView.js";
 import { reconciliationActions, manageAllocationReconciliation } from "./_lib/feeAllocationReconciliation.js";
+import { readScopedJustifications, justificationPhotoSigner } from "./_lib/feeAllocationJustifications.js";
 import { allowClientFailure, validateClientFailure } from "./_lib/clientFailureTelemetry.js";
 import { verifyMaintenanceCaller } from "./_lib/maintenanceAuth.js";
 import { runAllocationMaintenance, runAllocationNightlyCheck } from "./_lib/feeAllocationMaintenance.js";
@@ -95,6 +96,9 @@ export default async function handler(req, res) {
       const actor = ["coordination_admin", "sub_coordination_admin"].includes(caller.role)
         ? await requireActiveCoordinationActor(auth, db, token)
         : await requireActiveApiUser(db, caller);
+      // Un compte sans école ni coordination (le Super administrateur, par exemple) n'a aucun accès à la répartition :
+      // refus clair (403) au lieu d'une erreur interne du limiteur de demandes.
+      if (!actor?.schoolId && !actor?.coordinationId) throw new FeeAllocationError(403, "permission-denied", "Accès à la répartition interdit.");
       const allocationAction = requestedAction.slice("fee-allocation.".length);
       const mutation = ["save-draft", "save-drafts", "prepare-version", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "publish-social-part", "publish-social-parts", "set-rubric-share", "revoke-share"].includes(allocationAction) || allocationLifecycleActions.has(allocationAction) || reconciliationActions.has(allocationAction);
       await enforceApiRateLimit({ db, actorId: actor.uid, schoolId: String(actor.schoolId ?? actor.coordinationId ?? ""),
@@ -102,6 +106,10 @@ export default async function handler(req, res) {
         // Bounded ledger pages share a 60/min budget with financial creation;
         // retain a finite budget while allowing a 3,001-row export to finish.
         ...(mutation || ['get-workspace', 'get-forecast-revision', 'get-shared-workspace', 'get-shared-revision'].includes(allocationAction) ? API_RATE_LIMITS.FINANCE_CREATE : API_RATE_LIMITS.FINANCE_MUTATE) });
+      // Lot « 3 étapes » : justifications (motif, photo) consultées par l'Administrateur de l'école et la coordination qui la supervise.
+      if (allocationAction === "get-justifications") {
+        return sendJson(res, 200, await readScopedJustifications({ db, caller: actor, body: { ...body, action: allocationAction }, signPhoto: justificationPhotoSigner(initAdmin().bucket) }));
+      }
       const manage = rubricActions.has(allocationAction) ? manageFeeAllocationRubrics
         : socialPartActions.has(allocationAction) ? manageSocialPart
         : sharingActions.has(allocationAction) ? manageFeeAllocationSharing
@@ -110,7 +118,9 @@ export default async function handler(req, res) {
         : ["get-activation", "get-history-proofs"].includes(allocationAction) ? readAllocationActivation
         : allocationAction === "spend-options" ? getAllocationSpendOptions
         : ["get-workspace", "get-forecast-revision", "save-drafts"].includes(allocationAction) ? manageFeeAllocationPhase2 : manageFeeAllocationPhase1;
-      return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction } }));
+      // Lot « 3 étapes » : la photo facultative d'une justification doit exister dans le stockage avant d'être retenue.
+      const fileExists = manage === manageAllocationReconciliation ? async (path) => (await initAdmin().bucket.file(path).exists())[0] : undefined;
+      return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction }, ...(fileExists ? { fileExists } : {}) }));
     }
     if (["list-social-support", "list-social-support-personnel", "save-social-support", "cancel-social-support"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);

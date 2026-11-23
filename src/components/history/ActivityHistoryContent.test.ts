@@ -5,6 +5,8 @@ import { createElement } from "react";
 import type { AppData, AppUser } from "../../types";
 import { ActivityHistoryContent } from "./ActivityHistoryContent";
 
+const todayAt = (hours: number, minutes: number) => { const value = new Date(); value.setHours(hours, minutes, 0, 0); return value; };
+
 describe("Historique responsive", () => {
   const source = readFileSync(new URL("./ActivityHistoryContent.tsx", import.meta.url), "utf8");
 
@@ -31,8 +33,9 @@ describe("Historique responsive", () => {
     const markup = renderToStaticMarkup(createElement(ActivityHistoryContent, { user, data, role: "admin", yearData: {
       students: [], parents: [], users: [user], feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [],
       auditLogs: [
-        { id: "older", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité ancienne", createdAt: "2026-08-12T10:00:00.000Z" },
-        { id: "newer", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité récente", createdAt: { toMillis: () => Date.parse("2026-08-12T12:00:00.000Z") } as unknown as string },
+        // Dates d'aujourd'hui : l'historique de l'Administrateur s'ouvre sur « aujourd'hui ».
+        { id: "older", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité ancienne", createdAt: todayAt(0, 5).toISOString() },
+        { id: "newer", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité récente", createdAt: { toMillis: () => todayAt(0, 10).getTime() } as unknown as string },
       ],
     } }));
 
@@ -50,4 +53,21 @@ describe("Historique responsive", () => {
     expect(markup).toContain('<option value="payment">Paiements</option>');
     expect(markup).toContain('<option value="expense">Dépenses</option>');
   });
+  it("Administrateur : les dates s'ouvrent sur « aujourd'hui » et la liste ne montre que les activités du jour", () => {
+    const user: AppUser = { id: "admin-a", name: "Admin", email: "admin@example.invalid", role: "school_admin", schoolId: "school-a", activeSchoolYearId: "year-a", status: "active" };
+    const data: AppData = { users: [user], schools: [], schoolYears: [], students: [], parents: [], feeTypes: [], payments: [], expenses: [], messages: [], notifications: [], auditLogs: [], valves: [], disciplineSanctions: [], attendance: [], attendanceSettings: [], biometricTerminals: [] };
+    const yesterday = todayAt(12, 0); yesterday.setDate(yesterday.getDate() - 1);
+    const markup = renderToStaticMarkup(createElement(ActivityHistoryContent, { user, data, role: "admin", yearData: {
+      students: [], parents: [], users: [user], feeTypes: [], payments: [], expenses: [], messages: [], disciplineSanctions: [],
+      auditLogs: [
+        { id: "today", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité du jour", createdAt: todayAt(0, 30).toISOString() },
+        { id: "yesterday", schoolId: "school-a", actorId: user.id, actorName: user.name, action: "Activité de la veille", createdAt: yesterday.toISOString() },
+      ],
+    } }));
+    const today = todayAt(12, 0); const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    expect(markup).toContain(`aria-label="Début de la période" class="input min-w-0 max-w-full" value="${iso}"`);
+    expect(markup).toContain(`aria-label="Fin de la période" class="input min-w-0 max-w-full" value="${iso}"`);
+    expect(markup).toContain("Activité du jour");
+    expect(markup).not.toContain("Activité de la veille");
+  }, 15_000);
 });
