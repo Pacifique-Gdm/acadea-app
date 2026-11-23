@@ -110,7 +110,9 @@ export default async function handler(req, res) {
         : ["get-activation", "get-history-proofs"].includes(allocationAction) ? readAllocationActivation
         : allocationAction === "spend-options" ? getAllocationSpendOptions
         : ["get-workspace", "get-forecast-revision", "save-drafts"].includes(allocationAction) ? manageFeeAllocationPhase2 : manageFeeAllocationPhase1;
-      return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction } }));
+      // Lot « 3 étapes » : la photo facultative d'une justification doit exister dans le stockage avant d'être retenue.
+      const fileExists = manage === manageAllocationReconciliation ? async (path) => (await initAdmin().bucket.file(path).exists())[0] : undefined;
+      return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction }, ...(fileExists ? { fileExists } : {}) }));
     }
     if (["list-social-support", "list-social-support-personnel", "save-social-support", "cancel-social-support"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);

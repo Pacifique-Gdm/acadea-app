@@ -86,7 +86,7 @@ describe("activation ordinaire sans inscription de fixture (base en mémoire)", 
       amount: 30, currency: "USD", createdAt: past, provenance: "financial-api", clientRequestIdHash: "historical-provenance" };
     db.records.set("payments/historical", structuredClone(old));
     await action(db, "publish-configuration", { versionId: "version" });
-    const p = await action(db, "prepare-opening", { cashCountMinor: 3000, lines: [{ rubricId, amountMinor: 2400 }, { rubricId: "UNALLOCATED", amountMinor: 600 }], confirmation: "RAPPROCHER LA CAISSE" });
+    const p = await action(db, "prepare-opening", { cashCountMinor: 3000, lines: [{ rubricId, amountMinor: 2400 }, { rubricId: "UNALLOCATED", amountMinor: 600 }], confirmation: "RAPPROCHER LA CAISSE", unallocatedReason: "Part du minerval non encore décidée." });
     await action(db, "approve-opening", { openingId: p.openingId, confirmation: "APPROUVER LE RAPPROCHEMENT" });
     await action(db, "activate", { openingId: p.openingId, confirmation: "ACTIVER LA REPARTITION DE MON ETABLISSEMENT" });
     const args = { db, caller: cashier, now: "2026-11-13T12:00:00.000Z", body: { action: "create-payment", schoolYearId: "year", studentId: "student", feeTypeId: "fee", amount: 70, clientRequestId: "historical-remainder-001" } };

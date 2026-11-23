@@ -5,6 +5,7 @@ import { toMoneyMinor } from "./money.js";
 import { allocationSupportedProject, readOperationalAllocation } from "./feeAllocationRuntime.js";
 import { supportBalance } from "./socialSupportMath.js";
 import { assertSocialVersionBinding } from "./feeAllocationSocialPart.js";
+import { prepareSetupPaymentTracking } from "./feeAllocationSetupPayments.js";
 
 const hash = (parts) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const fail = (message) => { throw new FeeAllocationError(409, "allocation-reconciliation-required", message); };
@@ -61,7 +62,12 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   const operational = ["ACTIVE", "PAUSED"].includes(state?.status) ? await readOperationalAllocation({ db, transaction,
     schoolId: source.schoolId, schoolYearId: collectionYear, currency: source.currency, now }) : null;
   // Lot 27a : la pause n'existe plus ; un ancien état « PAUSED » est traité comme actif.
-  if (!operational && !state?.phase3FixtureId) return noop;
+  if (!operational && !state?.phase3FixtureId) {
+    // Lot « 3 étapes », point 5 : un nouvel encaissement pendant la mise en route est gardé « à répartir à l'activation ».
+    if (!payment || previous || state?.status !== "EN_PREPARATION") return noop;
+    const pendingRef = db.doc(`feeAllocationPending/payment_${hash([source.schoolId, source.id]).slice(0, 40)}`);
+    return (await prepareSetupPaymentTracking({ db, transaction, state, source, now, pendingRef })) ?? noop;
+  }
   if (!operational && (!isFeeAllocationReceiptSandbox(db) || !school?.fixtureId || !/^e2e-(recipe|offline)-/.test(school.fixtureId) || state.phase3FixtureId !== school.fixtureId
     || state.status !== "EN_PREPARATION" || state.schoolId !== source.schoolId || state.schoolYearId !== collectionYear
     || state.currency !== source.currency || !Number.isFinite(Date.parse(state.cutoffAt)) || state.cutoffAt > now)) fail("Environnement de recette financière non isolé.");
@@ -293,7 +299,10 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
       || balance.rubricId !== line.rubricId || !safe(balance.receivedMinor) || !safe(balance.spentMinor) || !safe(balance.reservedMinor))) fail("Solde d'affectation incohérent.");
     const receivedMinor = (balance?.receivedMinor ?? 0) + line.amountMinor;
     const openingMinor = balance?.openingMinor ?? 0;
-    if (!safe(openingMinor) || !safe(receivedMinor) || !safe(openingMinor + receivedMinor) || openingMinor + receivedMinor < (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0)) fail("Correction incompatible avec des fonds déjà imputés ou réservés.");
+    // Lot « 3 étapes » : un « Non affecté » de départ négatif (dépenses > encaissements, manque en caisse) se comble
+    // par les encaissements suivants ; seule une baisse (correction) est refusée si elle passe sous les fonds déjà imputés.
+    if (!safe(openingMinor) || !safe(receivedMinor) || !safe(openingMinor + receivedMinor)
+      || line.amountMinor < 0 && openingMinor + receivedMinor < (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0)) fail("Correction incompatible avec des fonds déjà imputés ou réservés.");
     return { ref, value: { schoolId: source.schoolId, collectionSchoolYearId: collectionYear, currency: source.currency, rubricId: line.rubricId,
       ...(arrearsNames.has(line.rubricId) ? { arrearsOf: arrearsNames.get(line.rubricId) } : {}),
       receivedMinor, openingMinor, spentMinor: balance?.spentMinor ?? 0, reservedMinor: balance?.reservedMinor ?? 0, operational: !!operational,
