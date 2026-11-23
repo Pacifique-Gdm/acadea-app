@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { SocialLinesEditor } from "./FeeAllocationSocialPart";
 
-// Version 1.19.1 : affichage des formulaires « Partie 2 — cas sociaux » et « Ajouter une répartition ».
+// Version 1.20.1 : affichage des formulaires « Partie 2 — cas sociaux » et « Ajouter une répartition ».
 const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
 const social = read("FeeAllocationSocialPart.tsx"), drawer = read("FeeAllocationDrawer.tsx");
 const lines = [{ id: "a".repeat(32), name: "Part de l'école", mode: "percent" as const, value: "40" }, { id: "b".repeat(32), name: "Part des enseignants", mode: "percent" as const, value: "30" }];
@@ -12,7 +12,7 @@ const render = (secondAction?: string) => renderToStaticMarkup(createElement(Soc
   ...(secondAction ? { secondAction: createElement("button", { type: "button" }, secondAction) } : {}) }));
 const element = (html: string, marker: string) => html.slice(html.lastIndexOf("<div", html.indexOf(marker)));
 
-describe("formulaires de répartition : mise en page (1.19.1)", () => {
+describe("formulaires de répartition : mise en page (1.20.1)", () => {
   it("« Recopier la partie 1 » et « Appliquer à tous les frais » sur la même ligne, moitié-moitié", () => {
     const html = render("Appliquer à tous les frais");
     const row = element(html, "data-copy-actions");

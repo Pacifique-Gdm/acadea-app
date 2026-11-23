@@ -34,7 +34,7 @@ export function TypedConfirmation({ value, onChange, disabled, label = `Pour pub
 }
 
 /** Lignes de la partie 2 (cas sociaux) : rubriques de la partie 1, « Retirer la ligne » / « Remettre la ligne », « Non affecté » automatique.
- * Version 1.19.1 : « Retirer la ligne » sur la même ligne que le pourcentage ; « Recopier… » et un second bouton éventuel, moitié-moitié. */
+ * Version 1.20.1 : « Retirer la ligne » sur la même ligne que le pourcentage ; « Recopier… » et un second bouton éventuel, moitié-moitié. */
 export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyPartOne, copyLabel = "Recopier la partie 1", secondAction }: {
   lines: Line[]; currency: "USD" | "CDF"; disabled?: boolean; onChange: (lines: Line[]) => void; onCopyPartOne: () => void; copyLabel?: string; secondAction?: ReactNode;
 }) {
@@ -169,7 +169,7 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
       <p>La partie 2 s'appliquera aux paiements des cas sociaux arrivés après la publication, y compris à ceux qui ont déjà payé une partie de ce frais. Aucun paiement déjà réparti ne change. {modified.length ? `${modified.length} frais modifié${modified.length > 1 ? "s" : ""} ser${modified.length > 1 ? "ont" : "a"} publié${modified.length > 1 ? "s" : ""} en une seule fois.` : "Aucun frais modifié pour l'instant."}</p>
       {invalid.length > 0 && <p role="alert" className="text-amber-900">À corriger avant de publier : {invalid.map(feeLabel).join(", ")}.</p>}
       <TypedConfirmation value={confirmation} onChange={(value) => { request.current = null; setConfirmation(value); }} disabled={busy || uncertain} />
-      {/* Version 1.19.1 : « Annuler » (ferme sans rien publier) et « Publier la partie 2 », moitié-moitié. */}
+      {/* Version 1.20.1 : « Annuler » (ferme sans rien publier) et « Publier la partie 2 », moitié-moitié. */}
       <div className="grid w-full grid-cols-2 gap-2" data-social-publish-actions>
         <button type="button" className="secondary-button min-h-11 w-full px-2" disabled={busy} onClick={onClose}>Annuler</button>
         <Action className="primary-button w-full min-w-0 justify-items-center px-2 text-xs sm:text-sm" busy={busy} disabled={!uncertain && !ready} onClick={() => void publish()}>{uncertain ? "Vérifier la même demande" : "Publier la partie 2"}</Action></div>

@@ -4,7 +4,7 @@ import { projectAllocations } from "./feeAllocationView";
 import { feeAllocationPdfSections } from "./feeAllocationPdf";
 import type { AllocationWorkspace } from "../services/feeAllocation";
 
-// Version 1.19.1 : PDF court, un tableau par page.
+// Version 1.20.1 : PDF court, un tableau par page.
 const drawer = readFileSync(new URL("../modules/menu/FeeAllocationDrawer.tsx", import.meta.url), "utf8");
 function workspace(): AllocationWorkspace {
   return {
@@ -19,7 +19,7 @@ function workspace(): AllocationWorkspace {
 const sections = (options: Parameters<typeof feeAllocationPdfSections>[4] = {}) =>
   feeAllocationPdfSections(projectAllocations([workspace()], { kind: "fee", value: "", from: "", to: "" }), "Frais : Tous les frais", "École fictive · 2027-2028", false, options);
 
-describe("PDF « Répartition des frais » court (1.19.1)", () => {
+describe("PDF « Répartition des frais » court (1.20.1)", () => {
   it("chaque tableau commence sur une nouvelle page (le premier suit l'en-tête)", () => {
     const parts = sections();
     expect(parts).toHaveLength(3);

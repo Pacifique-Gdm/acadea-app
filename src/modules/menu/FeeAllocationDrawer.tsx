@@ -182,7 +182,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       for (const workspace of workspaces) fresh.push(await loadAllocationWorkspace(workspace.school.id, undefined, { fresh: true, shared: staffView }));
       const freshRows = projectAllocations(fresh, filter);
       setWorkspaces(fresh);
-      // Version 1.19.1 : PDF court — titre, école, année et date dans l'en-tête, puis les tableaux et leurs totaux.
+      // Version 1.20.1 : PDF court — titre, école, année et date dans l'en-tête, puis les tableaux et leurs totaux.
       const filtered = filter.kind === "period" ? filter.value !== "year" : Boolean(filter.value);
       await renderAcadPdfPreview({ filename: "repartition-frais.pdf", title: "Répartition des frais", school,
         // L'en-tête n'affiche que le nom de l'année.
@@ -339,7 +339,7 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
     finally { locked.current = false; setBusy(false); setCreating(false); }
   }, [preview, social, workspace, feeId, selected, onSaved]);
   return <AdminDrawer title={config ? "Reprendre le brouillon" : "Ajouter une répartition"} closeLabel="Fermer la configuration" width="wide" onClose={() => { if (!busy) onClose(); }}><div className="text-justify" data-justified>
-    {/* Version 1.19.1 : plus de ligne « école · année · devise » sous le titre. */}
+    {/* Version 1.20.1 : plus de ligne « école · année · devise » sous le titre. */}
     <p className="mb-3 text-sm">Enregistrement préparatoire uniquement.</p>
     <fieldset disabled={busy || uncertain} className="grid gap-3">
       <label className="grid gap-1 text-sm">Frais existant<select aria-label="Frais existant" className="input" value={feeId} onChange={(event) => { setFeeId(event.target.value); setSelected(event.target.value ? [event.target.value] : []); }}><option value="">Choisir un frais exact</option>{eligibleFees.map((fee) => <option key={fee.id} value={fee.id}>{fee.name} · {allocationClassLabel(fee.classOptionKey || fee.className)} · {formatCurrencyMoney(fee.amount, workspace.currency)}</option>)}</select></label>
@@ -350,7 +350,7 @@ function AllocationEditor({ workspace, config, onClose, onSaved }: { workspace: 
           const entry = catalog?.find((item) => item.id === event.target.value); setNewName(null); update(index, { id: entry?.id ?? "", name: entry?.name ?? "" });
         }}><option value="">{catalog ? "Choisir une rubrique" : "Chargement…"}</option>{(catalog ?? []).filter((item) => (!item.hidden || item.id === rubric.id) && (item.id === rubric.id || !rubrics.some((row) => row.id === item.id))).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}{!catalog?.some((item) => item.id === rubric.id) && rubric.id && <option value={rubric.id}>{rubric.name}</option>}<option value="__new__">+ Nouvelle rubrique…</option></select>
         {newName?.index === index && <span className="flex flex-wrap gap-2" data-new-rubric><input className="input min-w-[11rem] flex-1" maxLength={80} placeholder="Nouvelle rubrique" aria-label="Nouvelle rubrique" value={newName.value} onChange={(event) => setNewName({ index, value: event.target.value })}/><button type="button" className="secondary-button shrink-0" disabled={creating || !newName.value.trim()} onClick={() => void createNamed(index)}>Ajouter</button></span>}</label><label className="grid gap-1 text-sm">Mode<select className="input" value={rubric.mode} onChange={(event) => update(index, { mode: event.target.value as RubricInput["mode"] })}><option value="percent">Pourcentage</option><option value="fixed">Montant fixe</option></select></label><div className="grid min-w-0 gap-1 text-sm" data-value-row><label htmlFor={`valeur-ligne-${index}`}>{rubric.mode === "percent" ? "Pourcentage (%)" : `Montant (${workspace.currency})`}</label>
-        {/* Version 1.19.1 : « Retirer la ligne » sur la même ligne que le champ du pourcentage. */}
+        {/* Version 1.20.1 : « Retirer la ligne » sur la même ligne que le champ du pourcentage. */}
         <div className="flex min-w-0 items-stretch gap-2"><input id={`valeur-ligne-${index}`} className="input min-w-0 flex-1" inputMode="decimal" value={rubric.value} onChange={(event) => update(index, { value: event.target.value })}/><button type="button" className="secondary-button shrink-0 px-3" disabled={rubrics.length === 1} onClick={() => { setNewName(null); setRubrics((rows) => rows.filter((_, rowIndex) => rowIndex !== index)); }}>Retirer la ligne</button></div></div></div>)}
       <button type="button" className="secondary-button" disabled={rubrics.length >= 40} onClick={() => setRubrics((rows) => [...rows, { id: "", name: "", mode: "percent", value: "" }])}>+ Ajouter une ligne</button>
     </fieldset>

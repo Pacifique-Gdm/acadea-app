@@ -3,7 +3,7 @@ import { allocationTotals, allocationFinancialTotals, buildAllocationTables, noA
 import { escapePdfHtml, pdfSection, pdfTable } from "./pdf";
 import { formatCurrencyMoney } from "./currency";
 
-/** Version 1.19.1 : PDF réduit au titre, à l'école, à l'année, à la date (en-tête), aux tableaux et à leurs totaux.
+/** Version 1.20.1 : PDF réduit au titre, à l'école, à l'année, à la date (en-tête), aux tableaux et à leurs totaux.
  * Chaque tableau commence sur une nouvelle page. Plus de longues explications. */
 const justified = (text: string) => `<p style="text-align: justify">${escapePdfHtml(text)}</p>`;
 /** Une seule ligne courte, sous l'en-tête ou sous un tableau. */
