@@ -41,7 +41,7 @@ export function dashboardPdfTransactionChart(rows: DashboardPdfChartRow[], curre
 
 export async function exportDashboardReportPdf({
   school, year, sectionLabel, dateLabel, recoveryRate, totalPayments, arrearsCollections,
-  historicalArrears, totalExpenses, official, reduction, expected, formerPaid = 0, remaining, transactions,
+  historicalArrears, totalExpenses, official, reduction, expected, formerPaid = 0, remaining, overpaid = 0, transactions,
   classRows, totalGirls, totalBoys, totalStudents, totalClasses, totalParents, administrators,
   cashiers, disciplineDirectors, feeProgressRows, feeShares, transactionChartRows, transactionPeriodLabel,
 }: {
@@ -60,6 +60,8 @@ export async function exportDashboardReportPdf({
   /** Lot 27c-2 : paiements d'anciens élèves (déjà inclus dans le prévu et l'encaissé). */
   formerPaid?: number;
   remaining: number;
+  /** Trop-perçu des élèves (payé au-delà des frais de leur classe actuelle). */
+  overpaid?: number;
   transactions: DashboardTransaction[];
   classRows: DashboardClassRow[];
   totalGirls: number;
@@ -100,6 +102,7 @@ export async function exportDashboardReportPdf({
         { label: "Frais de l'année encaissés", value: `${formatCurrencyMoney(totalPayments, yearCurrency)}${formerPaid > 0 ? ` (dont anciens élèves : ${formatCurrencyMoney(formerPaid, yearCurrency)})` : ""}` },
         { label: "Dépenses", value: formatCurrencyMoney(totalExpenses, yearCurrency) },
         { label: "Montant restant à payer", value: formatCurrencyMoney(remaining, yearCurrency) },
+        ...(overpaid > 0 ? [{ label: "Trop-perçu des élèves", value: formatCurrencyMoney(overpaid, yearCurrency) }] : []),
       ])),
       pdfSection("Arriérés des années antérieures", pdfInfoGrid(([
         { currency: yearCurrency, amount: historicalArrears[yearCurrency] },

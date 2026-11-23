@@ -22,7 +22,7 @@ describe("créances financières de tous les élèves", () => {
     const students = Array.from({ length: 500 }, (_, index) => pupil(`pupil-${index}`));
     const payments = Array.from({ length: 200 }, (_, index) => paid(`payment-${index}`, `pupil-${index}`, "minerval", 300));
     const result = buildDashboardFinancialAggregates(students, [fees[0]], payments);
-    expect(result.financialStats).toEqual({ official: 150000, reduction: 0, expected: 150000, paid: 60000, remaining: 90000 });
+    expect(result.financialStats).toEqual({ overpaid: 0, official: 150000, reduction: 0, expected: 150000, paid: 60000, remaining: 90000 });
     expect(result.feeProgressRows).toEqual([{ name: "Minerval", official: 150000, reduction: 0, expected: 150000, paid: 60000, remaining: 90000, rate: 40 }]);
     expect(getStudentBalance("pupil-499", [fees[0]], payments, students)).toEqual({ expected: 300, paid: 0, remaining: 300 });
   });
@@ -32,7 +32,7 @@ describe("créances financières de tous les élèves", () => {
     const students = [pupil("partiel", support), pupil("sans-paiement")];
     const payments = [paid("payment", "partiel", "minerval", 50)];
     const result = buildDashboardFinancialAggregates(students, fees, payments);
-    expect(result.financialStats).toEqual({ official: 700, reduction: 100, expected: 600, paid: 50, remaining: 550 });
+    expect(result.financialStats).toEqual({ overpaid: 0, official: 700, reduction: 100, expected: 600, paid: 50, remaining: 550 });
     expect(result.feeProgressRows).toEqual([
       { name: "Minerval", official: 600, reduction: 100, expected: 500, paid: 50, remaining: 450, rate: 10 },
       { name: "Examen", official: 100, reduction: 0, expected: 100, paid: 0, remaining: 100, rate: 0 },
@@ -42,7 +42,7 @@ describe("créances financières de tous les élèves", () => {
   it("garde visible un frais totalement exonéré sans division par zéro ni recette fictive", () => {
     const exempt = pupil("exempt", { full: { id: "full", schoolYearId: "year-a", thirdPartyName: "", lines: { minerval: { reductionMinor: 30000, commitmentMinor: 0 } } } });
     const result = buildDashboardFinancialAggregates([exempt], [fees[0]], []);
-    expect(result.financialStats).toEqual({ official: 300, reduction: 300, expected: 0, paid: 0, remaining: 0 });
+    expect(result.financialStats).toEqual({ overpaid: 0, official: 300, reduction: 300, expected: 0, paid: 0, remaining: 0 });
     expect(result.feeProgressRows).toEqual([{ name: "Minerval", official: 300, reduction: 300, expected: 0, paid: 0, remaining: 0, rate: 0 }]);
   });
 });

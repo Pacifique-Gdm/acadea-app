@@ -9,7 +9,7 @@ import { sumMoney } from "../../utils/money";
 import { activityTimestamp } from "../../utils/activityHistory";
 import { generateReceiptPdf } from "../../utils/pdf";
 import { MISSING_FINANCIAL_OPERATION_SCHOOL_ERROR, resolveFinancialOperationSchool } from "../../utils/financialOperationSchool";
-import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
+import { getStudentDetachedPaid, getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { schoolOptionDisplayName } from "../../utils/schoolOptions";
@@ -132,8 +132,9 @@ export function StudentDetailPage({
       expected: sumMoney([totals.expected, summary.expected]),
       paid: sumMoney([totals.paid, summary.paid]),
       remaining: sumMoney([totals.remaining, summary.remaining]),
+      overpaid: sumMoney([totals.overpaid, summary.overpaid]),
     }),
-    { expected: 0, paid: 0, remaining: 0 },
+    { expected: 0, paid: 0, remaining: 0, overpaid: getStudentDetachedPaid(student, yearData.feeTypes, yearData.payments, detailIndexes) },
   );
   const payments = [...(detailIndexes.paymentsByStudentId.get(student.id) ?? [])].sort(
     (first, second) => activityTimestamp(second.createdAt ?? second.paidAt) - activityTimestamp(first.createdAt ?? first.paidAt),
@@ -284,6 +285,7 @@ export function StudentDetailPage({
           <Metric label="Total frais" value={`$${balance.expected}`} />
           <Metric label="Total payé" value={`$${balance.paid}`} />
           <Metric label="Solde" value={`$${balance.remaining}`} />
+          {balance.overpaid > 0 && <Metric label="Trop-perçu" value={`$${balance.overpaid}`} />}
           <div className="h-3 overflow-hidden rounded bg-slate-100">
             <div className="h-full rounded bg-mint" style={{ width: `${progress}%` }} />
           </div>

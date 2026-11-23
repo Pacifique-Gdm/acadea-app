@@ -18,8 +18,8 @@ const stats: CoordinationDashboardStats = {
   alignedSchoolIds: ["school-a"], excludedSchoolIds: [], students: [], feeTypes: [], payments: [], expenses: [], cashInflows: [], totalStudents: 3, totalClasses: 1, totalParents: 2, administrators: 1, cashiers: 1, disciplineDirectors: 1,
   classRows: [{ schoolId: "school-a", schoolName: school.name, className: "2ème Primaire", girls: 2, boys: 1, total: 3 }], totalGirls: 2, totalBoys: 1,
   financialGroups: [
-    { currency: "USD", official: 100, reduction: 0, expected: 100, paid: 60, expenses: 10, cashInflows: 0, remaining: 40, recoveryRate: 60, feeProgressRows: [{ name: "Minerval", expected: 100, paid: 60, remaining: 40, rate: 60 }], feeShares: [{ name: "Minerval", amount: 60, percentage: 60 }, { name: "Impayés", amount: 40, percentage: 40 }], payments: [], expenseRows: [], cashInflowRows: [] },
-    { currency: "CDF", official: 20000, reduction: 0, expected: 20000, paid: 5000, expenses: 1000, cashInflows: 0, remaining: 15000, recoveryRate: 25, feeProgressRows: [{ name: "Minerval", expected: 20000, paid: 5000, remaining: 15000, rate: 25 }], feeShares: [{ name: "Minerval", amount: 5000, percentage: 25 }, { name: "Impayés", amount: 15000, percentage: 75 }], payments: [], expenseRows: [], cashInflowRows: [] },
+    { currency: "USD", official: 100, reduction: 0, expected: 100, paid: 60, expenses: 10, cashInflows: 0, remaining: 40, overpaid: 0, recoveryRate: 60, feeProgressRows: [{ name: "Minerval", expected: 100, paid: 60, remaining: 40, rate: 60 }], feeShares: [{ name: "Minerval", amount: 60, percentage: 60 }, { name: "Impayés", amount: 40, percentage: 40 }], payments: [], expenseRows: [], cashInflowRows: [] },
+    { currency: "CDF", official: 20000, reduction: 0, expected: 20000, paid: 5000, expenses: 1000, cashInflows: 0, remaining: 15000, overpaid: 0, recoveryRate: 25, feeProgressRows: [{ name: "Minerval", expected: 20000, paid: 5000, remaining: 15000, rate: 25 }], feeShares: [{ name: "Minerval", amount: 5000, percentage: 25 }, { name: "Impayés", amount: 15000, percentage: 75 }], payments: [], expenseRows: [], cashInflowRows: [] },
   ],
 };
 

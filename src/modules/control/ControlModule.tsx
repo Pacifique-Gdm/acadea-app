@@ -27,13 +27,13 @@ import { escapePdfHtml, generateExpensePdf, generateReceiptPdf, pdfInfoGrid, pdf
 import { useAsyncAction } from "../../hooks/useAsyncAction";
 import type { PdfTableColumn } from "../../utils/pdf";
 import { getStudentBalance } from "../../utils/stats";
-import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
+import { getStudentDetachedPaid, getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { feeAppliesToStudent } from "../../utils/feeTargets";
 import { buildControlClassChoices, buildControlFeeGroups, feeNamesForWarningClass, getControlClassKey, selectPaymentWarningRecipients } from "../../utils/controlFilters";
 import { formatStudentClassName } from "../../utils/studentClasses";
 import { formatCurrencyMoney, formatSchoolMoney, resolveSchoolYearCurrency } from "../../utils/currency";
 import { resolveSchoolCurrency } from "../../utils/currency";
-import { remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
+import { overpaidMoney, remainingMoney, sumMoney, toMoneyMinor } from "../../utils/money";
 import { showNoPaymentStudentFound } from "../../utils/paymentStudentSearch";
 import { formatCount } from "../../utils/numberFormat";
 import { controlArrearsPdfSections } from "../../utils/controlArrearsPdf";
@@ -368,8 +368,9 @@ export function ControlModule({
           expected: sumMoney([totals.expected, summary.expected]),
           paid: sumMoney([totals.paid, summary.paid]),
           remaining: sumMoney([totals.remaining, summary.remaining]),
+          overpaid: sumMoney([totals.overpaid, summary.overpaid]),
         }),
-        { expected: 0, paid: 0, remaining: 0 },
+        { expected: 0, paid: 0, remaining: 0, overpaid: getStudentDetachedPaid(student, yearData.feeTypes, yearData.payments, controlIndexes) },
       );
       const progress = balance.expected > 0 ? Math.min(100, Math.round((balance.paid / balance.expected) * 100)) : 0;
       return { student, balance, progress, feeSummaries, hasApplicableFees: feeSummaries.length > 0 };
@@ -454,8 +455,9 @@ export function ControlModule({
       expected: sumMoney([totals.expected, summary.expected]),
       paid: sumMoney([totals.paid, summary.paid]),
       remaining: sumMoney([totals.remaining, summary.remaining]),
+      overpaid: sumMoney([totals.overpaid, summary.overpaid]),
     }),
-    { expected: 0, paid: 0, remaining: 0 },
+    { expected: 0, paid: 0, remaining: 0, overpaid: selectedHistoryStudent ? getStudentDetachedPaid(selectedHistoryStudent, yearData.feeTypes, yearData.payments, controlIndexes) : 0 },
   );
   const selectedHistoryPayments = selectedHistoryStudent
     ? (controlIndexes.paymentsByStudentId.get(selectedHistoryStudent.id) ?? [])
@@ -1102,7 +1104,7 @@ export function ControlModule({
         .filter((fee) => selectedPdfFeeGroup.ids.includes(fee.id) && feeAppliesToStudent(fee, row.student))
         .reduce((sum, fee) => sumMoney([sum, supportBalance(row.student, fee).net]), 0);
       const paid = sumMoney(selectedPdfFeeGroup.ids.map((feeId) => sumPaymentsForStudentFee(controlIndexes, row.student.id, feeId)));
-      return { expected, paid, remaining: remainingMoney(expected, paid) };
+      return { expected, paid, remaining: remainingMoney(expected, paid), overpaid: overpaidMoney(expected, paid) };
     };
     const showOptionColumn = rows.some(({ student }) => Boolean(student.option));
     const studentPaymentColumns: PdfTableColumn<(typeof rows)[number]>[] = [
@@ -1113,6 +1115,9 @@ export function ControlModule({
       { header: "Montant payé", render: (row) => formatMoney(pdfBalanceForRow(row).paid), align: "right" },
       { header: "Solde restant", render: (row) => formatMoney(pdfBalanceForRow(row).remaining), align: "right" },
     ];
+    if (rows.some((row) => pdfBalanceForRow(row).overpaid > 0)) {
+      studentPaymentColumns.push({ header: "Trop-perçu", render: (row) => formatMoney(pdfBalanceForRow(row).overpaid), align: "right" });
+    }
     if (showOptionColumn) {
       studentPaymentColumns.splice(3, 0, { header: "Option", render: ({ student }) => student.option || "-" });
     }
@@ -1160,6 +1165,7 @@ export function ControlModule({
             { label: "Total attendu", value: formatMoney(selectedHistoryFeeTotals.expected) },
             { label: "Total payé", value: formatMoney(selectedHistoryFeeTotals.paid) },
             { label: "Total restant", value: formatMoney(selectedHistoryFeeTotals.remaining) },
+            ...(selectedHistoryFeeTotals.overpaid > 0 ? [{ label: "Trop-perçu", value: formatMoney(selectedHistoryFeeTotals.overpaid) }] : []),
           ]),
         ),
         pdfSection(
@@ -1340,6 +1346,7 @@ export function ControlModule({
             </div>
           ))}
         </div>
+        {selectedHistoryFeeTotals.overpaid > 0 && <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">Trop-perçu : {formatMoney(selectedHistoryFeeTotals.overpaid)} (payé au-delà des frais de sa classe actuelle)</p>}
 
         <div className="min-w-0 rounded border border-amber-200 bg-amber-50 p-4 shadow-sm">
           <h2 className="text-lg font-bold text-ink">Dettes des années antérieures</h2>
@@ -1516,6 +1523,7 @@ export function ControlModule({
                 <Metric label="Payé" value={formatMoney(balance.paid)} />
                 <Metric label="Solde" value={formatMoney(balance.remaining)} />
               </div>
+              {balance.overpaid > 0 && <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-sm font-semibold text-amber-800">Trop-perçu : {formatMoney(balance.overpaid)}</p>}
               <div className="mt-4 h-3 overflow-hidden rounded bg-slate-100">
                 <div className={`h-full rounded transition-colors ${progressBarTone(progress)}`} style={{ width: `${progress}%` }} />
               </div>

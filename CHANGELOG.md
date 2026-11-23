@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.22.0] — 2026-11-23 — Fonctionnalité
+- Trop-perçu visible partout : fiche de l'élève, Contrôle (cartes, historique, PDF), tableau de bord de l'école et de la coordination (écran et PDF), fiche vue par la coordination ; le reste à payer ne change pas
+
 ## [1.21.0] — 2026-11-23 — Fonctionnalité
 - Répartition des frais : mise en route en 3 étapes (vérifier et justifier, valider le solde de départ, activer), école sans paiement activée directement, justification par motif écrit et photo, écart de caisse, dépenses supérieures aux encaissements, solde annulable, encaissements pendant la mise en route répartis à l'activation, justification de « Non affecté »
 - Justifications des écritures (motif, photo) consultables plus tard, seulement par l'Administrateur de l'école (« Répartition des frais ») et par le Coordinateur et le Sous-coordinateur pour les écoles qu'ils supervisent (Menu, « Historique ») ; jamais par le Super administrateur
