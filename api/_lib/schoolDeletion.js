@@ -17,6 +17,8 @@ export const SCHOOL_OWNED_SUBCOLLECTIONS = Object.freeze([
 export const SCHOOL_STORAGE_PREFIXES = Object.freeze([
   (schoolId) => `valves/${schoolId}/`,
   (schoolId) => `schools/${schoolId}/`,
+  // Lot « 3 étapes » : photos des justifications de la répartition.
+  (schoolId) => `fee-allocation-proofs/${schoolId}/`,
 ]);
 
 const BATCH_SIZE = 250;
