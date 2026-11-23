@@ -175,3 +175,14 @@ describe("lot « 3 étapes » — encaissement pendant la mise en route (point 5
     await expect(lifecycle(db, "validate-opening", { cashCountMinor: 7000, lines: [{ rubricId, amountMinor: 3000 }], confirmation: "VALIDER LE SOLDE DE DEPART" }, "2026-11-13T10:45:00.000Z")).rejects.toThrow("refaire le rapprochement");
   });
 });
+
+describe("lot « 3 étapes » — bandeau du caissier (point 5)", () => {
+  it("signale au caissier la mise en route dès que la vérification est lancée", async () => {
+    const { getAllocationSpendOptions } = await import("./feeAllocationLifecycle.js");
+    const db = school();
+    await lifecycle(db, "publish-configuration", { versionId: "version" });
+    expect((await getAllocationSpendOptions({ db, caller: cashier, body: {}, now })).setupInProgress).toBe(false);
+    await reconcileFixture(db, admin, now);
+    expect(await getAllocationSpendOptions({ db, caller: cashier, body: {}, now })).toMatchObject({ required: false, setupInProgress: true });
+  });
+});

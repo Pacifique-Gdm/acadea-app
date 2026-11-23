@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
 import { AllocationApiError, allocationRequest, loadAllocationActivation, type AllocationActivationView, type AllocationWorkspace, type AllocationEvidence, type AllocationProof } from "../../services/feeAllocation";
 import { formatCurrencyMoney } from "../../utils/currency";
-import { toMoneyMinor } from "../../utils/money";
 import { AllocationActionButton as Action } from "./AllocationActionButton";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
@@ -10,12 +9,25 @@ import { useLoadRetry } from "../../hooks/useLoadRetry";
 import { SOCIAL_PUBLISH_PHRASE, TypedConfirmation } from "./FeeAllocationSocialPart";
 import { pendingPublications } from "./feeAllocationPublishPlan";
 import { allocationClassLabel } from "../../utils/feeAllocationView";
+import { openingPlan, reasonReady } from "./feeAllocationOpeningPlan";
+import { proofPhotoProblem, uploadProofPhoto } from "../../services/feeAllocationProofPhoto";
 
 const errorText = (e: unknown) => userFacingError(e, "Confirmation serveur indisponible.");
-const parseAmount = (value: string) => {
-  if (!/^\d+(?:[.,]\d{1,2})?$/.test(value.trim())) throw new Error("Indiquez un montant positif avec deux décimales au maximum.");
-  return toMoneyMinor(Number(value.replace(",", ".")));
-};
+/** Lot « 3 étapes » : phrases tapées par l'Administrateur. */
+export const VALIDATE_OPENING_PHRASE = "VALIDER LE SOLDE DE DEPART";
+export const CANCEL_OPENING_PHRASE = "ANNULER LE SOLDE DE DEPART";
+
+/** Phrase à taper soi-même : pas de coller, pas de glisser, pas de remplissage automatique. */
+function PhraseField({ phrase, value, onChange, disabled, label }: { phrase: string; value: string; onChange: (value: string) => void; disabled?: boolean; label?: string }) {
+  const block = (event: { preventDefault: () => void }) => event.preventDefault();
+  const [name] = useState(() => `confirmation-${crypto.randomUUID()}`);
+  return <label className="grid gap-1 text-sm">{label ?? `Tapez vous-même « ${phrase} »`}
+    <input className="input" value={value} disabled={disabled} aria-label={`Phrase « ${phrase} »`} autoComplete="off" autoCorrect="off" autoCapitalize="characters" spellCheck={false}
+      name={name} data-typed-phrase={phrase} onPaste={block} onDrop={block} onDragOver={block} onContextMenu={block}
+      onChange={(event) => { const native = event.nativeEvent as InputEvent; if (native?.inputType === "insertFromPaste" || native?.inputType === "insertFromDrop" || native?.inputType === "insertReplacementText") return; onChange(event.target.value); }} />
+    {value && value !== phrase && <span className="text-xs text-amber-800">La phrase n'est pas encore exacte.</span>}
+  </label>;
+}
 
 /** Version 1.15.2 : phrase montrée à la place de « Préparer la nouvelle version » quand le frais est déjà réparti. */
 export const DRAFT_LOCKED_TEXT = "Ce frais est déjà réparti pour cette année : sa répartition ne change plus. « Publier le nouveau frais » sert seulement à un frais pas encore réparti, par exemple un frais ou une classe ajouté en cours d’année.";
@@ -28,11 +40,14 @@ export function ActivationSteps() {
     <ol className="ml-5 mt-1 grid list-decimal gap-1">
       <li>Créer la répartition : « + Ajouter », choisir le frais et les classes, puis les rubriques (en pourcentage ou en montant fixe ; le reste va dans « Non affecté »). Une rubrique créée par « + Nouvelle rubrique… » n’est enregistrée qu’avec la répartition.</li>
       <li>Préparer et publier : un seul bouton prépare puis publie toutes les classes enregistrées.</li>
-      <li>Vérifier le solde de départ : Acadéa examine les encaissements et dépenses déjà enregistrés. Justifier les écritures signalées par une preuve.</li>
-      <li>Préparer le solde de départ : saisir la caisse constatée, partager les fonds justifiés entre les rubriques (et « Non affecté »), puis confirmer avec la phrase demandée.</li>
-      <li>Approuver le solde de départ.</li>
-      <li>Activer la répartition : seul l’administrateur qui a approuvé, avec la phrase demandée.</li>
     </ol>
+    <p className="mt-2 font-semibold">Ensuite, 3 étapes</p>
+    <ol className="ml-5 mt-1 grid list-decimal gap-1">
+      <li>Vérifier et justifier : Acadéa examine les encaissements et dépenses déjà enregistrés. Les écritures signalées s’affichent sur le même écran : justifiez-les par une preuve Acadéa ou par un motif écrit (avec une photo si vous en avez une).</li>
+      <li>Valider le solde de départ : comptez la caisse, partagez les fonds entre les rubriques ; le reste va dans « Non affecté » avec une justification. Un écart de caisse ou des dépenses supérieures aux encaissements se déclarent avec un motif. Confirmez avec « VALIDER LE SOLDE DE DEPART ». Tant que l’école n’est pas active, « Annuler ce solde » permet de le refaire.</li>
+      <li>Activer : le même administrateur tape la phrase demandée.</li>
+    </ol>
+    <p className="mt-2">Une école sans aucun paiement ni dépense cette année passe directement à « Activer ». Un encaissement reçu pendant ces étapes ne fait rien recommencer : il est réparti à l’activation.</p>
     <p className="mt-2 font-semibold">Après l’activation</p>
     <ul className="ml-5 mt-1 grid list-disc gap-1">
       <li>Chaque paiement est réparti automatiquement. Un paiement qui ne peut pas l’être tout de suite est quand même encaissé et attend : il n’est jamais bloqué.</li>
@@ -60,10 +75,16 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const [scanning, setScanning] = useState(false);
   const [actionBusy, setActionBusy] = useState('initial');
   const [evidenceOpen, setEvidenceOpen] = useState(false), [blockedOnly, setBlockedOnly] = useState(false);
-  const [openingForm, setOpeningForm] = useState(false), [pauseForm, setPauseForm] = useState(false);
+  const [pauseForm, setPauseForm] = useState(false);
   const [proofSource, setProofSource] = useState<AllocationEvidence | null>(null);
   const [proofs, setProofs] = useState<AllocationProof[]>([]), [proofSelected, setProofSelected] = useState('');
   const [proofReason, setProofReason] = useState(''), [proofCursor, setProofCursor] = useState<string | null>(null);
+  // Lot « 3 étapes » : justification par motif écrit, motifs du solde de départ, annulation du solde.
+  const [proofMode, setProofMode] = useState<'proof' | 'declaration'>('proof');
+  const [declarationCurrency, setDeclarationCurrency] = useState(''), [photo, setPhoto] = useState<File | null>(null);
+  const [deficitReason, setDeficitReason] = useState(''), [cashGapReason, setCashGapReason] = useState(''), [unallocatedReason, setUnallocatedReason] = useState('');
+  const [cancelOpen, setCancelOpen] = useState(false), [cancelPhrase, setCancelPhrase] = useState('');
+  const autoStarted = useRef(''), autoScanned = useRef(''), autoBlocked = useRef('');
   const schoolId = workspace.school.id;
   // Version 1.15.2 : le premier chargement finit toujours, par l'état ou par une erreur claire avec « Réessayer ».
   const [initialRound, setInitialRound] = useState(0);
@@ -88,7 +109,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   }
   async function findProofs(row: AllocationEvidence, cursor?: string) {
     if (locked.current || uncertain) return;
-    if (!cursor) { setProofSource(row); setProofs([]); setProofSelected(''); setProofReason(''); }
+    if (!cursor) { setProofSource(row); setProofs([]); setProofSelected(''); setProofReason(''); setProofMode('proof'); setPhoto(null); setDeclarationCurrency(''); }
     locked.current = true; setBusy(true); setActionBusy('proof-search'); setError('');
     try {
       const result = await allocationRequest<{ candidates: AllocationProof[]; schoolId: string; nextCursor: string | null }>('get-history-proofs', { collection: row.collection, sourceId: row.id, ...(cursor ? { cursor } : {}) });
@@ -104,15 +125,23 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
     let confirmed = false;
     try {
       const result = await allocationRequest<{ decision?: string; reason?: string }>(pending.current.action, pending.current.body);
-      pending.current = null; setUncertain(false); setConfirmation(""); setSocialConfirmation(""); confirmed = true;
+      pending.current = null; setUncertain(false); setConfirmation(""); setSocialConfirmation(""); setCancelPhrase(""); confirmed = true;
+      const messages: Record<string, string> = {
+        'validate-opening': 'Solde de départ validé. Dernière étape : « Activer ».',
+        'cancel-opening': 'Solde de départ annulé. Vous pouvez en saisir un nouveau.',
+        activate: 'Répartition activée. Les prochains paiements sont répartis automatiquement.',
+        'activate-without-history': 'Répartition activée. Les prochains paiements sont répartis automatiquement.',
+        'start-reconciliation': 'Vérification lancée.',
+      };
       setNotice(result.decision === 'rejected' ? `Justification refusée : ${result.reason ?? 'preuve non vérifiée'}`
-        : result.decision === 'accepted' ? 'Justification vérifiée et conservée. Relancez le rapprochement avant toute approbation.'
-          : "Opération confirmée par le serveur. Aucune autre école n'a été activée.");
-      if (result.decision === "accepted") { setProofSource(null); setProofs([]); }
-      setView(await loadAllocationActivation(schoolId)); setBlockedOnly(false); setOpeningForm(false);
+        : result.decision === 'accepted' ? 'Justification conservée. Cliquez sur « Vérifier à nouveau » quand toutes les écritures sont justifiées.'
+          : messages[action] ?? "Opération confirmée par le serveur. Aucune autre école n'a été activée.");
+      if (result.decision === "accepted") { setProofSource(null); setProofs([]); setPhoto(null); }
+      if (action === 'cancel-opening') setCancelOpen(false);
+      setView(await loadAllocationActivation(schoolId)); setBlockedOnly(false);
       // Keep the preparation panel mounted: its proof decision/progress is
       // necessary feedback, not a reason to reload the entire workspace.
-      if (['publish-configuration', 'activate', 'pause', 'resume'].includes(action)) onChanged();
+      if (['publish-configuration', 'activate', 'activate-without-history', 'pause', 'resume'].includes(action)) onChanged();
     } catch (e) {
       if (confirmed) { setView(null); setError(`Opération enregistrée ; consultation à actualiser. ${errorText(e)}`); }
       else {
@@ -125,7 +154,6 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const money = (n: number) => formatCurrencyMoney(n / 100, view?.currency ?? workspace.currency);
   const opening = view?.opening;
   const activationPhrase = view?.testOnly ? "ACTIVER LA REPARTITION FICTIVE" : "ACTIVER LA REPARTITION DE MON ETABLISSEMENT";
-  const phrase = opening && !opening.stale ? opening.status === "proposed" ? "APPROUVER LE RAPPROCHEMENT" : activationPhrase : "RAPPROCHER LA CAISSE";
   const fieldsLocked = busy || uncertain;
   async function continueScan() {
     if (locked.current || !view?.reconciliation || view.reconciliation.stale) return;
@@ -141,14 +169,29 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
     } catch (e) { setError(`Avancement conservé sur le serveur. ${errorText(e)}`); }
     finally { locked.current = false; setBusy(false); setScanning(false); setActionBusy(""); }
   }
+  // Lot « 3 étapes » : calcul guidé du solde de départ (« Non affecté » = le reste, écart de caisse, déficit).
+  const plan2 = view?.inventory ? openingPlan({ rubricIds: view.rubrics.map(r => r.id), amounts, schoolAvailableMinor: view.inventory.schoolAvailableMinor,
+    cashExpectedMinor: view.inventory.cashExpectedMinor ?? view.inventory.cashAvailableMinor, cash }) : null;
+  const openingReady = !!plan2 && !plan2.error && plan2.cashCountMinor !== null && confirmation === VALIDATE_OPENING_PHRASE
+    && (!plan2.needsDeficitReason || reasonReady(deficitReason)) && (!plan2.needsCashGapReason || reasonReady(cashGapReason))
+    && (!plan2.needsUnallocatedReason || reasonReady(unallocatedReason));
   async function submitOpening() {
-    if (!view?.inventory) return;
-    try {
-      const lines = [...view.rubrics, { id: "UNALLOCATED", name: "Non affecté" }].filter(r => amounts[r.id]?.trim())
-        .map(r => ({ rubricId: r.id, amountMinor: parseAmount(amounts[r.id]) }));
-      if (!lines.length || lines.reduce((s, l) => s + l.amountMinor, 0) !== view.inventory.schoolAvailableMinor) throw new Error("Les montants saisis doivent expliquer exactement les fonds scolaires justifiés. Aucune affectation automatique n'est faite.");
-      await mutate("prepare-opening", { lines, cashCountMinor: parseAmount(cash), confirmation });
-    } catch (e) { setError(errorText(e)); }
+    if (!plan2 || !openingReady || plan2.cashCountMinor === null) return;
+    await mutate("validate-opening", { lines: plan2.lines, cashCountMinor: plan2.cashCountMinor, confirmation,
+      ...(plan2.needsDeficitReason ? { deficitReason } : {}), ...(plan2.needsCashGapReason ? { cashGapReason } : {}), ...(plan2.needsUnallocatedReason ? { unallocatedReason } : {}) });
+  }
+  async function submitDeclaration() {
+    if (!proofSource || !reasonReady(proofReason)) return;
+    let photoPath: string | undefined;
+    if (photo) {
+      if (locked.current) return;
+      locked.current = true; setBusy(true); setActionBusy('justify-history'); setError('');
+      try { photoPath = await uploadProofPhoto(schoolId, photo); }
+      catch (e) { setError(`Photo non envoyée : ${errorText(e)}`); return; }
+      finally { locked.current = false; setBusy(false); setActionBusy(''); }
+    }
+    await mutate('justify-history', { collection: proofSource.collection, sourceId: proofSource.id, evidenceType: 'declaration', reason: proofReason,
+      ...(photoPath ? { photoPath } : {}), ...(!proofSource.currency && declarationCurrency ? { currency: declarationCurrency } : {}) });
   }
   const rows = view?.evidencePage?.rows ?? [], run = view?.reconciliation;
   // Correction 1.20.1 : chaque frais à publier est repéré pour lui-même (et non « le premier frais trouvé ») ;
@@ -195,7 +238,29 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
   const readableDate = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleDateString('fr-FR') : 'Date non justifiée';
   const label = (row: AllocationEvidence) => row.nature + (row.receiptNumber ? ' · reçu ' + row.receiptNumber : '') + ' · ' + readableDate(row.createdAt) + ' · ' + (row.amountMinor === null ? 'Montant non justifié' : row.currency ? formatCurrencyMoney(row.amountMinor / 100, row.currency) : (row.amountMinor / 100).toLocaleString('fr-FR') + ' (devise non justifiée)');
   const payrollOnly = run?.blockedCount === 1 && view?.singleBlocker?.nature === 'Paiement de personnel';
-  const missing = !workspace.configs.length ? 'Configurer une répartition.' : planCount ? 'Préparer et publier la répartition.' : !run || run.stale || run.status === 'RUNNING' ? 'Terminer la vérification du solde de départ.' : run.blockedCount ? 'Justifier les écritures signalées, puis vérifier à nouveau le solde.' : !opening || opening.stale ? 'Préparer le solde de départ.' : opening.status === 'proposed' ? 'Approuver le solde de départ.' : !opening.approvedByCurrentUser ? 'La confirmation doit être faite par l’administrateur qui a approuvé.' : 'Saisir la confirmation pour activer la répartition.';
+  const missing = !workspace.configs.length ? 'Configurer une répartition.' : planCount ? 'Préparer et publier la répartition.'
+    : view?.emptyHistory ? 'Taper la phrase demandée pour activer.'
+    : !run || run.stale || run.status === 'RUNNING' ? 'Terminer la vérification.' : run.blockedCount ? 'Justifier les écritures signalées, puis vérifier à nouveau.'
+    : !opening || opening.stale ? 'Valider le solde de départ.' : opening.status === 'proposed' ? 'Approuver le solde de départ.'
+    : !opening.approvedByCurrentUser ? 'L’activation doit être faite par l’administrateur qui a validé le solde.' : 'Taper la phrase demandée pour activer.';
+  // Lot « 3 étapes » : étape affichée, caisse attendue et encaissements reçus pendant la mise en route.
+  const step = view?.status !== 'EN_PREPARATION' || !workspace.configs.length || planCount ? null
+    : view.emptyHistory ? 'Dernière étape — Activer'
+    : !run || run.stale || run.status !== 'COMPLETE' ? 'Étape 1 sur 3 — Vérifier et justifier'
+    : !opening || opening.stale ? 'Étape 2 sur 3 — Valider le solde de départ' : 'Étape 3 sur 3 — Activer';
+  const setupCount = view?.setupPayments?.count ?? 0;
+  const cashExpected = view?.inventory ? view.inventory.cashExpectedMinor ?? view.inventory.cashAvailableMinor : 0;
+  const otherMinor = view?.inventory ? view.inventory.cashAvailableMinor - view.inventory.schoolAvailableMinor : 0;
+  // La vérification démarre et avance seule ; les écritures à justifier s'affichent seules (une fois par vérification).
+  const checkEligible = view?.status === 'EN_PREPARATION' && workspace.configs.length > 0 && planCount === 0;
+  useEffect(() => {
+    if (!view || !checkEligible || uncertain || busy) return;
+    const current = view.reconciliation;
+    if (!current && autoStarted.current !== schoolId) { autoStarted.current = schoolId; void mutate('start-reconciliation', {}); return; }
+    if (current?.status === 'RUNNING' && !current.stale && autoScanned.current !== current.id) { autoScanned.current = current.id; void continueScan(); return; }
+    if (current?.status === 'BLOCKED' && !current.stale && autoBlocked.current !== current.id) { autoBlocked.current = current.id; setEvidenceOpen(true); void refresh(0, true, 'blocked'); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, checkEligible, uncertain, busy]);
   // Version 1.15.2 : « Actualiser » devient un bouton icône, à droite de l'action principale, sur la même ligne.
   const refreshButton = <button type="button" className="secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center p-0" disabled={fieldsLocked} aria-busy={busy && actionBusy === 'refresh'} title="Actualiser" onClick={() => void refresh()}><RefreshCw aria-hidden className={`h-5 w-5 ${busy && actionBusy === 'refresh' ? 'animate-spin' : ''}`} /><span className="sr-only">Actualiser</span></button>;
   // Lot du 21/11 : l'icône « Actualiser » passe à l'extrémité droite de la ligne du statut.
@@ -213,39 +278,85 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
       {view.status === 'EN_PREPARATION' ? <>
         {actionRow(!workspace.configs.length ? <p className="text-sm">Utilisez « + Ajouter » pour préparer la première répartition.</p>
           : planCount ? primary('publish-all', planCount > 1 ? `Préparer et publier les ${planCount} classes` : 'Préparer et publier la répartition', () => void publishAll(), socialMissing)
-          : !run || run.stale ? primary('start-reconciliation', 'Vérifier le solde de départ', () => void mutate('start-reconciliation', {}))
+          : !run || run.stale ? primary('start-reconciliation', run?.stale ? 'Vérifier à nouveau' : 'Vérifier et justifier', () => void mutate('start-reconciliation', {}))
           : run.status === 'RUNNING' ? primary('continue', 'Continuer la vérification', () => void continueScan())
-          : run.blockedCount ? primary('blocked', 'Voir les écritures à vérifier', () => { setEvidenceOpen(true); void refresh(0, true, 'blocked'); })
-          : !view.inventory ? primary('start-reconciliation', 'Vérifier à nouveau le solde', () => void mutate('start-reconciliation', {}))
-          : (!opening || opening.stale) && !openingForm ? <button className="primary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setOpeningForm(true)}>Préparer le solde de départ</button>
-          : (!opening || opening.stale) ? primary('prepare-opening', 'Confirmer le solde de départ', () => void submitOpening(), confirmation !== phrase || !view.rubrics.length)
-          : opening.status === 'proposed' ? primary('approve-opening', 'Approuver le solde de départ', () => void mutate('approve-opening', { openingId: opening.id, confirmation }), confirmation !== phrase)
-          : primary('activate', 'Activer la répartition', () => void mutate('activate', { openingId: opening.id, confirmation }), confirmation !== phrase || !opening.approvedByCurrentUser))}
+          : run.blockedCount ? primary('start-reconciliation', 'Vérifier à nouveau', () => void mutate('start-reconciliation', {}))
+          : null)}
         {planBlock}
+        {step && <p className="text-sm font-semibold" data-activation-step>{step}</p>}
         {scanning && <button className="secondary-button justify-self-start" type="button" onClick={() => { stopScan.current = true; }}>Suspendre la vérification après cette étape</button>}
-        <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ActivationSteps /><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde approuvé n’est pas une activation.</p></details>
-        {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
-        {!!run?.pageCount && <Action busy={busy && actionBusy === 'evidence'} disabled={fieldsLocked} className="secondary-button justify-self-start" onClick={() => { setEvidenceOpen(v => !v); if (!evidenceOpen && blockedOnly) void refresh(0, false, 'evidence'); }}>{evidenceOpen ? 'Masquer les pièces' : 'Voir les pièces vérifiées'}</Action>}
-        {evidenceOpen && <div className="grid gap-2 rounded border p-3 text-sm" aria-label="Pièces examinées"><p>Vérifier une ancienne écriture ne l’affecte pas à une rubrique et n’approuve pas le solde.</p>
+        {setupCount > 0 && <p role="status" className="text-justify text-sm" data-setup-payments>{setupCount > 1 ? `${setupCount} encaissements reçus` : '1 encaissement reçu'} depuis la vérification ({money(view.setupPayments?.receivedMinor ?? 0)}). Ils sont comptés dans la caisse attendue et seront répartis à l’activation : rien n’est à refaire.</p>}
+        {run && !run.stale && run.status === 'BLOCKED' && <p className="text-justify text-sm" data-blocked-help>Chaque écriture ci-dessous doit être justifiée : par une preuve Acadéa (reçu ou paie liée) si elle existe, sinon par un motif écrit, avec une photo si vous en avez une. Quand tout est justifié, cliquez sur « Vérifier à nouveau ».</p>}
+        {evidenceOpen && <div className="grid gap-2 rounded border p-3 text-sm" aria-label="Pièces examinées"><p>{blockedOnly ? 'Écritures à justifier.' : 'Vérifier une ancienne écriture ne l’affecte pas à une rubrique et ne valide pas le solde.'}</p>
           {rows.map(row => <article key={row.collection + '/' + row.id} className="rounded border p-2"><p className="font-semibold">{label(row)}</p><p>{row.reason ?? 'Pièce vérifiée'}</p>{row.reason && <button className="secondary-button mt-2" type="button" disabled={fieldsLocked} onClick={() => void findProofs(row)}>Justifier</button>}</article>)}
-          {!rows.length && <p>Aucune pièce {blockedOnly ? 'à vérifier ' : ''}dans cette page.</p>}
+          {!rows.length && <p>Aucune pièce {blockedOnly ? 'à justifier ' : ''}dans cette page.</p>}
           <div className="flex flex-wrap gap-2">{!blockedOnly && (view.evidencePage?.page ?? 0) > 0 && <Action busy={busy && actionBusy === 'previous'} disabled={fieldsLocked} onClick={() => void refresh(view.evidencePage!.page - 1, false, 'previous')}>Pièces précédentes</Action>}{view.evidencePage?.hasNext && <Action busy={busy && actionBusy === 'next'} disabled={fieldsLocked} onClick={() => void refresh(view.evidencePage!.page + 1, blockedOnly, 'next')}>Pièces suivantes</Action>}</div>
         </div>}
-        {proofSource && <fieldset className="grid gap-2 rounded border p-3 text-sm" disabled={fieldsLocked} aria-label="Justifier une écriture"><legend>Justifier : {proofSource.nature}</legend><p>{label(proofSource)}</p><p>{proofSource.reason} {proofSource.reason === 'Date ou devise non justifiée' && 'Ce motif historique ne précise pas si la date, la devise, ou les deux sont en cause.'}</p>
-          <p>Choisissez une preuve serveur. Une suggestion n’est pas une validation ; la concordance et l’absence de réutilisation seront contrôlées.</p>
-          {actionBusy === 'proof-search' && busy && <p role="status">Chargement...</p>}
-          <label>Preuve autorisée<select className="input" value={proofSelected} onChange={e => setProofSelected(e.target.value)}><option value="">Choisir une preuve</option>{proofs.map(p => <option key={p.type + '/' + p.id} value={p.type + '/' + p.id}>{p.nature} · {readableDate(p.createdAt)} · {p.currency ? formatCurrencyMoney(p.amount, p.currency) : 'Devise non justifiée'}{p.receiptNumber ? ' · reçu ' + p.receiptNumber : ''}</option>)}</select></label>
-          {!proofs.length && !busy && <p>Aucune preuve liée trouvée dans les reçus examinés. Sans preuve vérifiable, l’activation reste en attente.</p>}
-          {proofCursor && <Action busy={busy && actionBusy === 'proof-search'} onClick={() => void findProofs(proofSource, proofCursor)}>Rechercher d’autres preuves</Action>}
-          <label>Motif de justification<textarea className="input" maxLength={500} value={proofReason} onChange={e => setProofReason(e.target.value)}/></label>
-          <Action busy={busy && actionBusy === 'justify-history'} disabled={!proofSelected || proofReason.trim().length < 10} onClick={() => { const p = proofs.find(p => p.type + '/' + p.id === proofSelected); if (p) void mutate('justify-history', { collection: proofSource.collection, sourceId: proofSource.id, evidenceType: p.type, evidenceId: p.id, reason: proofReason }); }}>Vérifier la preuve</Action>
+        {proofSource && <fieldset className="grid gap-2 rounded border p-3 text-justify text-sm" disabled={fieldsLocked} aria-label="Justifier une écriture"><legend>Justifier : {proofSource.nature}</legend><p>{label(proofSource)}</p><p>{proofSource.reason}</p>
+          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label="Type de justification">
+            <label className="inline-flex items-center gap-2"><input type="radio" name="proof-mode" checked={proofMode === 'proof'} onChange={() => setProofMode('proof')}/>Preuve Acadéa</label>
+            <label className="inline-flex items-center gap-2"><input type="radio" name="proof-mode" checked={proofMode === 'declaration'} onChange={() => setProofMode('declaration')}/>Motif écrit</label>
+          </div>
+          {proofMode === 'proof' ? <>
+            <p>Choisissez un reçu ou une paie enregistrés par Acadéa. Le montant, la date et l’élève seront contrôlés.</p>
+            {actionBusy === 'proof-search' && busy && <p role="status">Chargement...</p>}
+            <label>Preuve<select className="input" value={proofSelected} onChange={e => setProofSelected(e.target.value)}><option value="">Choisir une preuve</option>{proofs.map(p => <option key={p.type + '/' + p.id} value={p.type + '/' + p.id}>{p.nature} · {readableDate(p.createdAt)} · {p.currency ? formatCurrencyMoney(p.amount, p.currency) : 'Devise non justifiée'}{p.receiptNumber ? ' · reçu ' + p.receiptNumber : ''}</option>)}</select></label>
+            {!proofs.length && !busy && <p>Aucune preuve Acadéa trouvée pour cette écriture. Choisissez « Motif écrit ».</p>}
+            {proofCursor && <Action busy={busy && actionBusy === 'proof-search'} onClick={() => void findProofs(proofSource, proofCursor)}>Rechercher d’autres preuves</Action>}
+            <label>Motif de justification<textarea className="input" maxLength={500} value={proofReason} onChange={e => setProofReason(e.target.value)}/></label>
+            <Action busy={busy && actionBusy === 'justify-history'} disabled={!proofSelected || proofReason.trim().length < 10} onClick={() => { const p = proofs.find(p => p.type + '/' + p.id === proofSelected); if (p) void mutate('justify-history', { collection: proofSource.collection, sourceId: proofSource.id, evidenceType: p.type, evidenceId: p.id, reason: proofReason }); }}>Vérifier la preuve</Action>
+          </> : <>
+            <p>Expliquez d’où vient cette écriture (par exemple : ancien cahier de caisse, reçu papier n° 12). Votre motif est gardé dans l’historique ; le montant ne change pas.</p>
+            <label>Motif écrit (10 caractères au moins)<textarea className="input" maxLength={500} value={proofReason} onChange={e => setProofReason(e.target.value)} data-declaration-reason/></label>
+            {!proofSource.currency && <label>Devise de l’écriture<select className="input" value={declarationCurrency} onChange={e => setDeclarationCurrency(e.target.value)}><option value="">Choisir la devise</option><option value="USD">Dollar (USD)</option><option value="CDF">Franc congolais (CDF)</option></select></label>}
+            <label>Photo de la pièce (facultative)<input className="input" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={e => setPhoto(e.target.files?.[0] ?? null)} data-declaration-photo/></label>
+            {photo && proofPhotoProblem(photo) && <p role="alert" className="text-red-700">{proofPhotoProblem(photo)}</p>}
+            <Action busy={busy && actionBusy === 'justify-history'} disabled={!reasonReady(proofReason) || (!proofSource.currency && !declarationCurrency) || (!!photo && !!proofPhotoProblem(photo))} onClick={() => void submitDeclaration()}>Enregistrer la justification</Action>
+          </>}
           <button className="secondary-button" type="button" onClick={() => setProofSource(null)}>Fermer la justification</button>
         </fieldset>}
-        {view.inventory && ((opening && !opening.stale) || openingForm) && <fieldset disabled={fieldsLocked} className="grid gap-2 rounded border p-3 text-sm"><legend>Solde de départ</legend><p>Fonds scolaires justifiés : {money(view.inventory.schoolAvailableMinor)}. Caisse globale justifiée : {money(view.inventory.cashAvailableMinor)}. Les autres recettes restent hors répartition.</p>
-          {(!opening || opening.stale) ? <><label>Caisse constatée ({view.currency})<input className="input" inputMode="decimal" value={cash} onChange={e => setCash(e.target.value)}/></label>{[...view.rubrics, { id: 'UNALLOCATED', name: 'Non affecté — uniquement si justifié explicitement' }].map(r => <label key={r.id}>Ouverture : {r.name} ({view.currency})<input className="input" inputMode="decimal" value={amounts[r.id] ?? ''} onChange={e => setAmounts(a => ({ ...a, [r.id]: e.target.value }))}/></label>)}<p>Aucun montant n’est attribué automatiquement.</p></> : <><p>Solde {opening.status === 'approved' ? 'approuvé' : 'proposé'} — école non activée.</p>{opening.lines.map(l => <p key={l.rubricId}>{view.rubrics.find(r => r.id === l.rubricId)?.name ?? 'Non affecté'} : {money(l.amountMinor)}</p>)}</>}
-          <label>Saisissez exactement « {phrase} »<input className="input" value={confirmation} onChange={e => setConfirmation(e.target.value)} aria-label="Confirmation du rapprochement" autoComplete="off"/></label>
-          {opening?.status === 'approved' && !opening.approvedByCurrentUser && <p role="alert">Seul l’administrateur qui a approuvé peut confirmer l’activation.</p>}
+        {view.emptyHistory && (!opening || opening.stale) && <fieldset disabled={fieldsLocked} className="grid gap-2 rounded border p-3 text-justify text-sm" data-empty-history><legend>Activer</legend>
+          <p>Aucun paiement, aucune dépense et aucune autre entrée ne sont enregistrés cette année : il n’y a rien à vérifier ni à partager. Toutes les rubriques partent de zéro.</p>
+          <PhraseField phrase={activationPhrase} value={confirmation} onChange={setConfirmation} disabled={fieldsLocked}/>
+          {primary('activate-without-history', 'Activer la répartition', () => void mutate('activate-without-history', { confirmation }), confirmation !== activationPhrase)}
         </fieldset>}
+        {view.inventory && plan2 && !view.emptyHistory && (!opening || opening.stale) && <fieldset disabled={fieldsLocked} className="grid gap-3 rounded border p-3 text-justify text-sm" data-opening-form><legend>Valider le solde de départ</legend>
+          <p>Fonds scolaires justifiés (frais encaissés moins dépenses) : <strong>{money(view.inventory.schoolAvailableMinor)}</strong>.</p>
+          {plan2.deficit && <div className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-2" data-deficit><p>Les dépenses dépassent les frais encaissés de {money(-view.inventory.schoolAvailableMinor)}. Cette différence ira en négatif dans « Non affecté » ; les prochains encaissements la combleront. Les rubriques partent de zéro.</p>
+            <label>Motif (obligatoire, 10 caractères au moins)<textarea className="input" maxLength={500} value={deficitReason} onChange={e => setDeficitReason(e.target.value)}/></label></div>}
+          <p>Caisse attendue : <strong>{money(cashExpected)}</strong>{setupCount > 0 ? `, dont ${money(view.setupPayments?.receivedMinor ?? 0)} reçus depuis la vérification` : ''}{otherMinor > 0 ? `. Elle comprend ${money(otherMinor)} d’autres entrées, qui restent hors répartition` : ''}.</p>
+          <label>Caisse comptée ({view.currency})<input className="input" inputMode="decimal" value={cash} onChange={e => setCash(e.target.value)} data-cash-count/></label>
+          {plan2.needsCashGapReason && plan2.cashGapMinor !== null && <div className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-2" data-cash-gap><p>{plan2.cashGapMinor < 0 ? `Manque en caisse : ${money(-plan2.cashGapMinor)}` : `Surplus en caisse : ${money(plan2.cashGapMinor)}`}. L’écart ira dans « Non affecté » et restera dans l’historique.</p>
+            <label>Motif de l’écart (obligatoire, 10 caractères au moins)<textarea className="input" maxLength={500} value={cashGapReason} onChange={e => setCashGapReason(e.target.value)}/></label></div>}
+          {!plan2.deficit && <div className="grid gap-2"><p>Partagez les fonds scolaires justifiés entre les rubriques.</p>{view.rubrics.map(r => <label key={r.id}>Ouverture : {r.name} ({view.currency})<input className="input" inputMode="decimal" value={amounts[r.id] ?? ''} onChange={e => setAmounts(a => ({ ...a, [r.id]: e.target.value }))}/></label>)}</div>}
+          <p data-unallocated>Non affecté (le reste, calculé automatiquement) : <strong>{money(plan2.unallocatedMinor)}</strong></p>
+          {plan2.needsUnallocatedReason && <label>Justification de « Non affecté » (obligatoire, 10 caractères au moins)<textarea className="input" maxLength={500} value={unallocatedReason} onChange={e => setUnallocatedReason(e.target.value)} data-unallocated-reason/></label>}
+          {plan2.error && <p role="alert" className="text-red-700">{plan2.error}</p>}
+          <div className="grid gap-1 rounded border p-2" data-opening-recap><p className="font-semibold">Récapitulatif</p>
+            {view.rubrics.map(r => <p key={r.id}>{r.name} : {money(plan2.lines.find(l => l.rubricId === r.id)?.amountMinor ?? 0)}</p>)}
+            <p>Non affecté : {money(plan2.unallocatedMinor + (plan2.cashGapMinor ?? 0))}{plan2.cashGapMinor ? ` (dont écart de caisse ${money(plan2.cashGapMinor)})` : ''}</p></div>
+          <PhraseField phrase={VALIDATE_OPENING_PHRASE} value={confirmation} onChange={setConfirmation} disabled={fieldsLocked}/>
+          {primary('validate-opening', 'Valider le solde de départ', () => void submitOpening(), !openingReady)}
+        </fieldset>}
+        {view.inventory && opening && !opening.stale && <fieldset disabled={fieldsLocked} className="grid gap-2 rounded border p-3 text-justify text-sm" data-opening-summary><legend>Solde de départ {opening.status === 'approved' ? 'validé' : 'proposé'} — école pas encore active</legend>
+          {opening.lines.map(l => <p key={l.rubricId}>{view.rubrics.find(r => r.id === l.rubricId)?.name ?? 'Non affecté'} : {money(l.amountMinor)}</p>)}
+          {!!opening.cashGapMinor && <p>Écart de caisse déclaré : {money(opening.cashGapMinor)} (ajouté à « Non affecté »).</p>}
+          {opening.status === 'proposed' ? <>
+            <PhraseField phrase="APPROUVER LE RAPPROCHEMENT" value={confirmation} onChange={setConfirmation} disabled={fieldsLocked}/>
+            {primary('approve-opening', 'Approuver le solde de départ', () => void mutate('approve-opening', { openingId: opening.id, confirmation }), confirmation !== 'APPROUVER LE RAPPROCHEMENT')}
+          </> : <>
+            {!opening.approvedByCurrentUser && <p role="alert">Seul l’administrateur qui a validé le solde peut activer.</p>}
+            <PhraseField phrase={activationPhrase} value={confirmation} onChange={setConfirmation} disabled={fieldsLocked}/>
+            {primary('activate', 'Activer la répartition', () => void mutate('activate', { openingId: opening.id, confirmation }), confirmation !== activationPhrase || !opening.approvedByCurrentUser)}
+          </>}
+          <button className="secondary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setCancelOpen(v => !v)} data-cancel-opening>Annuler ce solde</button>
+          {cancelOpen && <div className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-2"><p>Le solde sera annulé ; vous pourrez en saisir un nouveau. Rien n’est encore réparti.</p>
+            <PhraseField phrase={CANCEL_OPENING_PHRASE} value={cancelPhrase} onChange={setCancelPhrase} disabled={fieldsLocked}/>
+            <Action busy={busy && actionBusy === 'cancel-opening'} disabled={fieldsLocked || cancelPhrase !== CANCEL_OPENING_PHRASE} className="secondary-button justify-self-start" onClick={() => void mutate('cancel-opening', { openingId: opening.id, confirmation: cancelPhrase })}>Confirmer l’annulation</Action></div>}
+        </fieldset>}
+        <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ActivationSteps /><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde validé n’est pas une activation.</p></details>
+        {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
+        {!!run?.pageCount && <Action busy={busy && actionBusy === 'evidence'} disabled={fieldsLocked} className="secondary-button justify-self-start" onClick={() => { setEvidenceOpen(v => !v); if (!evidenceOpen && blockedOnly) void refresh(0, false, 'evidence'); }}>{evidenceOpen ? 'Masquer les pièces' : 'Voir les pièces vérifiées'}</Action>}
       </> : <>
         {actionRow(planCount ? primary('publish-all', planCount > 1 ? `Publier les nouveaux frais (${planCount} classes)` : 'Publier le nouveau frais', () => void publishAll(), socialMissing) : null)}
         {planBlock}

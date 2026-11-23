@@ -256,7 +256,11 @@ export async function getAllocationSpendOptions({ db, caller, body, now = new Da
   const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
   const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, body.schoolYearId, false);
   const state = await readOperationalAllocation({ db, transaction: null, schoolId, schoolYearId: yearId, currency, now });
-  if (!state || !["ACTIVE", "PAUSED"].includes(state.status)) return { operational: false, required: false, rubrics: [] };
+  if (!state || !["ACTIVE", "PAUSED"].includes(state.status)) {
+    // Lot « 3 étapes », point 5 : le caissier est prévenu quand l'Administrateur a commencé la mise en route (vérification lancée).
+    const setup = (await db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`).get()).data();
+    return { operational: false, required: false, rubrics: [], setupInProgress: setup?.status === "EN_PREPARATION" && !!setup.reconciliationRunId };
+  }
   const catalog = await readRubricCatalog(db, schoolId, yearId);
   const base = catalog.enabled ? catalog.rubrics.filter((r) => !r.hidden).map((r) => ({ id: r.id, name: r.name, active: true })) : state.rubrics.filter(r => r.active !== false);
   const balances = await db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", yearId).where("currency", "==", currency).get();

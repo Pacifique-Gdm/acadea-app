@@ -4,7 +4,9 @@ import { userFacingError } from "../utils/userFacingError";
 import { ErrorNotice } from "./ui/ErrorNotice";
 
 export type SpendRubric = { id: string; name: string; availableMinor?: number };
-export type SpendOptions = { required: boolean; paused?: boolean; rubrics: SpendRubric[]; currency?: string };
+export type SpendOptions = { required: boolean; paused?: boolean; rubrics: SpendRubric[]; currency?: string; setupInProgress?: boolean };
+/** Lot « 3 étapes », point 5 : bandeau montré au caissier pendant la mise en route de la répartition. */
+export const ALLOCATION_SETUP_BANNER = "La répartition des frais est en cours de mise en route par l'administrateur. Vos encaissements sont enregistrés normalement : ils seront répartis à l'activation, sans rien refaire.";
 export type SpendOptionsState = { options?: SpendOptions; error: string; reload: () => void };
 
 /** Rubriques d'imputation : la sélection dépend de l'activation confirmée par le serveur, qui revérifie tout. */

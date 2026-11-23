@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.21.0] — 2026-11-23 — Fonctionnalité
+- Répartition des frais : mise en route en 3 étapes (vérifier et justifier, valider le solde de départ, activer), école sans paiement activée directement, justification par motif écrit et photo, écart de caisse, dépenses supérieures aux encaissements, solde annulable, encaissements pendant la mise en route répartis à l'activation, justification de « Non affecté »
+
 ## [1.20.3] — 2026-11-23 — Correction
 - La page /version.json montre le numéro de version et la date de mise en ligne, et n'est plus gardée en mémoire par le navigateur
 
