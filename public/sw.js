@@ -159,12 +159,18 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
 
+  // /version.json ouvert dans le navigateur est une « navigation » : il passe toujours par le réseau, sans mémoire.
+  if (url.pathname === "/version.json") return;
+
   if (request.mode === "navigate") {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone();
-          caches.open(SHELL_CACHE).then((cache) => cache.put("/", copy));
+          // Seule une vraie page HTML devient la page d'accueil gardée pour le mode hors ligne.
+          if (response.ok && (response.headers.get("content-type") || "").includes("text/html")) {
+            const copy = response.clone();
+            caches.open(SHELL_CACHE).then((cache) => cache.put("/", copy));
+          }
           return response;
         })
         .catch(() => caches.match("/") || caches.match("/index.html")),
