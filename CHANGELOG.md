@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.19.0] — 2026-11-23 — Fonctionnalité
+- Partie 2 — cas sociaux : un seul formulaire pour tous les frais (liste des frais, « Appliquer à tous les frais », frais marqués « modifié »), une seule publication avec la phrase « PUBLIER LA PARTIE DEUX » tapée à la main, « Non affecté » reçoit toujours le reste (total inférieur à 100 % permis), partie des cas sociaux dans « Ajouter une répartition » publiée en même temps, et un cas social qui avait déjà payé selon la partie 1 suit la partie 2 pour ses paiements suivants.
+
 ## [1.18.7] — 2026-11-22 — Correction
 - Super administrateur, onglet Écoles : compteur « 29 écoles » sans « recherche… » bloqué, la recherche n'est plus relancée à l'ouverture d'une école, et les données d'une école déjà ouverte s'affichent tout de suite (relues seulement si l'école a changé ou avec « Actualiser »)
 
