@@ -5,13 +5,24 @@ import { SOCIAL_PUBLISH_CONFIRMATION, buildSocialVersion } from "./feeAllocation
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { toMoneyMinor } from "./money.js";
 import { allocationRunRef, evidenceRevisionRef } from './feeAllocationRevision.js';
-import { assertRunCurrent } from './feeAllocationReconciliation.js';
+import { readRunFreshness } from './feeAllocationSetupPayments.js';
+import { settlePendingFeeAllocations } from './feeAllocationPending.js';
 import { allocationHash as hash, allocationStateId, allocationBalanceId, allocationFail as fail,
   allocationIdentifier as id, allocationMinor as minor, readAllocationEligibility, readOperationalAllocation } from "./feeAllocationRuntime.js";
 
-export const allocationLifecycleActions = new Set(["publish-configuration", "prepare-opening", "approve-opening", "activate", "pause", "resume"]);
+export const allocationLifecycleActions = new Set(["publish-configuration", "prepare-opening", "approve-opening", "activate", "pause", "resume",
+  // Lot « 3 étapes » : solde validé en une fois, solde annulable avant l'activation, école sans aucune écriture.
+  "validate-opening", "cancel-opening", "activate-without-history"]);
+export const VALIDATE_OPENING_PHRASE = "VALIDER LE SOLDE DE DEPART";
+export const CANCEL_OPENING_PHRASE = "ANNULER LE SOLDE DE DEPART";
+const REASON_MIN = 10, REASON_MAX = 500;
+/** Libellés des historiques (Administrateur, Coordination). */
+const AUDIT_LABELS = { "publish-configuration": "Répartition des frais publiée", "prepare-opening": "Solde de départ proposé", "approve-opening": "Solde de départ approuvé",
+  "validate-opening": "Solde de départ validé", "cancel-opening": "Solde de départ annulé", activate: "Répartition des frais activée",
+  "activate-without-history": "Répartition des frais activée (aucune écriture)", resume: "Répartition des frais reprise" };
+const reasonOk = value => typeof value === "string" && value.trim().length >= REASON_MIN && value.length <= REASON_MAX;
+const signed = value => Number.isSafeInteger(value);
 const active = p => p && p.active !== false && !["inactive", "disabled", "suspended", "deleted", "deleting"].includes(p.status);
-const sum = values => { const n = values.reduce((a, b) => a + BigInt(b), 0n); if (n < 0n || n > BigInt(Number.MAX_SAFE_INTEGER)) fail("Total financier incohérent."); return Number(n); };
 
 export async function manageFeeAllocationLifecycle({ db, caller, body, now = new Date().toISOString() }) {
   if (!allocationLifecycleActions.has(body.action)) fail("Action inconnue.", "invalid-argument", 400);
@@ -21,11 +32,13 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
   if (!["admin", "school_admin"].includes(caller.role)) fail("Action réservée à l'Administrateur.", "permission-denied", 403);
   await readFeeAllocationScope(db, caller, caller.schoolId);
   await readAllocationEligibility(db, null, caller.schoolId, now);
-  const allowed = { "publish-configuration": ["versionId", "confirmation"], "prepare-opening": ["lines", "cashCountMinor", "confirmation"],
-    "approve-opening": ["openingId", "confirmation"], activate: ["openingId", "confirmation"], pause: ["reason"], resume: ["reason"] };
+  const openingFields = ["lines", "cashCountMinor", "confirmation", "unallocatedReason", "deficitReason", "cashGapReason"];
+  const allowed = { "publish-configuration": ["versionId", "confirmation"], "prepare-opening": openingFields, "validate-opening": openingFields,
+    "approve-opening": ["openingId", "confirmation"], activate: ["openingId", "confirmation"], pause: ["reason"], resume: ["reason"],
+    "cancel-opening": ["openingId", "confirmation"], "activate-without-history": ["confirmation"] };
   if (Object.keys(body).some(k => !["action", "requestId", ...allowed[body.action]].includes(k)) || !id(body.requestId) || body.requestId.length < 12) fail("Demande invalide.", "invalid-argument", 400);
   const fingerprint = hash(body), schoolId = caller.schoolId;
-  return db.runTransaction(async tx => {
+  const outcome = await db.runTransaction(async tx => {
     const scope = await readAllocationEligibility(db, tx, schoolId, now);
     const user = (await tx.get(db.doc(`users/${caller.uid}`))).data();
     if (!active(user) || !["admin", "school_admin"].includes(user.role) || user.schoolId !== schoolId) fail("Compte non autorisé.", "permission-denied", 403);
@@ -101,33 +114,105 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
       tx.set(guardRef, { schoolId, schoolYearId: yearId, configId: config.id, versionId: version.id });
       result.versionId = version.id;
       if (social) result.socialVersionId = social.id;
-    } else if (["prepare-opening", "approve-opening", "activate"].includes(body.action)) {
+    } else if (body.action === "cancel-opening") {
+      // Lot « 3 étapes », point 3 : un solde proposé ou validé peut être annulé avant l'activation, pour le refaire.
+      if (["ACTIVE", "PAUSED"].includes(state?.status)) fail("Répartition déjà activée : le solde de départ ne peut plus être annulé.");
+      if (body.confirmation !== CANCEL_OPENING_PHRASE) fail(`Tapez exactement « ${CANCEL_OPENING_PHRASE} ».`, "invalid-argument", 400);
+      if (!id(body.openingId) || state?.lastOpeningId !== body.openingId) fail("Solde de départ introuvable : actualisez.");
+      const ref = db.doc(`feeAllocationOpeningAudits/${body.openingId}`), proposal = (await tx.get(ref)).data();
+      if (!proposal || proposal.schoolId !== schoolId || proposal.schoolYearId !== yearId || proposal.currency !== currency
+        || !["proposed", "approved"].includes(proposal.status)) fail("Solde de départ introuvable ou déjà activé.");
+      tx.update(ref, { status: "cancelled", cancelledBy: caller.uid, cancelledAt: now });
+      tx.set(stateRef, { lastOpeningId: null, updatedAt: now }, { merge: true });
+      result.openingId = proposal.id;
+    } else if (["prepare-opening", "validate-opening", "approve-opening", "activate", "activate-without-history"].includes(body.action)) {
       if (["ACTIVE", "PAUSED"].includes(state?.status)) fail("Périmètre déjà activé.");
       const run = state?.reconciliationRunId ? (await tx.get(allocationRunRef(db, state.reconciliationRunId))).data() : null;
-      await assertRunCurrent(db, tx, run, schoolId, yearId, currency);
-      if (run.status !== 'COMPLETE' || run.blockedCount || run.spentMinor > run.receivedMinor) fail('Rapprochement complet et justifié requis.');
+      // Lot « 3 étapes », point 5 : seuls des encaissements reçus depuis la vérification ne la rendent pas caduque.
+      const fresh = await readRunFreshness(db, tx, run, schoolId, yearId, currency);
+      if (run.status !== 'COMPLETE' || run.blockedCount) fail('Rapprochement complet et justifié requis.');
       if (!run.configurationCount || !run.rubrics?.length || run.rubrics.length > 40) fail('Une configuration publiée est indispensable.');
       const rubrics = new Map(run.rubrics.map(r => [r.id, r]));
       const configurationFingerprint = run.configurationChain;
+      const schoolAvailableMinor = run.receivedMinor - run.spentMinor, cashAvailableMinor = schoolAvailableMinor + run.otherMinor;
+      if (!signed(schoolAvailableMinor) || !signed(cashAvailableMinor)) fail("Total financier incohérent.");
       const inventory = { fingerprint: hash([run.id, run.chain, run.revision]), evidenceCount: run.evidenceCount,
-        evidencePages: run.pageCount, evidenceRunId: run.id, schoolAvailableMinor: run.receivedMinor - run.spentMinor,
-        cashAvailableMinor: sum([run.receivedMinor - run.spentMinor, run.otherMinor]) };
+        evidencePages: run.pageCount, evidenceRunId: run.id, schoolAvailableMinor, cashAvailableMinor };
       const lockRef = db.doc(`financialCashLocks/${createCashLock(schoolId, yearId, currency)}`);
       await tx.get(lockRef);
-      if (body.action === "prepare-opening") {
-        if (body.confirmation !== "RAPPROCHER LA CAISSE" || !minor(body.cashCountMinor) || body.cashCountMinor !== inventory.cashAvailableMinor) fail("Écart de caisse non résolu.");
+      const activationPhrase = scope.testOnly ? "ACTIVER LA REPARTITION FICTIVE" : "ACTIVER LA REPARTITION DE MON ETABLISSEMENT";
+      // Écrit le solde de départ de chaque rubrique et passe l'école à « Active ». Un « Non affecté » négatif
+      // (dépenses > encaissements, manque en caisse) est gardé comme une dépense de départ : chaque solde reste cohérent.
+      const writeActivation = async (proposal, openingRef, createOpening = false) => {
+        const gap = proposal.cashGapMinor ?? 0;
+        const userLine = rubricId => proposal.lines.find(l => l.rubricId === rubricId)?.amountMinor ?? 0;
+        const balanceRows = await Promise.all([...rubrics.keys(), "UNALLOCATED"].map(async rubricId => {
+          const balanceRef = db.doc(`feeAllocationBalances/${allocationBalanceId(schoolId, yearId, currency, rubricId)}`);
+          if ((await tx.get(balanceRef)).exists) fail("Solde déjà présent : rapprochement nécessaire.");
+          return { balanceRef, rubricId, amount: userLine(rubricId) + (rubricId === "UNALLOCATED" ? gap : 0) };
+        }));
+        const movementId = `opening_${hash([schoolId, yearId, currency])}`;
+        if ((await tx.get(db.doc(`feeAllocationMovements/${movementId}`))).exists) fail("Ouverture déjà comptabilisée.");
+        // Toutes les lectures sont faites : les écritures peuvent commencer.
+        if (createOpening) tx.create(openingRef, proposal);
+        const lines = balanceRows.filter(r => r.amount !== 0 || proposal.lines.some(l => l.rubricId === r.rubricId)).map(r => ({ rubricId: r.rubricId, amountMinor: r.amount }));
+        tx.create(db.doc(`feeAllocationMovements/${movementId}`), { id: movementId, schoolId, collectionSchoolYearId: yearId,
+          currency, sourceType: "opening", sourceId: proposal.id, sourceRevision: body.requestId, type: "opening", postedAt: now,
+          amountMinor: lines.reduce((n, l) => n + l.amountMinor, 0), lines, actorId: caller.uid, testOnly: scope.testOnly });
+        balanceRows.forEach(({ balanceRef, rubricId, amount }) => tx.create(balanceRef, { schoolId, collectionSchoolYearId: yearId,
+          currency, rubricId, openingMinor: Math.max(0, amount), receivedMinor: 0, spentMinor: Math.max(0, -amount), reservedMinor: 0,
+          availableMinor: amount, ...(amount < 0 ? { openingDeficitMinor: -amount } : {}), operational: true, updatedAt: now }));
+        // Avec des encaissements de la mise en route, la coupure est la date de la vérification : ils sont répartis juste après.
+        const cutoffAt = fresh.setupCount > 0 ? run.cutoffAt : now;
+        tx.set(stateRef, { schoolId, schoolYearId: yearId, currency, status: "ACTIVE", fixtureId: scope.fixtureId,
+          openingId: proposal.id, cutoffAt, activatedAt: now, activatedBy: caller.uid, rubrics: [...rubrics.values()], configurationFingerprint });
+        tx.update(openingRef, { status: "activated", activatedAt: now, setupPaymentCount: fresh.setupCount, setupReceivedMinor: fresh.setupReceivedMinor });
+        result.settleAfter = fresh.setupCount > 0;
+      };
+      if (body.action === "activate-without-history") {
+        // Lot « 3 étapes », B : école sans aucun paiement, dépense ni autre entrée cette année : tout est à zéro, un seul écran « Activer ».
+        if (body.confirmation !== activationPhrase) fail(`Tapez exactement « ${activationPhrase} ».`, "invalid-argument", 400);
+        if (fresh.setupCount || run.evidenceCount || run.receivedMinor || run.spentMinor || run.otherMinor) fail("Des écritures existent : validez d'abord le solde de départ.");
+        const openingId = `opening_${hash([schoolId, body.requestId])}`, openingRef = db.doc(`feeAllocationOpeningAudits/${openingId}`);
+        const proposal = { id: openingId, schoolId, schoolYearId: yearId, currency, fixtureId: scope.fixtureId, cutoffAt: now, status: "approved",
+          lines: [], cashGapMinor: 0, emptyHistory: true, configurationFingerprint, receiptVersionsRunId: run.id, ...inventory,
+          cashCountMinor: 0, proposedBy: caller.uid, proposedAt: now, approvedBy: caller.uid, approvedAt: now };
+        await writeActivation(proposal, openingRef, true);
+        result.openingId = openingId;
+      } else if (["prepare-opening", "validate-opening"].includes(body.action)) {
+        const validate = body.action === "validate-opening";
+        const expectedPhrase = validate ? VALIDATE_OPENING_PHRASE : "RAPPROCHER LA CAISSE";
+        if (body.confirmation !== expectedPhrase) fail(`Tapez exactement « ${expectedPhrase} ».`, "invalid-argument", 400);
+        if (!minor(body.cashCountMinor)) fail("Indiquez la caisse comptée.", "invalid-argument", 400);
         if (!Array.isArray(body.lines) || body.lines.length < 1 || body.lines.length > 41
-          || body.lines.some(l => !l || Object.keys(l).some(k => !["rubricId", "amountMinor"].includes(k)) || !minor(l.amountMinor) || l.rubricId !== "UNALLOCATED" && !rubrics.has(l.rubricId))
+          || body.lines.some(l => !l || Object.keys(l).some(k => !["rubricId", "amountMinor"].includes(k)) || l.rubricId !== "UNALLOCATED" && !rubrics.has(l.rubricId)
+            || (l.rubricId === "UNALLOCATED" ? !signed(l.amountMinor) : !minor(l.amountMinor)))
           || new Set(body.lines.map(l => l.rubricId)).size !== body.lines.length
-          || sum(body.lines.map(l => l.amountMinor)) !== inventory.schoolAvailableMinor) fail("L'ouverture doit expliquer exactement les fonds scolaires justifiés.");
+          || body.lines.reduce((n, l) => n + l.amountMinor, 0) !== schoolAvailableMinor) fail("L'ouverture doit expliquer exactement les fonds scolaires justifiés.");
+        const unallocated = body.lines.find(l => l.rubricId === "UNALLOCATED")?.amountMinor ?? 0;
+        // Caisse attendue = caisse justifiée à la vérification + encaissements reçus depuis.
+        const cashExpectedMinor = cashAvailableMinor + fresh.setupReceivedMinor, cashGapMinor = body.cashCountMinor - cashExpectedMinor;
+        // Points 2, 4 et 6 : chaque situation particulière demande son motif écrit, gardé dans l'historique.
+        if (schoolAvailableMinor < 0 && !reasonOk(body.deficitReason)) fail("Dépenses supérieures aux encaissements : écrivez le motif (10 caractères au moins).", "invalid-argument", 400);
+        if (cashGapMinor !== 0 && !reasonOk(body.cashGapReason)) fail("La caisse comptée diffère du calcul : écrivez le motif de l'écart (10 caractères au moins).", "invalid-argument", 400);
+        // « Non affecté » n'est négatif que du déficit lui-même : on ne donne jamais aux rubriques un argent qui n'existe pas.
+        if (unallocated < Math.min(0, schoolAvailableMinor)) fail("Les rubriques ne peuvent pas recevoir plus que les fonds scolaires justifiés.", "invalid-argument", 400);
+        if (unallocated > 0 && !reasonOk(body.unallocatedReason)) fail("« Non affecté » n'est pas à zéro : écrivez la justification (10 caractères au moins).", "invalid-argument", 400);
+        for (const key of ["deficitReason", "cashGapReason", "unallocatedReason"]) if (body[key] !== undefined && !reasonOk(body[key])) fail("Motif invalide (10 à 500 caractères).", "invalid-argument", 400);
+        if (state?.lastOpeningId) {
+          const prior = (await tx.get(db.doc(`feeAllocationOpeningAudits/${state.lastOpeningId}`))).data();
+          if (prior && ["proposed", "approved"].includes(prior.status) && prior.fingerprint === inventory.fingerprint) fail("Un solde de départ existe déjà : annulez-le avant d'en saisir un autre.");
+        }
         const openingId = `opening_${hash([schoolId, body.requestId])}`;
         // All immutable evidence pages already exist. The final atomic write
         // references their terminal chain; it never recopies the whole history.
         tx.create(db.doc(`feeAllocationOpeningAudits/${openingId}`), { id: openingId, schoolId, schoolYearId: yearId, currency,
-          fixtureId: scope.fixtureId, cutoffAt: now, status: "proposed", lines: body.lines, configurationFingerprint,
+          fixtureId: scope.fixtureId, cutoffAt: now, status: validate ? "approved" : "proposed", lines: body.lines, configurationFingerprint,
           receiptVersionsRunId: run.id,
           ...inventory,
-          cashCountMinor: body.cashCountMinor, proposedBy: caller.uid, proposedAt: now });
+          cashCountMinor: body.cashCountMinor, cashExpectedMinor, cashGapMinor, setupPaymentCount: fresh.setupCount, setupReceivedMinor: fresh.setupReceivedMinor,
+          reasons: { deficit: body.deficitReason?.trim() ?? null, cashGap: body.cashGapReason?.trim() ?? null, unallocated: body.unallocatedReason?.trim() ?? null },
+          proposedBy: caller.uid, proposedAt: now, ...(validate ? { approvedBy: caller.uid, approvedAt: now } : {}) });
         tx.set(stateRef, { schoolId, schoolYearId: yearId, currency, status: "EN_PREPARATION", lastOpeningId: openingId, updatedAt: now }, { merge: true });
         result.openingId = openingId;
       } else {
@@ -135,28 +220,13 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
         const ref = db.doc(`feeAllocationOpeningAudits/${body.openingId}`), proposal = (await tx.get(ref)).data();
         if (!proposal || proposal.schoolId !== schoolId || proposal.schoolYearId !== yearId || proposal.currency !== currency
           || (proposal.fixtureId ?? null) !== scope.fixtureId || proposal.fingerprint !== inventory.fingerprint
-          || proposal.configurationFingerprint !== configurationFingerprint || proposal.cashCountMinor !== inventory.cashAvailableMinor) fail("Pièces ou configurations modifiées : refaire le rapprochement.");
+          || proposal.configurationFingerprint !== configurationFingerprint || state?.lastOpeningId !== proposal.id) fail("Pièces ou configurations modifiées : refaire le rapprochement.");
         if (body.action === "approve-opening") {
           if (body.confirmation !== "APPROUVER LE RAPPROCHEMENT" || proposal.status !== "proposed") fail("Approbation explicite requise.");
           tx.update(ref, { status: "approved", approvedBy: caller.uid, approvedAt: now });
         } else {
-          const confirmation = scope.testOnly ? "ACTIVER LA REPARTITION FICTIVE" : "ACTIVER LA REPARTITION DE MON ETABLISSEMENT";
-          if (body.confirmation !== confirmation || proposal.status !== "approved" || proposal.approvedBy !== caller.uid) fail("Rapprochement approuvé requis.");
-          const balanceRows = await Promise.all([...rubrics.keys(), "UNALLOCATED"].map(async rubricId => {
-            const balanceRef = db.doc(`feeAllocationBalances/${allocationBalanceId(schoolId, yearId, currency, rubricId)}`);
-            if ((await tx.get(balanceRef)).exists) fail("Solde déjà présent : rapprochement nécessaire.");
-            return { balanceRef, rubricId, amount: proposal.lines.find(l => l.rubricId === rubricId)?.amountMinor ?? 0 };
-          }));
-          const movementId = `opening_${hash([schoolId, yearId, currency])}`;
-          if ((await tx.get(db.doc(`feeAllocationMovements/${movementId}`))).exists) fail("Ouverture déjà comptabilisée.");
-          tx.create(db.doc(`feeAllocationMovements/${movementId}`), { id: movementId, schoolId, collectionSchoolYearId: yearId,
-            currency, sourceType: "opening", sourceId: proposal.id, sourceRevision: body.requestId, type: "opening", postedAt: now,
-            amountMinor: inventory.schoolAvailableMinor, lines: proposal.lines, actorId: caller.uid, testOnly: scope.testOnly });
-          balanceRows.forEach(({ balanceRef, rubricId, amount }) => tx.create(balanceRef, { schoolId, collectionSchoolYearId: yearId,
-            currency, rubricId, openingMinor: amount, receivedMinor: 0, spentMinor: 0, reservedMinor: 0, availableMinor: amount, operational: true, updatedAt: now }));
-          tx.set(stateRef, { schoolId, schoolYearId: yearId, currency, status: "ACTIVE", fixtureId: scope.fixtureId,
-            openingId: proposal.id, cutoffAt: now, activatedAt: now, activatedBy: caller.uid, rubrics: [...rubrics.values()], configurationFingerprint });
-          tx.update(ref, { status: "activated", activatedAt: now });
+          if (body.confirmation !== activationPhrase || proposal.status !== "approved" || proposal.approvedBy !== caller.uid) fail("Rapprochement approuvé requis.");
+          await writeActivation(proposal, ref);
         }
         result.openingId = proposal.id;
       }
@@ -169,11 +239,18 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
       tx.update(stateRef, { status: body.action === "pause" ? "PAUSED" : "ACTIVE", updatedAt: now, updatedBy: caller.uid });
     }
     const auditId = `allocation_${hash([schoolId, body.requestId, caller.uid])}`;
-    tx.create(db.doc(`auditLogs/${auditId}`), { id: auditId, schoolId, schoolYearId: yearId, action: `fee-allocation.${body.action}`,
-      actorId: caller.uid, createdAt: now, reason: body.reason ?? null, requestFingerprint: fingerprint, testOnly: scope.testOnly });
+    // Libellé simple montré dans les historiques ; le code technique reste dans « actionCode ».
+    tx.create(db.doc(`auditLogs/${auditId}`), { id: auditId, schoolId, schoolYearId: yearId, action: AUDIT_LABELS[body.action] ?? "Répartition des frais", actionCode: `fee-allocation.${body.action}`,
+      actorId: caller.uid, actorName: typeof user.name === "string" && user.name ? user.name.slice(0, 120) : "Administrateur", createdAt: now, reason: body.reason ?? null, requestFingerprint: fingerprint, testOnly: scope.testOnly });
     tx.create(receiptRef, { schoolId, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });
+  // Lot « 3 étapes », point 5 : les encaissements reçus pendant la mise en route sont répartis tout de suite après l'activation.
+  if (outcome.settleAfter) {
+    const settled = await settlePendingFeeAllocations({ db, caller, schoolId, now });
+    return { ...outcome, setupSettled: settled.processed, setupRemaining: settled.remaining };
+  }
+  return outcome;
 }
 
 // Exact same cash serialization key as protectCashMutation; do not invent a second cash lock.
@@ -184,7 +261,11 @@ export async function getAllocationSpendOptions({ db, caller, body, now = new Da
   const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
   const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, body.schoolYearId, false);
   const state = await readOperationalAllocation({ db, transaction: null, schoolId, schoolYearId: yearId, currency, now });
-  if (!state || !["ACTIVE", "PAUSED"].includes(state.status)) return { operational: false, required: false, rubrics: [] };
+  if (!state || !["ACTIVE", "PAUSED"].includes(state.status)) {
+    // Lot « 3 étapes », point 5 : le caissier est prévenu quand l'Administrateur a commencé la mise en route (vérification lancée).
+    const setup = (await db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`).get()).data();
+    return { operational: false, required: false, rubrics: [], setupInProgress: setup?.status === "EN_PREPARATION" && !!setup.reconciliationRunId };
+  }
   const catalog = await readRubricCatalog(db, schoolId, yearId);
   const base = catalog.enabled ? catalog.rubrics.filter((r) => !r.hidden).map((r) => ({ id: r.id, name: r.name, active: true })) : state.rubrics.filter(r => r.active !== false);
   const balances = await db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", yearId).where("currency", "==", currency).get();

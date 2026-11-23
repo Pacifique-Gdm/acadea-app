@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { feeAllocationPaymentRequestId, prepareFeeAllocationReceipt, sourceDigest } from "./feeAllocationReceipts.js";
+import { feeAllocationPaymentRequestId, feeAllocationStateId, prepareFeeAllocationReceipt, sourceDigest } from "./feeAllocationReceipts.js";
 
 /** Lot 27a (décision du propriétaire) : la répartition ne doit JAMAIS bloquer un paiement d'élève.
  * Si sa préparation échoue (données à rapprocher, version à vérifier, incident), le paiement est
@@ -45,6 +45,17 @@ export async function retryPendingFeeAllocations({ db, caller, schoolId, now = n
         if (!pending.exists || pending.data()?.status !== "pending") return;
         const payment = paymentSnap.exists ? { id: paymentSnap.id, ...paymentSnap.data() } : null;
         const prior = priorSnap.exists ? priorSnap.data() : null;
+        // Lot « 3 étapes » : un encaissement de la mise en route attend l'activation. S'il date d'avant la coupure,
+        // il est déjà compté dans le solde de départ (nouvelle vérification) : on le ferme sans le répartir une 2e fois.
+        if (pending.data()?.waitActivation && payment && !prior) {
+          const year = payment.collectionSchoolYearId ?? payment.schoolYearId;
+          const state = (await transaction.get(db.doc(`feeAllocationStates/${feeAllocationStateId(payment.schoolId, year, payment.currency)}`))).data();
+          if (!["ACTIVE", "PAUSED"].includes(state?.status)) return;
+          if (!(Date.parse(payment.createdAt) >= Date.parse(state.cutoffAt))) {
+            transaction.set(ref, { status: "closed", closedReason: "Compté dans le solde de départ.", updatedAt: now }, { merge: true });
+            return;
+          }
+        }
         let previous = null;
         if (prior && !prior.deleted) {
           const last = prior.lastMovementId ? (await transaction.get(db.doc(`feeAllocationMovements/${prior.lastMovementId}`))).data() : null;

@@ -12,6 +12,8 @@ import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../..
 import { activityTimestamp, formatActivityDateTime, isSuperAdministratorAuditLog } from "../../utils/activityHistory";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
 import { FeeAllocationEntry } from "../menu/FeeAllocationDrawer";
+import { AllocationJustifications, parseJustifications } from "../../components/AllocationJustifications";
+import { allocationRequest } from "../../services/feeAllocation";
 import { SubCoordinationManagement } from "./SubCoordinationManagement";
 import { INTERNAL_PERSONNEL_ROLES, isInternalPersonnel, personnelRoleLabels } from "../../services/personnel";
 import { PersonnelProfileReadOnly } from "../../components/personnel/PersonnelProfileReadOnly";
@@ -236,7 +238,15 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     if (drawer === "personnel") return <ReadTable headers={["École", "Nom", "Fonction", "Statut"]} rows={personnel.map((item) => [schoolName(item.schoolId), <button type="button" className="text-left font-semibold text-blue-700 hover:underline" onClick={() => setSelectedPersonnel(item)}>{item.name}</button>, roleLabel[item.role] ?? item.role, item.active === false || item.status === "inactive" ? "Inactif" : "Actif"])} />;
     if (drawer === "years") return <><ReadTable headers={["École", "Année active", "Alignement"]} rows={visibleYearRows.map((item) => [item.schoolName, item.activeYear?.name ?? "Aucune", !referenceYear || item.activeYear?.name === referenceYear ? "Alignée" : "Année non alignée"])} />{yearResults.length > 0 && <ReadTable headers={["École", "Résultat", "Motif"]} rows={yearResults.map((item) => [schoolName(item.schoolId), item.status, item.reason ?? "—"])} />}{user.role === "coordination_admin" ? <div className="grid min-w-0 gap-2 rounded border p-3"><label className="grid gap-1 text-sm font-semibold">Nouvelle année scolaire<input className="input min-w-0 w-full" placeholder="2027-2028" value={yearName} onChange={(event) => setYearName(event.target.value)} /></label><p className="text-xs text-slate-500">La période est calculée automatiquement du 1er septembre au 31 juillet.</p></div> : <p className="rounded border border-blue-100 bg-blue-50 p-3 text-sm">Consultation uniquement. L’ouverture et la clôture restent réservées au Coordinateur principal.</p>}</>;
     if (drawer === "settings") return <div className="grid gap-3 text-sm">{settingsContent()}</div>;
-    if (drawer === "history") return <ReadTable headers={["Date", "École", "Action", "Acteur"]} rows={logs.map((item) => [formatActivityDateTime(item.createdAt), schoolName(item.schoolId), item.action, item.actorName ?? "—"])} />;
+    if (drawer === "history") return <>
+      <ReadTable headers={["Date", "École", "Action", "Acteur"]} rows={logs.map((item) => [formatActivityDateTime(item.createdAt), schoolName(item.schoolId), item.action, item.actorName ?? "—"])} />
+      {/* Lot « 3 étapes » : justifications de la répartition, seulement pour une école supervisée (le serveur le vérifie). */}
+      <section aria-label="Justifications de la répartition des frais" className="mt-3 grid gap-1 rounded border p-3" data-coordination-justifications>
+        <h3 className="text-sm font-semibold">Répartition des frais : justifications des écritures</h3>
+        {drawerSchoolId ? <AllocationJustifications key={drawerSchoolId} load={async () => parseJustifications(await allocationRequest<unknown>("get-justifications", { schoolId: drawerSchoolId }))} />
+          : <p className="text-justify text-sm">Choisissez une école pour voir les justifications de sa répartition des frais.</p>}
+      </section>
+    </>;
     return user.role === "coordination_admin" ? <SubCoordinationManagement coordination={coordination} schools={schools} currentUser={user} /> : null;
   }
   function drawerToolbar(): ReactNode {

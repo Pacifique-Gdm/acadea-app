@@ -103,7 +103,7 @@ export async function protectCashMutation({ db, transaction, schoolId, schoolYea
   const lockRef = db.doc(`financialCashLocks/${lockId}`);
   // Lot 10 (observation) : total tenu à jour à côté ; la décision reste celle du calcul complet.
   const totalsRef = db.doc(`financialCashTotals/${lockId}`);
-  const [, totalsSnapshot] = await Promise.all([transaction.get(lockRef), transaction.get(totalsRef)]);
+  const [lockSnapshot, totalsSnapshot] = await Promise.all([transaction.get(lockRef), transaction.get(totalsRef)]);
   const balance = await readCashBalance({ db, reader: transaction, schoolId, schoolYearId, currency, yearCurrency });
   if (deltaCents < 0 && balance.availableCents < 0) {
     throw new CashBalanceError(409, "cash-balance-inconsistent", "Solde de caisse déjà négatif : aucun nouveau décaissement autorisé.", { ...balance, requestedCents: -deltaCents });
@@ -113,9 +113,11 @@ export async function protectCashMutation({ db, transaction, schoolId, schoolYea
       ...balance, requestedCents: -deltaCents, shortfallCents: -deltaCents - balance.availableCents,
     });
   }
-  transaction.set(lockRef, { schoolId, schoolYearId, currency, updatedAt: now, revision: randomUUID() }, { merge: true });
+  const lockRevisionAfter = randomUUID();
+  transaction.set(lockRef, { schoolId, schoolYearId, currency, updatedAt: now, revision: lockRevisionAfter }, { merge: true });
   observeCashTotals({ transaction, totalsRef, totalsSnapshot, balance, deltaCents, schoolId, schoolYearId, currency, now, totalsId: lockId });
-  return balance;
+  // Lot « 3 étapes » : marques du verrou avant et après, pour suivre les encaissements de la mise en route.
+  return { ...balance, lockRevisionBefore: lockSnapshot?.data?.()?.revision ?? null, lockRevisionAfter };
 }
 
 /** Mode observation (lot 10) : le total est mis à jour dans la même opération que

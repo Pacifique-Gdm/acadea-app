@@ -9,10 +9,17 @@ const stamp = snap => snap.updateTime?.toDate ? `${snap.updateTime.seconds}:${sn
 // cash lock atomically. Both currencies are read: resolving an unknown currency
 // must never let another-currency mutation escape invalidation.
 export async function readAllocationRevision(db, tx, schoolId, yearId) {
+  return (await readAllocationRevisionDetail(db, tx, schoolId, yearId)).revision;
+}
+
+/** Lot « 3 étapes » : mêmes lectures, avec en plus la marque de chaque verrou de caisse et celle des pièces.
+ * Elles permettent de reconnaître qu'il ne s'est passé que des encaissements pendant la mise en route. */
+export async function readAllocationRevisionDetail(db, tx, schoolId, yearId) {
   const refs = ['USD', 'CDF'].map(c => cashRevisionRef(db, schoolId, yearId, c));
   refs.push(evidenceRevisionRef(db, schoolId, yearId));
   const snaps = await Promise.all(refs.map(ref => tx.get(ref)));
-  return allocationHash(snaps.map(stamp));
+  return { revision: allocationHash(snaps.map(stamp)), evidence: stamp(snaps[2]),
+    locks: { USD: snaps[0].data()?.revision ?? null, CDF: snaps[1].data()?.revision ?? null } };
 }
 
 export const allocationRunRef = (db, runId) => db.doc(`feeAllocationReconciliationRuns/${runId}`);
