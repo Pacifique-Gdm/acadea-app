@@ -347,8 +347,36 @@ describe("lot 27c-4 : encaissements des cas sociaux", () => {
     expect(movements(db)[0].lines).toEqual(allocateFeeReceiptCumulative(shares, 4000));
     expect(anchors(db)[0].socialVersionId).toBeUndefined();
   });
-  it("cas social déjà réparti avant la publication : il garde la partie 1 pour tout ce frais", async () => {
+  it("cas social déjà réparti selon la partie 1 : le paiement déjà réparti ne change pas, les SUIVANTS suivent la partie 2", async () => {
     const db = fixture(); reduce(db, 5000); await create(db, 20);
+    const first = structuredClone(movements(db)[0]);
+    expect(first.lines).toEqual(allocateFeeReceiptCumulative(shares, 2000));
+    await publish(db, part2, {}, "2026-11-13T09:30:00.000Z"); await create(db, 30, "payment-request-002");
+    const segments = [{ shares, fromMinor: 0 }, { shares: social(), fromMinor: 2000 }];
+    expect(movements(db)[0]).toEqual(first);
+    expect(movements(db)[1].lines).toEqual(delta(socialSegmentLines(shares, segments, 5000, 5000), allocateFeeReceiptCumulative(shares, 2000)));
+    // Total payé = net : chaque rubrique atteint au plus sa part de la partie 2 (aucune ne dépasse, rien n'est réécrit).
+    const total = {}; for (const m of movements(db)) for (const l of m.lines) total[l.rubricId] = (total[l.rubricId] ?? 0) + l.amountMinor;
+    expect(Object.values(total).reduce((n, v) => n + v, 0)).toBe(5000);
+    expect(anchors(db)[0]).toMatchObject({ socialFromPartOne: true, socialNetMinor: 5000, socialCurrentVersionId: expect.any(String) });
+  });
+  it("cas social passé de la partie 1 à la partie 2 : 3e paiement et correction suivent le même cumul", async () => {
+    const db = fixture(); reduce(db, 5000); await create(db, 20);
+    await publish(db, part2, {}, "2026-11-13T09:30:00.000Z");
+    await create(db, 10, "payment-request-002"); const { payment } = await create(db, 10, "payment-request-003");
+    const segments = [{ shares, fromMinor: 0 }, { shares: social(), fromMinor: 2000 }];
+    expect(movements(db)[2].lines).toEqual(delta(socialSegmentLines(shares, segments, 5000, 4000), socialSegmentLines(shares, segments, 5000, 3000)));
+    await correct(db, payment, 5);
+    expect(movements(db)[3].lines).toEqual(delta(socialSegmentLines(shares, segments, 5000, 3500), socialSegmentLines(shares, segments, 5000, 4000)));
+  });
+  it("cas social réparti selon la partie 1, partie 2 publiée APRÈS son paiement suivant : la partie 1 reste", async () => {
+    const db = fixture(); reduce(db, 5000); await create(db, 20);
+    await publish(db, part2, {}, "2026-11-13T12:00:00.000Z"); await create(db, 30, "payment-request-002");
+    expect(movements(db)[1].lines).toEqual(delta(allocateFeeReceiptCumulative(shares, 5000), allocateFeeReceiptCumulative(shares, 2000)));
+    expect(anchors(db)[0].socialFromPartOne).toBeUndefined();
+  });
+  it("élève normal réparti selon la partie 1 : la partie 2 ne le touche jamais", async () => {
+    const db = fixture(); await create(db, 20);
     await publish(db, part2, {}, "2026-11-13T09:30:00.000Z"); await create(db, 30, "payment-request-002");
     expect(movements(db)[1].lines).toEqual(delta(allocateFeeReceiptCumulative(shares, 5000), allocateFeeReceiptCumulative(shares, 2000)));
   });
