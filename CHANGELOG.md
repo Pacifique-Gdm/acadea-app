@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.21.1] — 2026-11-23 — Correction
+- Partie 2 des cas sociaux réservée à l'Administrateur de l'école : lecture et publication refusées aux autres rôles, écran réservé
+
 ## [1.21.0] — 2026-11-23 — Fonctionnalité
 - Répartition des frais : mise en route en 3 étapes (vérifier et justifier, valider le solde de départ, activer), école sans paiement activée directement, justification par motif écrit et photo, écart de caisse, dépenses supérieures aux encaissements, solde annulable, encaissements pendant la mise en route répartis à l'activation, justification de « Non affecté »
 - Justifications des écritures (motif, photo) consultables plus tard, seulement par l'Administrateur de l'école (« Répartition des frais ») et par le Coordinateur et le Sous-coordinateur pour les écoles qu'ils supervisent (Menu, « Historique ») ; jamais par le Super administrateur
