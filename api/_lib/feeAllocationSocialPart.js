@@ -59,6 +59,8 @@ const countPaidWithCurrent = async (db, schoolId, feeTypeId, current) => current
 
 export async function manageSocialPart({ db, caller, body, now = new Date().toISOString() }) {
   if (!socialPartActions.has(body.action)) fail("Action inconnue.", "invalid-argument", 400);
+  // Règle du propriétaire : seul l'Administrateur de l'école lit ou publie la partie 2 (cas sociaux).
+  if (!isAdmin(caller?.role)) fail("Partie 2 réservée à l'Administrateur de l'école.", "permission-denied", 403);
   // Une page ouverte avant la version 1.19.0 envoie encore l'ancienne publication d'un seul frais, sans la phrase tapée.
   if (body.action === "publish-social-part") fail("Cette page est ancienne. Actualisez-la, puis publiez la partie 2 depuis le nouveau formulaire.");
   if (body.action === "get-social-part") {

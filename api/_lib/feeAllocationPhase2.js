@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readRubricCatalog, rubricCatalogId } from "./feeAllocationRubrics.js";
 import { retryPendingFeeAllocations } from "./feeAllocationPending.js";
 import { FeeAllocationError, socialDraftRubrics, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { withoutSocialWorkspace } from "./feeAllocationSocialPrivacy.js";
 import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
@@ -138,7 +139,7 @@ export async function buildAllocationWorkspace({ db, caller, school, schoolId, b
   // first page already carries configuration metadata, immutable while active.
   const { fees, configs, forecast } = (body.ledgerPage ?? 0) > 0 ? { fees: { docs: [] }, configs: { docs: [] }, forecast: undefined }
     : await readAllocationForecast({ db, schoolId, yearId, currency, fresh: body.fresh === true });
-  return {
+  const workspace = {
     school: { id: schoolId, name: school.name, activeSchoolYearId: yearId },
     year: { id: yearId, schoolId, name: year.name, status: year.status, startsAt: year.startsAt ?? null, endsAt: year.endsAt ?? null },
     currency, canConfigure: isAdmin(caller.role) && year.status === "active", operational: false, pendingAllocations: pending.remaining,
@@ -150,6 +151,8 @@ export async function buildAllocationWorkspace({ db, caller, school, schoolId, b
     ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (await readRubricCatalog(db, schoolId, yearId)).rubrics.map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true })) } : {}),
     ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }),
   };
+  // Seul l'Administrateur reçoit la partie 2 (règles des cas sociaux) ; les autres rôles reçoivent les montants sans ces règles.
+  return isAdmin(caller.role) ? workspace : withoutSocialWorkspace(workspace);
 }
 
 /** Empreinte de tout ce qui peut changer le drawer (voir « répartition rapide »). */
