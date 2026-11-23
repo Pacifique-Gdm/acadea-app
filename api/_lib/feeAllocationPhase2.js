@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readRubricCatalog, rubricCatalogId } from "./feeAllocationRubrics.js";
 import { retryPendingFeeAllocations } from "./feeAllocationPending.js";
-import { FeeAllocationError, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
+import { FeeAllocationError, socialDraftRubrics, validateFeeAllocationRubrics } from "./feeAllocationMath.js";
 import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
@@ -32,7 +32,7 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
     return buildAllocationWorkspace({ db, caller, school, schoolId, body, retryPending: true });
   }
   if (body.action !== "save-drafts") fail(400, "invalid-argument", "Action préparatoire inconnue.");
-  fields(body, ["action", "schoolYearId", "baseFeeTypeId", "targets", "rubrics", "requestId"]);
+  fields(body, ["action", "schoolYearId", "baseFeeTypeId", "targets", "rubrics", "socialRubrics", "requestId"]);
   if (!isAdmin(caller.role)) fail(403, "permission-denied", "Seul l'Administrateur peut préparer une répartition.");
   await readFeeAllocationScope(db, caller, caller.schoolId);
   if (!id(body.schoolYearId) || !id(body.baseFeeTypeId) || !id(body.requestId) || body.requestId.length < 12
@@ -44,7 +44,8 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
   }
   const targets = [...body.targets].sort((a, b) => a.feeTypeId.localeCompare(b.feeTypeId));
   const schoolId = caller.schoolId;
-  const fingerprint = hash([body.schoolYearId, body.baseFeeTypeId, targets, body.rubrics]);
+  // Version 1.19.0 : la partie des cas sociaux fait partie de la même demande (absente = aucune partie 2).
+  const fingerprint = hash(body.socialRubrics === undefined ? [body.schoolYearId, body.baseFeeTypeId, targets, body.rubrics] : [body.schoolYearId, body.baseFeeTypeId, targets, body.rubrics, body.socialRubrics]);
   const receiptRef = db.doc(`feeAllocationRequests/${hash([caller.uid, schoolId, "batch", body.requestId])}`);
   return db.runTransaction(async (transaction) => {
     const [schoolSnapshot, profileSnapshot, receipt] = await Promise.all([
@@ -91,15 +92,18 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
       let minor;
       try { minor = toMoneyMinor(fee.amount); } catch { fail(400, "invalid-argument", "Tarif invalide."); }
       const validated = validateFeeAllocationRubrics(rubricsInput, minor);
-      return { ref, previous, fee, configId, minor, validated, target };
+      let social;
+      try { social = socialDraftRubrics(body.socialRubrics, validated.rubrics, minor); }
+      catch (cause) { fail(400, "invalid-argument", `Cas sociaux : ${cause.message}`); }
+      return { ref, previous, fee, configId, minor, validated, social, target };
     }));
     if (new Set(rows.map(({ fee }) => fee.classOptionKey || fee.className)).size !== rows.length) fail(400, "invalid-argument", "Deux frais ciblent la même classe ; vérifiez les tarifs existants.");
     const now = new Date().toISOString();
-    const configs = rows.map(({ previous, fee, configId, minor, validated, target }) => {
+    const configs = rows.map(({ previous, fee, configId, minor, validated, social, target }) => {
       const config = { id: configId, schoolId, schoolYearId: body.schoolYearId, feeTypeId: target.feeTypeId,
         className: fee.className, ...(fee.classOptionKey ? { classOptionKey: fee.classOptionKey } : {}), currency,
         draftRevision: target.expectedRevision + 1,
-        draft: { rubrics: validated.rubrics, feeAmountMinor: minor, updatedAt: now, updatedBy: caller.uid },
+        draft: { rubrics: validated.rubrics, ...(social ? { socialRubrics: social } : {}), feeAmountMinor: minor, updatedAt: now, updatedBy: caller.uid },
         ...(previous.data()?.currentVersionId ? { currentVersionId: previous.data().currentVersionId } : {}) };
       return config;
     });

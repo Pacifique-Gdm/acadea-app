@@ -121,6 +121,26 @@ export function allocateFeeReceiptCumulative(shares, totalMinor) {
 }
 
 
+/** Version 1.19.0 : partie des cas sociaux saisie dans « Ajouter une répartition », sous celle des élèves normaux.
+ * Mêmes rubriques (seules les valeurs changent ; une ligne retirée = 0 %) ; « Non affecté » reçoit le reste.
+ * Rend null si elle est identique à la partie des élèves normaux (aucune partie 2 n'est alors publiée). */
+export function socialDraftRubrics(input, partOneRubrics, feeAmountMinor) {
+  if (input === undefined || input === null) return null;
+  const wrong = () => invalid("La partie des cas sociaux doit reprendre toutes les rubriques des élèves normaux.");
+  if (!Array.isArray(input) || input.length !== partOneRubrics.length) wrong();
+  const rubrics = partOneRubrics.map((rubric) => {
+    const given = input.find((item) => item?.id === rubric.id);
+    if (!given || typeof given !== "object" || Object.keys(given).some((key) => !["id", "mode", "basisPoints", "fixedMinor"].includes(key))) wrong();
+    return { id: rubric.id, name: rubric.name, mode: given.mode, ...(given.mode === "fixed" ? { fixedMinor: given.fixedMinor } : { basisPoints: given.basisPoints }) };
+  });
+  const checked = validateFeeAllocationRubrics(rubrics, feeAmountMinor, { allowZero: true }).rubrics;
+  const identical = checked.every((rubric) => {
+    const own = partOneRubrics.find((item) => item.id === rubric.id);
+    return own.mode === rubric.mode && (own.basisPoints ?? null) === (rubric.basisPoints ?? null) && (own.fixedMinor ?? null) === (rubric.fixedMinor ?? null);
+  });
+  return identical ? null : checked.map(({ id, mode, basisPoints, fixedMinor }) => ({ id, mode, ...(mode === "fixed" ? { fixedMinor } : { basisPoints }) }));
+}
+
 /** Lot 27c-4 : partie 2 « cas sociaux ». Vrai si la partie 2 reprend exactement la partie 1
  * (mêmes rubriques, uniquement des pourcentages identiques) : on garde alors les poids de la partie 1,
  * pour des montants identiques au centime près (recalculer sur le net créerait des écarts d'arrondi). */
