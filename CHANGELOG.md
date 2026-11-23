@@ -4,7 +4,7 @@ Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnali
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
 ## [1.20.1] — 2026-11-23 — Correction
-- Répartition des frais : boutons des formulaires mieux placés (« Annuler », « Appliquer à tous les frais », « Retirer la ligne ») et PDF court, un tableau par page
+- Répartition des frais : quand la répartition est active, « Publier le nouveau frais » apparaît et fonctionne pour un frais ajouté en milieu d'année ; chaque frais à publier est repéré pour lui-même ; un seul bouton prépare puis publie toutes les classes ; bouton direct « Partie 2 — cas sociaux » dans le drawer.
 
 ## [1.20.0] — 2026-11-23 — Fonctionnalité
 - Super administrateur, drawer d'une école plus léger : nombres (élèves, parents, comptes, classes) calculés par le serveur en une seule demande, historique affiché 10 lignes à la fois avec « Voir plus » (index de l'historique), au lieu de télécharger toutes les données de l'école.
