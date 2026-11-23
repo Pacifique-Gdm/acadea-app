@@ -8,6 +8,8 @@ import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
 import { SOCIAL_PUBLISH_PHRASE, TypedConfirmation } from "./FeeAllocationSocialPart";
+import { pendingPublications } from "./feeAllocationPublishPlan";
+import { allocationClassLabel } from "../../utils/feeAllocationView";
 
 const errorText = (e: unknown) => userFacingError(e, "Confirmation serveur indisponible.");
 const parseAmount = (value: string) => {
@@ -16,7 +18,7 @@ const parseAmount = (value: string) => {
 };
 
 /** Version 1.15.2 : phrase montrée à la place de « Préparer la nouvelle version » quand le frais est déjà réparti. */
-export const DRAFT_LOCKED_TEXT = "Ce frais est déjà réparti pour cette année : sa répartition ne change plus. « Préparer la nouvelle version » sert seulement à un frais pas encore réparti, par exemple un frais ou une classe ajouté en cours d’année.";
+export const DRAFT_LOCKED_TEXT = "Ce frais est déjà réparti pour cette année : sa répartition ne change plus. « Publier le nouveau frais » sert seulement à un frais pas encore réparti, par exemple un frais ou une classe ajouté en cours d’année.";
 
 /** The UI never invents an opening allocation or treats an uncertain reply as success. */
 /** Texte des étapes validé par l’utilisateur le 19/11. */
@@ -25,7 +27,7 @@ export function ActivationSteps() {
     <p className="mt-2 font-semibold">Avant l’activation</p>
     <ol className="ml-5 mt-1 grid list-decimal gap-1">
       <li>Créer la répartition : « + Ajouter », choisir le frais et les classes, puis les rubriques (en pourcentage ou en montant fixe ; le reste va dans « Non affecté »). Une rubrique créée par « + Nouvelle rubrique… » n’est enregistrée qu’avec la répartition.</li>
-      <li>Préparer puis publier la répartition de chaque frais.</li>
+      <li>Préparer et publier : un seul bouton prépare puis publie toutes les classes enregistrées.</li>
       <li>Vérifier le solde de départ : Acadéa examine les encaissements et dépenses déjà enregistrés. Justifier les écritures signalées par une preuve.</li>
       <li>Préparer le solde de départ : saisir la caisse constatée, partager les fonds justifiés entre les rubriques (et « Non affecté »), puis confirmer avec la phrase demandée.</li>
       <li>Approuver le solde de départ.</li>
@@ -149,24 +151,55 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
     } catch (e) { setError(errorText(e)); }
   }
   const rows = view?.evidencePage?.rows ?? [], run = view?.reconciliation;
-  const prepared = view?.versions.find(v => v.status === 'prepared' && workspace.configs.some(c => c.feeTypeId === v.feeTypeId && c.draftRevision === v.version));
-  const draft = workspace.configs.find(c => c.draft && !view?.versions.some(v => v.feeTypeId === c.feeTypeId && v.version === c.draftRevision));
-  const withSocial = prepared?.hasSocialPart === true;
-  const publishBody = () => prepared ? { versionId: prepared.id, ...(withSocial ? { confirmation: socialConfirmation } : {}) } : {};
-  const socialBlock = withSocial && <div className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-justify text-sm" data-social-with-part-one>
-    <p>Ce frais a une partie des cas sociaux différente de celle des élèves normaux. Les deux parties seront publiées en même temps.</p>
-    <TypedConfirmation value={socialConfirmation} onChange={(value) => { pending.current = null; setSocialConfirmation(value); }} disabled={fieldsLocked} /></div>;
-  const socialMissing = withSocial && socialConfirmation !== SOCIAL_PUBLISH_PHRASE;
+  // Correction 1.20.1 : chaque frais à publier est repéré pour lui-même (et non « le premier frais trouvé ») ;
+  // un seul bouton prépare puis publie toutes ses classes, avant comme après l'activation.
+  const plan = pendingPublications(workspace.configs, view?.versions ?? [], view?.status ?? 'EN_PREPARATION');
+  const planSocial = plan.items.some(item => item.hasSocialPart);
+  const planCount = plan.items.length;
+  const feeName = (feeTypeId: string) => { const fee = workspace.fees.find(f => f.id === feeTypeId); return fee ? `${fee.name} · ${allocationClassLabel(fee.classOptionKey || fee.className)}` : 'Frais'; };
+  const planBlock = planCount > 0 && <div className="grid gap-2 rounded border p-3 text-justify text-sm" data-publish-plan>
+    <p>{planCount > 1 ? `${planCount} classes à publier` : '1 classe à publier'} : {plan.items.map(item => feeName(item.feeTypeId)).join(', ')}.</p>
+    {planSocial && <div className="grid gap-2 rounded border border-amber-200 bg-amber-50 p-3" data-social-with-part-one>
+      <p>Au moins une classe a une partie des cas sociaux différente de celle des élèves normaux. Les deux parties seront publiées en même temps.</p>
+      <TypedConfirmation value={socialConfirmation} onChange={(value) => setSocialConfirmation(value)} disabled={fieldsLocked} /></div>}
+  </div>;
+  const socialMissing = planSocial && socialConfirmation !== SOCIAL_PUBLISH_PHRASE;
+  const planRequests = useRef(new Map<string, string>());
+  const requestKey = (key: string) => { if (!planRequests.current.has(key)) planRequests.current.set(key, crypto.randomUUID().replaceAll("-", "")); return planRequests.current.get(key)!; };
+  async function publishAll() {
+    if (locked.current || !planCount || socialMissing) return;
+    locked.current = true; setBusy(true); setActionBusy('publish-all'); setError(''); setNotice('');
+    let done = 0;
+    try {
+      for (const item of plan.items) {
+        let versionId = item.preparedId;
+        if (!versionId) {
+          const prepared = await allocationRequest<{ version: { id: string } }>('prepare-version', { feeTypeId: item.feeTypeId, expectedRevision: item.draftRevision, requestId: requestKey(`prepare/${item.feeTypeId}/${item.draftRevision}`) });
+          if (!prepared.version?.id) throw new AllocationApiError('Version préparée non confirmée.');
+          versionId = prepared.version.id;
+        }
+        await allocationRequest('publish-configuration', { versionId, ...(item.hasSocialPart ? { confirmation: socialConfirmation } : {}),
+          requestId: requestKey(`publish/${versionId}/${item.hasSocialPart ? socialConfirmation : ''}`) });
+        done += 1;
+      }
+      setSocialConfirmation('');
+      setNotice(`${done > 1 ? `${done} classes publiées` : '1 classe publiée'}. ${view?.status === 'EN_PREPARATION' ? 'Aucun argent ne bouge avant l’activation.' : 'Seuls les paiements reçus à partir de maintenant suivent cette répartition.'}`);
+    } catch (e) {
+      setError(`${done} classe(s) publiée(s) sur ${planCount}. ${errorText(e)} Cliquez de nouveau pour continuer : les classes déjà publiées ne sont pas refaites.`);
+    } finally {
+      try { setView(await loadAllocationActivation(schoolId)); } catch { /* l'icône « Actualiser » reste disponible */ }
+      locked.current = false; setBusy(false); setActionBusy('');
+      if (done) onChanged();
+    }
+  }
   const readableDate = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleDateString('fr-FR') : 'Date non justifiée';
   const label = (row: AllocationEvidence) => row.nature + (row.receiptNumber ? ' · reçu ' + row.receiptNumber : '') + ' · ' + readableDate(row.createdAt) + ' · ' + (row.amountMinor === null ? 'Montant non justifié' : row.currency ? formatCurrencyMoney(row.amountMinor / 100, row.currency) : (row.amountMinor / 100).toLocaleString('fr-FR') + ' (devise non justifiée)');
   const payrollOnly = run?.blockedCount === 1 && view?.singleBlocker?.nature === 'Paiement de personnel';
-  const missing = !workspace.configs.length ? 'Configurer une répartition.' : prepared || draft ? 'Préparer et publier la répartition.' : !run || run.stale || run.status === 'RUNNING' ? 'Terminer la vérification du solde de départ.' : run.blockedCount ? 'Justifier les écritures signalées, puis vérifier à nouveau le solde.' : !opening || opening.stale ? 'Préparer le solde de départ.' : opening.status === 'proposed' ? 'Approuver le solde de départ.' : !opening.approvedByCurrentUser ? 'La confirmation doit être faite par l’administrateur qui a approuvé.' : 'Saisir la confirmation pour activer la répartition.';
+  const missing = !workspace.configs.length ? 'Configurer une répartition.' : planCount ? 'Préparer et publier la répartition.' : !run || run.stale || run.status === 'RUNNING' ? 'Terminer la vérification du solde de départ.' : run.blockedCount ? 'Justifier les écritures signalées, puis vérifier à nouveau le solde.' : !opening || opening.stale ? 'Préparer le solde de départ.' : opening.status === 'proposed' ? 'Approuver le solde de départ.' : !opening.approvedByCurrentUser ? 'La confirmation doit être faite par l’administrateur qui a approuvé.' : 'Saisir la confirmation pour activer la répartition.';
   // Version 1.15.2 : « Actualiser » devient un bouton icône, à droite de l'action principale, sur la même ligne.
   const refreshButton = <button type="button" className="secondary-button inline-flex h-11 w-11 shrink-0 items-center justify-center p-0" disabled={fieldsLocked} aria-busy={busy && actionBusy === 'refresh'} title="Actualiser" onClick={() => void refresh()}><RefreshCw aria-hidden className={`h-5 w-5 ${busy && actionBusy === 'refresh' ? 'animate-spin' : ''}`} /><span className="sr-only">Actualiser</span></button>;
   // Lot du 21/11 : l'icône « Actualiser » passe à l'extrémité droite de la ligne du statut.
   const actionRow = (node: ReactNode) => <div className="flex min-w-0 flex-wrap items-center gap-2" data-allocation-action-row>{node}</div>;
-  // Version 1.15.2 : un frais déjà réparti (version en service) ne peut pas recevoir de nouvelle version : le serveur refuse.
-  const draftLocked = !!draft && view?.status !== 'EN_PREPARATION' && workspace.configs.some(c => c.feeTypeId === draft.feeTypeId && c.currentVersionId);
   const primary = (key: string, text: string, click: () => void, disabled = false) => <Action busy={busy && actionBusy === key} disabled={fieldsLocked || disabled} className="primary-button justify-self-start" onClick={click}>{text}</Action>;
   return <section className="grid min-w-0 gap-3 rounded border p-3" aria-label="Activation par établissement">
     <div className="flex min-w-0 items-center justify-between gap-2" data-allocation-status-row><h3 className="min-w-0 font-bold">{view ? view.status === 'ACTIVE' ? 'Active' : view.status === 'PAUSED' ? 'Active' : 'En préparation' : actionBusy === 'initial' ? 'État de la répartition' : 'État à vérifier'}</h3>{view && refreshButton}</div>
@@ -179,8 +212,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
       {run && <p role="status" className="text-sm">{run.scanned} écritures examinées · {run.blockedCount ? payrollOnly ? '1 paiement de personnel à vérifier' : run.blockedCount + ' écriture(s) à vérifier' : 'aucune écriture signalée'}. {run.stale ? 'Les écritures ont changé : vérification à actualiser.' : run.status === 'COMPLETE' ? 'Vérification terminée.' : run.status === 'RUNNING' ? 'Vérification en cours.' : run.reason}</p>}
       {view.status === 'EN_PREPARATION' ? <>
         {actionRow(!workspace.configs.length ? <p className="text-sm">Utilisez « + Ajouter » pour préparer la première répartition.</p>
-          : prepared ? primary('publish-configuration', 'Publier la répartition', () => void mutate('publish-configuration', publishBody()), socialMissing)
-          : draft ? primary('prepare-version', 'Préparer une version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision }))
+          : planCount ? primary('publish-all', planCount > 1 ? `Préparer et publier les ${planCount} classes` : 'Préparer et publier la répartition', () => void publishAll(), socialMissing)
           : !run || run.stale ? primary('start-reconciliation', 'Vérifier le solde de départ', () => void mutate('start-reconciliation', {}))
           : run.status === 'RUNNING' ? primary('continue', 'Continuer la vérification', () => void continueScan())
           : run.blockedCount ? primary('blocked', 'Voir les écritures à vérifier', () => { setEvidenceOpen(true); void refresh(0, true, 'blocked'); })
@@ -189,7 +221,7 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
           : (!opening || opening.stale) ? primary('prepare-opening', 'Confirmer le solde de départ', () => void submitOpening(), confirmation !== phrase || !view.rubrics.length)
           : opening.status === 'proposed' ? primary('approve-opening', 'Approuver le solde de départ', () => void mutate('approve-opening', { openingId: opening.id, confirmation }), confirmation !== phrase)
           : primary('activate', 'Activer la répartition', () => void mutate('activate', { openingId: opening.id, confirmation }), confirmation !== phrase || !opening.approvedByCurrentUser))}
-        {prepared && socialBlock}
+        {planBlock}
         {scanning && <button className="secondary-button justify-self-start" type="button" onClick={() => { stopScan.current = true; }}>Suspendre la vérification après cette étape</button>}
         <details className="text-sm"><summary className="cursor-pointer">Voir les étapes d’activation</summary><ActivationSteps /><p className="mt-2">Avant « Activer la répartition » : {missing}</p><p>Une configuration publiée ou un solde approuvé n’est pas une activation.</p></details>
         {!!view.versions.length && <details className="text-sm"><summary>Voir les configurations</summary>{view.versions.map(v => <p key={v.id}>{workspace.fees.find(f => f.id === v.feeTypeId)?.name ?? 'Frais historique'} — {workspace.fees.find(f => f.id === v.feeTypeId)?.className} · version {v.version} · {v.status === 'published' ? 'publiée' : 'préparée'}</p>)}</details>}
@@ -215,11 +247,10 @@ export function FeeAllocationActivation({ workspace, onChanged }: { workspace: A
           {opening?.status === 'approved' && !opening.approvedByCurrentUser && <p role="alert">Seul l’administrateur qui a approuvé peut confirmer l’activation.</p>}
         </fieldset>}
       </> : <>
-        {prepared && socialBlock}
-        {actionRow(prepared ? primary('publish-configuration', 'Publier le nouveau frais', () => void mutate('publish-configuration', publishBody()), socialMissing)
-          : draft && !draftLocked ? primary('prepare-version', 'Préparer la nouvelle version', () => void mutate('prepare-version', { feeTypeId: draft.feeTypeId, expectedRevision: draft.draftRevision })) : null)}
-        {draftLocked && !prepared && <p className="text-justify text-sm" data-draft-locked>{DRAFT_LOCKED_TEXT}</p>}
-        {(prepared || (draft && !draftLocked)) && <p className="text-justify text-sm">La publication explicite concernera uniquement les nouveaux encaissements confirmés ensuite. Les anciens paiements et le solde de départ restent inchangés.</p>}
+        {actionRow(planCount ? primary('publish-all', planCount > 1 ? `Publier les nouveaux frais (${planCount} classes)` : 'Publier le nouveau frais', () => void publishAll(), socialMissing) : null)}
+        {planBlock}
+        {plan.locked > 0 && !planCount && <p className="text-justify text-sm" data-draft-locked>{DRAFT_LOCKED_TEXT}</p>}
+        {planCount > 0 && <p className="text-justify text-sm">La publication explicite concernera uniquement les nouveaux encaissements confirmés ensuite. Les anciens paiements et le solde de départ restent inchangés.</p>}
         {view.status === 'PAUSED' && <><button className="secondary-button justify-self-start" type="button" disabled={fieldsLocked} onClick={() => setPauseForm(v => !v)}>Reprendre la répartition</button>{pauseForm && <fieldset className="grid gap-2" disabled={fieldsLocked}><label>Motif audité<textarea className="input" value={reason} maxLength={500} onChange={e => setReason(e.target.value)}/></label><Action busy={busy && actionBusy === 'resume'} disabled={reason.trim().length < 5} onClick={() => void mutate('resume', { reason })}>Confirmer la reprise</Action></fieldset>}</>}
       </>}
     </>}
