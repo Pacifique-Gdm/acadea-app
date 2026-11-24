@@ -47,7 +47,11 @@ function assertBinding(value, p) {
  * transaction calls that closure after its cash checks, never after commit.
  * No endpoint accepts an allocation, version, amount or activation from clients.
  */
-export async function prepareFeeAllocationReceipt({ db, transaction, caller, payment, previous = null, requestId, now }) {
+export async function prepareFeeAllocationReceipt({ db, transaction, caller, payment, previous = null, requestId, now, reassignment = null }) {
+  // Lot E : changement de classe. « out » retire le paiement de l'ancienne ancre (écriture inverse), « in » le remet
+  // sur l'ancre du frais de la nouvelle classe. Les mouvements déjà écrits ne changent jamais.
+  if (reassignment && (!["out", "in"].includes(reassignment.kind) || !identifier(reassignment.classChangeId)
+    || (reassignment.kind === "out" ? !previous : !payment || previous))) fail("Rattachement de changement de classe invalide.");
   if (!isFeeAllocationReceiptSandbox(db) && !allocationSupportedProject(db)) return noop;
   const source = payment ?? previous;
   if (!source || !["USD", "CDF"].includes(source.currency)
@@ -117,13 +121,14 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     fail("Encaissement sans trace de ventilation : rapprochement nécessaire.");
   }
   if (source.provenance !== "financial-api" || !source.clientRequestIdHash) fail("Seul un encaissement confirmé par le serveur peut être réparti.");
-  if (!previous && priorSource) fail("Paiement déjà réparti.");
+  const reattached = reassignment?.kind === "in" && priorSource?.deleted === true && priorSource.reassignedBy === reassignment.classChangeId;
+  if (!previous && priorSource && !reattached) fail("Paiement déjà réparti.");
   if (previous && (priorSource.sourceDigest !== sourceDigest(previous) || priorSource.anchorId !== anchorId
     || priorSource.schoolId !== source.schoolId || priorSource.amountMinor !== toMoneyMinor(previous.amount))) fail("Révision financière incohérente.");
   if (!previous && source.createdAt < state.cutoffAt) fail("Encaissement antérieur à la coupure.");
   let anchor = anchorSnap.data();
   if (!anchor) {
-    if (totalSnap.exists || priorSource) fail("Ancre financière manquante.");
+    if (totalSnap.exists || priorSource && !reattached) fail("Ancre financière manquante.");
     let versionId = null, socialPart = null;
     // A legacy debt without an original anchor MUST NOT inherit today's config.
     if (source.schoolYearId === collectionYear) {
@@ -302,7 +307,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     // Lot « 3 étapes » : un « Non affecté » de départ négatif (dépenses > encaissements, manque en caisse) se comble
     // par les encaissements suivants ; seule une baisse (correction) est refusée si elle passe sous les fonds déjà imputés.
     if (!safe(openingMinor) || !safe(receivedMinor) || !safe(openingMinor + receivedMinor)
-      || line.amountMinor < 0 && openingMinor + receivedMinor < (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0)) fail("Correction incompatible avec des fonds déjà imputés ou réservés.");
+      || !reassignment && line.amountMinor < 0 && openingMinor + receivedMinor < (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0)) fail("Correction incompatible avec des fonds déjà imputés ou réservés.");
     return { ref, value: { schoolId: source.schoolId, collectionSchoolYearId: collectionYear, currency: source.currency, rubricId: line.rubricId,
       ...(arrearsNames.has(line.rubricId) ? { arrearsOf: arrearsNames.get(line.rubricId) } : {}),
       receivedMinor, openingMinor, spentMinor: balance?.spentMinor ?? 0, reservedMinor: balance?.reservedMinor ?? 0, operational: !!operational,
@@ -312,8 +317,9 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     collectionSchoolYearId: collectionYear, currency: source.currency, sourceType: "payment", sourceId: source.id, sourceRevision: requestId,
     configVersionId: anchor.configVersionId, anchorId, feeTypeId: source.feeTypeId, studentId: source.studentId,
     className: anchor.className ?? null, classOptionKey: anchor.classOptionKey ?? null, amountMinor: delta, lines, postedAt: now,
-    collectedAt: source.createdAt, paidAt: source.paidAt, actorId: caller.uid, type: previous ? payment ? "correction" : "reversal" : "receipt",
-    reversesMovementId: priorSource?.lastMovementId ?? null, supportDecisionId: source.supportDecisionId ?? null,
+    collectedAt: source.createdAt, paidAt: source.paidAt, actorId: caller.uid, type: reassignment ? `reassignment-${reassignment.kind}` : previous ? payment ? "correction" : "reversal" : "receipt",
+    reversesMovementId: reattached ? null : priorSource?.lastMovementId ?? null,
+    ...(reassignment ? { classChangeId: reassignment.classChangeId, ...(reattached ? { reattachesMovementId: priorSource.lastMovementId } : {}) } : {}), supportDecisionId: source.supportDecisionId ?? null,
     // Une correction ou une suppression reste dans le tableau de l'encaissement d'origine.
     socialCase: typeof priorSource?.socialCase === "boolean" ? priorSource.socialCase : socialCaseNow,
     sourceSnapshot: { ...source }, testOnly: operational ? operational.testOnly : true });
@@ -329,6 +335,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     transaction.set(totalRef, { schoolId: source.schoolId, anchorId, versionDigest: nextDigest, amountMinor: after, updatedAt: now });
     transaction.set(sourceRef, { schoolId: source.schoolId, anchorId, sourceId: source.id, sourceDigest: payment ? sourceDigest(payment) : null,
       amountMinor: newMinor, lastMovementId: movementId, deleted: !payment, updatedAt: now,
+      ...(reassignment?.kind === "out" ? { reassignedBy: reassignment.classChangeId } : {}),
       socialCase: typeof priorSource?.socialCase === "boolean" ? priorSource.socialCase : socialCaseNow });
     balanceRows.forEach(row => transaction.set(row.ref, row.value));
   };

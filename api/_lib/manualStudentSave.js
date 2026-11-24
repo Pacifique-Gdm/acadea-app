@@ -57,7 +57,7 @@ function validatedFields(input) {
   return result;
 }
 
-async function validClassReferences(transaction, db, student, offline = false) {
+export async function validClassReferences(transaction, db, student, offline = false) {
   let parent;
   if (student.classId) {
     const snapshot = await transaction.get(db.doc(`classes/${student.classId}`));

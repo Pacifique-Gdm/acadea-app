@@ -49,6 +49,15 @@ describe("protection : changement de classe d'un élève qui a déjà payé", ()
     expect(rows.get(`students/${base.id}`).className).toBe("1ère Primaire");
   });
 
+  for (const role of ["school_admin", "cashier"]) {
+    it(`${role} : la fiche ordinaire refuse aussi le changement de classe d'un élève qui a payé (seule l'action du caissier le fait)`, async () => {
+      const { db, rows } = fixture([payment(), [`users/${role}-a`, { role, schoolId: "school-a", active: true, name: role }]]);
+      await expect(saveManualStudent({ db, caller: { uid: `${role}-a`, role, schoolId: "school-a" }, body: { intent: "update", student: moved } }))
+        .rejects.toMatchObject({ message: CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, statusCode: 409 });
+      expect(rows.get(`students/${base.id}`).className).toBe("1ère Primaire");
+    });
+  }
+
   it("sans paiement cette année (ou un paiement d'une autre année), le changement reste possible", async () => {
     const { db, rows } = fixture([payment("year-old")]);
     await saveManualStudent({ db, caller: secretary, body: { intent: "update", student: moved } });
@@ -65,6 +74,7 @@ describe("protection : changement de classe d'un élève qui a déjà payé", ()
     expect(isClassChange({ classId: "a", className: "X" }, { classId: "b", className: "X" })).toBe(true);
     expect(isClassChange({ classId: "a", className: "X" }, { classId: "a", className: "Y" })).toBe(true);
     expect(isClassChange({ classId: "a", className: "X" }, { classId: "a", className: "X" })).toBe(false);
+    expect(isClassChange({ className: "4ème Humanité", option: "Pédagogie" }, { className: "4ème Humanité", option: "Commerciale" })).toBe(true);
     expect(hasYearPayments([{ studentId: "s", schoolId: "e", schoolYearId: "y" }], "s", "e", "y")).toBe(true);
     expect(hasYearPayments([{ studentId: "s", schoolId: "autre", schoolYearId: "y" }], "s", "e", "y")).toBe(false);
     expect(hasYearPayments([], "s", "e", "y")).toBe(false);
