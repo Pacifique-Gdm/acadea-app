@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.24.2] — 2026-11-24 — Correction
+- Remise en ligne de la 1.24.1 (Année scolaire sans rechargement) après une vérification interrompue par le réseau ; ship-lot.sh s'arrête si l'adresse de la version précédente est introuvable
+
 ## [1.24.1] — 2026-11-24 — Correction
 - Formulaire Année scolaire : il s'ouvre tout de suite avec les données déjà chargées, sans tout relire à chaque ouverture
 
