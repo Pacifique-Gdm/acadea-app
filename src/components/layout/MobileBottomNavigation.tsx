@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { resetTabScroll } from "./tabScrollReset";
 import type { LucideIcon } from "lucide-react";
 
 export type MobileBottomNavigationItem<T extends string> = {
@@ -23,6 +24,15 @@ export function MobileBottomNavigation<T extends string>({
   trailingItem?: ReactNode;
 }) {
   const columnCount = items.length + (trailingItem ? 1 : 0);
+  // Changement d'onglet (par la barre ou par un lien d'une notification) : retour tout en haut.
+  // useLayoutEffect passe avant l'affichage et avant les effets de l'onglet ouvert, qui peuvent
+  // ensuite faire défiler vers un élément précis.
+  const previousActiveId = useRef(activeId);
+  useLayoutEffect(() => {
+    if (previousActiveId.current === activeId) return;
+    previousActiveId.current = activeId;
+    resetTabScroll();
+  }, [activeId]);
 
   return (
     <nav aria-label={ariaLabel} className="mobile-bottom-navigation">

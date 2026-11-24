@@ -15,7 +15,9 @@ describe("documents financiers PDF partagés", () => {
   });
 
   it("borne le reçu et le justificatif normal sur une seule page", () => {
-    expect(pdfSource.match(/singlePageFit: true/g)).toHaveLength(2);
+    // Reçu de paiement, justificatif de dépense et (lot F) reçu de remboursement : une page, deux exemplaires.
+    expect(pdfSource.match(/singlePageFit: true/g)).toHaveLength(3);
+    expect(pdfSource).toContain('title: "Reçu de remboursement"');
     expect(pdfSource).toContain('copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],\n    singlePageFit: true');
     expect(pdfSource).toContain('copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE BÉNÉFICIAIRE"],\n    singlePageFit: true');
   });

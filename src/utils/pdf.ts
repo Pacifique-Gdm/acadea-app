@@ -658,6 +658,38 @@ export async function generateExpensePdf(expense: Expense, school: School, year?
   });
 }
 
+/** Lot F : reçu du remboursement du trop-perçu (changement de classe), en deux exemplaires. */
+export async function generateRefundPdf(refund: { receiptNumber: string; amount: number; currency: "USD" | "CDF"; paymentMethod: string; cashierName: string; createdAt: string },
+  student: Pick<Student, "nom" | "postnom" | "prenom" | "matricule">, fromClassName: string, toClassName: string, school: School, year?: SchoolYear) {
+  const studentName = [student.nom, student.postnom, student.prenom].filter(Boolean).join(" ");
+  await renderAcadPdfPreview({
+    filename: `remboursement-${refund.receiptNumber}.pdf`,
+    title: "Reçu de remboursement",
+    school,
+    year,
+    copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
+    singlePageFit: true,
+    sections: [
+      `<section class="pdf-section expense-details">
+        ${pdfInfoGrid([
+          { label: "N° de reçu", value: refund.receiptNumber },
+          { label: "Date", value: formatPdfDate(refund.createdAt) },
+          { label: "Élève", value: studentName || "-" },
+          { label: "Matricule", value: student.matricule || "-" },
+          { label: "Changement de classe", value: `${fromClassName} → ${toClassName}` },
+          { label: "Montant remboursé", value: formatRecordedOperation({ amount: refund.amount, currency: refund.currency }) },
+          { label: "Mode de remboursement", value: refund.paymentMethod },
+          { label: "Caissier", value: refund.cashierName || "-" },
+        ])}
+      </section>`,
+      `<section class="signature-row">
+        <div><span>Signature du caissier</span><strong></strong></div>
+        <div><span>Signature du parent (reçu)</span><strong></strong></div>
+      </section>`,
+    ],
+  });
+}
+
 export function buildTwoCopyPdfHtml({ copyLabels, renderHeight, ...options }: PdfHtmlOptions & {
   copyLabels: readonly [string, string];
   renderHeight: number;
