@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.24.0] — 2026-11-24 — Fonctionnalité
+- Lot F du caissier : remboursement en espèces du trop-perçu lors d'un changement de classe, pris dans « Non affecté », reçu en deux exemplaires
+
 ## [1.23.1] — 2026-11-24 — Correction
 - Changement d'onglet : l'écran s'ouvre toujours tout en haut, dans tous les modules, sur téléphone et sur ordinateur
 
