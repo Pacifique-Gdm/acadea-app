@@ -36,6 +36,14 @@ describe("Valves : public enregistré avec chaque publication", () => {
     expect(computeValveAudience({ schoolId: "s2", schoolYearId: "y1", visibility: "Primaire" }, parents, students).audienceParentIds).toEqual([]);
   });
 
+  it("bouton « Mettre à jour le public » : recalcule la liste avec la même fonction et l'enregistre", () => {
+    const form = read("../components/valves/ValvesDrawerContent.tsx");
+    expect(form).toContain('title="Mettre à jour le public"');
+    const action = form.slice(form.indexOf("async function refreshPublicationAudience"), form.indexOf("function editPublication"));
+    expect(action).toContain("computeValveAudience(publication, yearData.parents, yearData.students)");
+    expect(action).toContain("persistFirestorePatch({ valves: [{ ...publication, ...audience");
+  });
+
   it("le formulaire Valves enregistre le public avec la publication", () => {
     const form = read("../components/valves/ValvesDrawerContent.tsx");
     expect(form).toContain("...computeValveAudience({ visibility, targetClassKey: visibility === \"class\" ? targetClassKey : undefined, schoolId: school.id, schoolYearId: year.id }, yearData.parents, yearData.students)");

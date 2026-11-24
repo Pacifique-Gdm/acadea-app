@@ -9,6 +9,7 @@ import { restoreValvesAudience } from "../api/_lib/valvesAudienceBackfill.js";
 import { parseMigrationArgs, resolveMigrationTarget } from "./migrationTarget.mjs";
 
 const args = parseMigrationArgs(process.argv.slice(2));
+if (args.projet !== undefined && args.project === undefined) args.project = args.projet;
 if (args.school === undefined) args.school = "toutes";
 const target = resolveMigrationTarget({ args, env: process.env, stagingFlag: "ACADEA_VALVES_AUDIENCE_STAGING" });
 if (typeof args.sauvegarde !== "string") throw new Error("Indiquez --sauvegarde=<fichier JSON>.");
