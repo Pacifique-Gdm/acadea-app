@@ -25,6 +25,9 @@ assertTrustedMain(state, "dossier de déploiement", { requireClean: true });
 execFileSync("git", ["diff", "--check"], { cwd, stdio: "inherit" });
 
 const proofPath = join(cwd, PROOF_FILE);
+// Une preuve laissée par une construction coupée (manque de ressources, arrêt du poste) est remplacée :
+// elle ne doit jamais bloquer les constructions suivantes (24/11 : erreur EEXIST).
+rmSync(proofPath, { force: true });
 writeFileSync(proofPath, `${JSON.stringify({ version: 1, target: "production", branch: state.branch, head: state.head, originMain: state.originMain, generatedAt: new Date().toISOString() })}\n`, { flag: "wx" });
 try {
   const vercel = process.platform === "win32" ? "vercel.cmd" : "vercel";

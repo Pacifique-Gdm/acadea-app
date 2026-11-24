@@ -70,6 +70,15 @@ build=$(node "$DEPLOY/scripts/release/deploy-production-manual.cjs" "--cwd=$DEPL
 [ -n "$out" ] || { echo "  fin du message de la construction :"; echo "$build" | tail -15 | sed 's/^/    /'; }
 URL=$(echo "$out" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).url||"")}catch{console.log("")}})')
 [ -n "$URL" ] || stop "construction échouée"
+# La ligne de commande Vercel peut rendre la main avant la fin de la construction (24/11) : on attend « Ready »
+# (15 minutes au plus) avant les vérifications. « Error » ou « Canceled » : arrêt, rien n'est mis en ligne.
+for i in $(seq 1 30); do
+  BUILD_STATE=$(cd "$DEPLOY" && MSYS_NO_PATHCONV=1 timeout 90 vercel inspect "$URL" --scope pacifique-gdms-projects 2>&1 | awk '$1=="status"{print $NF}')
+  case "$BUILD_STATE" in Ready) break;; Error|Canceled) stop "construction $BUILD_STATE chez Vercel (rien n'est en ligne)";; esac
+  sleep 30
+done
+[ "$BUILD_STATE" = "Ready" ] || stop "construction pas prête après 15 minutes (état : ${BUILD_STATE:-inconnu}) — rien n'est en ligne"
+echo "  construction prête chez Vercel"
 ACADEA_DEPLOY_DIR="$DEPLOY" bash "$DEPLOY/scripts/release/verify-production-build.sh" "$URL" "$SHA" || stop "vérification de la construction (rien n'est en ligne)"
 
 # 5. Mise en ligne puis vérifications du site en ligne.
