@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.24.0] — 2026-11-24 — Fonctionnalité
+- Lot F du caissier : remboursement en espèces du trop-perçu lors d'un changement de classe, pris dans « Non affecté », reçu en deux exemplaires
+
 ## [1.23.0] — 2026-11-24 — Fonctionnalité
 - Lot E du caissier : changement de classe d'un élève qui a payé, par le caissier seulement ; paiements rattachés à la nouvelle classe et rubriques corrigées par des écritures inverses ; classe fermée aux écritures directes
 

@@ -46,7 +46,9 @@ export function getStudentDetachedPaid(student: Student, feeTypes: FeeType[], pa
   return sumMoney(studentPayments
     .filter((payment) => payment.studentId === student.id && !payment.formerStudent
       && (!student.schoolYearId || payment.schoolYearId === student.schoolYearId)
-      && yearFeeIds.has(payment.feeTypeId) && !applicableIds.has(payment.feeTypeId))
+      && yearFeeIds.has(payment.feeTypeId) && !applicableIds.has(payment.feeTypeId)
+      // Lot F : la part déjà remboursée au parent n'est plus un trop-perçu.
+      && !payment.refundedByClassChangeId)
     .map((payment) => payment.amount));
 }
 
