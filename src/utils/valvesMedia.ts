@@ -197,18 +197,51 @@ export async function prepareValveAttachment(file: File): Promise<ValveAttachmen
   if (!context) return originalAttachment;
 
   context.drawImage(image, 0, 0, dimensions.width, dimensions.height);
-  const blob = await canvasToBlob(canvas, type);
+  let blob = await canvasToBlob(canvas, type);
+  let name = file.name;
+  let finalType = type;
+  // Une photo enregistrée en PNG reste lourde même réduite (la qualité ne s'applique pas au
+  // PNG) : mesuré, 24,7 Mo -> 3,7 Mo en PNG, contre 0,3 Mo en JPEG. On passe alors en JPEG
+  // (fond blanc), seulement si le gain est net. Les petites images PNG (logos) restent en PNG.
+  if (type === "image/png" && blob && blob.size > PNG_TO_JPEG_THRESHOLD) {
+    const jpegCanvas = document.createElement("canvas");
+    jpegCanvas.width = dimensions.width;
+    jpegCanvas.height = dimensions.height;
+    const jpegContext = jpegCanvas.getContext("2d");
+    if (jpegContext) {
+      jpegContext.fillStyle = "#ffffff";
+      jpegContext.fillRect(0, 0, dimensions.width, dimensions.height);
+      jpegContext.drawImage(image, 0, 0, dimensions.width, dimensions.height);
+      const jpegBlob = await canvasToBlob(jpegCanvas, "image/jpeg");
+      if (jpegBlob && shouldConvertPngToJpeg(blob.size, jpegBlob.size)) {
+        blob = jpegBlob;
+        name = jpegFileName(file.name);
+        finalType = "image/jpeg";
+      }
+    }
+  }
   if (!blob || blob.size >= file.size) {
     return originalAttachment;
   }
 
   const optimizedDataUrl = await blobToDataUrl(blob);
   return {
-    name: file.name,
-    type,
+    name,
+    type: finalType,
     dataUrl: optimizedDataUrl,
     size: blob.size || getDataUrlSize(optimizedDataUrl),
   };
+}
+
+/** PNG réduit encore au-dessus de 1 Mo : c'est une photo, le JPEG est essayé. */
+export const PNG_TO_JPEG_THRESHOLD = 1024 * 1024;
+
+export function shouldConvertPngToJpeg(pngSize: number, jpegSize: number) {
+  return jpegSize > 0 && jpegSize <= pngSize / 2;
+}
+
+export function jpegFileName(fileName: string) {
+  return /\.png$/i.test(fileName) ? fileName.replace(/\.png$/i, ".jpg") : `${fileName}.jpg`;
 }
 
 export async function prepareValveAttachments(files: File[]): Promise<ValveAttachment[]> {
