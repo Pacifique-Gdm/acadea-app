@@ -7,6 +7,8 @@ import { fromMoneyMinor, sumMoneyMinor, toMoneyMinor } from "./money.js";
 import { prepareFeeAllocationReceiptNeverBlocking as prepareFeeAllocationReceipt, settlePendingFeeAllocations } from "./feeAllocationPending.js";
 import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
 import { normalizeStudentSearch, studentAlphabeticalKey, studentIdentityKey } from "../../src/utils/studentSearch.js";
+import { CLASS_CHANGE_CASHIER_ONLY_MESSAGE } from "../../src/utils/classChangeGuard.js";
+import { changeStudentClass } from "./studentClassChange.js";
 
 const PAYMENT_CREATE_KEYS = ["action", "schoolYearId", "studentId", "formerStudentId", "feeTypeId", "debtSchoolYearId", "amount", "note", "clientRequestId", "expectedCurrency", "expectedFeeAmount", "supportDecisionId", "proposedAt"];
 const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
@@ -885,7 +887,7 @@ Raison : ${reason}`,
 export async function executeFinancialOperation(input) {
   const action = text(input?.body?.action, 60);
   const isExpense = ["create-expense", "update-expense", "delete-expense"].includes(action);
-  const isPayment = ["create-payment", "update-payment", "delete-payment"].includes(action);
+  const isPayment = ["create-payment", "update-payment", "delete-payment", "change-student-class"].includes(action);
   const schoolId = input?.caller?.schoolId;
   if (isExpense) await settlePendingFeeAllocations({ db: input.db, caller: input.caller, schoolId, now: input.now, attempts: 1 });
   const result = await executeFinancialOperationCore(input);
@@ -911,6 +913,8 @@ async function executeFinancialOperationCore({ db, caller: rawCaller, body, now 
     else if (action === "update-expense") result = await mutateExisting(transaction, db, caller, body, hash, now, "expense", "update");
     else if (action === "delete-payment") result = await mutateExisting(transaction, db, caller, body, hash, now, "payment", "delete");
     else if (action === "delete-expense") result = await mutateExisting(transaction, db, caller, body, hash, now, "expense", "delete");
+    else if (action === "change-student-class") result = await changeStudentClass(transaction, db, caller, body, hash, now,
+      { FinancialApiError, assertAllowedKeys, assertContext, recordedMinor, text, feeAppliesToHistoricalStudent });
     else throw new FinancialApiError(400, "invalid-argument", "Action financière invalide.");
     transaction.create(idempotencyRef, { schoolId: caller.schoolId, schoolYearId: body.schoolYearId ?? result.payment?.schoolYearId ?? result.expense?.schoolYearId ?? result.cashInflow?.schoolYearId ?? null, userId: caller.uid, action, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
@@ -918,6 +922,11 @@ async function executeFinancialOperationCore({ db, caller: rawCaller, body, now 
 }
 
 export function authorizeFinancialCaller(rawCaller, action) {
+  // Lot E : seul le caissier change la classe d'un élève qui a payé (décision de l'établissement).
+  if (action === "change-student-class") {
+    if ((rawCaller?.role === "admin" ? "school_admin" : rawCaller?.role) !== "cashier") throw new FinancialApiError(403, "permission-denied", CLASS_CHANGE_CASHIER_ONLY_MESSAGE);
+    return assertRole(rawCaller, ["cashier"]);
+  }
   const createAction = action === "create-payment" || action === "create-expense" || action === "create-cash-inflow";
   return assertRole(rawCaller, action === "list-arrears" ? ["cashier", "school_admin", "parent"] : ["list-arrears-batch", "search-former-students", "list-former-debts", "list-former-students"].includes(action) ? ["cashier", "school_admin"] : createAction ? ["cashier"] : ["school_admin"]);
 }

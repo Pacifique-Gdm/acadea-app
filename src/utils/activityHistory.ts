@@ -151,7 +151,7 @@ export function buildActivityHistoryItems(user: AppUser, data: AppData, yearData
           createdAt: normalizeActivityTimestamp(log.createdAt),
         };
       }
-      if (log.eventType === "student.created" || log.eventType === "student.updated") {
+      if (log.eventType === "student.created" || log.eventType === "student.updated" || log.eventType === "student.class_changed") {
         const meta = log.metadata ?? {};
         const who = [meta.student, meta.matricule ? `(${meta.matricule})` : ""].filter(Boolean).join(" ");
         return {
