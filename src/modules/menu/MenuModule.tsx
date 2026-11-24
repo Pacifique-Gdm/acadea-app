@@ -1419,7 +1419,7 @@ export function MenuModule({
           </button>
         );
       })}
-      {cashierArchiveOpen && <SchoolYearArchiveDrawer schoolId={school.id} onClose={() => setCashierArchiveOpen(false)} />}
+      {cashierArchiveOpen && <SchoolYearArchiveDrawer schoolId={school.id} activeSchoolYearId={school.activeSchoolYearId} onClose={() => setCashierArchiveOpen(false)} />}
       {activeMenuSection === "library" && <LibraryDrawer audience={user.role === "cashier" ? "cashier" : "school_admin"} onClose={closeActiveMenuSection} />}
       {activeMenuSection && activeMenuSection !== "library" && activeMenuSectionConfig && !createPersonnelOpen && (
         <AdminDrawer title={activeMenuSectionConfig.title} onClose={closeActiveMenuSection} closeLabel={`Fermer ${activeMenuSectionConfig.title}`}>

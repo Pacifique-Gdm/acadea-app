@@ -1,4 +1,5 @@
 import { resolveApiUrl } from "../config/apiUrl";
+import { createLoadCache } from "../utils/loadCache";
 import { getCurrentFirebaseIdToken } from "./auth";
 import type { CoordinationYearGovernance } from "../types";
 
@@ -19,3 +20,11 @@ export async function loadCoordinationSchoolYearStatus() { return call({ action:
 export async function closeCoordinationSchoolYears(confirmation: string, requestId: string) { return call({ action: "close", confirmation, requestId }) as Promise<{ results: CoordinationSchoolYearResult[] }>; }
 export async function reactivateCoordinationSchoolYears(confirmation: string, operationId: string, requestId: string) { return call({ action: "reactivate", confirmation, operationId, requestId }) as Promise<{ results: CoordinationSchoolYearResult[] }>; }
 export async function openCoordinationSchoolYears(input: { name: string; startsAt: string; endsAt: string; requestId: string }) { return call({ action: "open", confirmed: true, ...input }) as Promise<{ results: CoordinationSchoolYearResult[] }>; }
+
+/** Tiroir « Année scolaire » de la coordination : l'état des années est gardé pendant la
+ * session. Rouvrir le tiroir l'affiche tout de suite, sans nouvel appel. Il est relu après
+ * « Actualiser » (refreshToken change la clé) et après une ouverture, une clôture ou une
+ * réactivation (le résultat remplace la valeur gardée). */
+export const coordinationYearStatusCache = createLoadCache<CoordinationSchoolYearStatus>();
+export const coordinationYearStatusKey = (input: { uid: string; coordinationId: string; subCoordinationId?: string; refreshToken: number }) =>
+  `${input.uid}:${input.coordinationId}:${input.subCoordinationId ?? ""}:${input.refreshToken}`;

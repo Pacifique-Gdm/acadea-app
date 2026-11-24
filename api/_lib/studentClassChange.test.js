@@ -142,3 +142,69 @@ describe("lot E — refus clairs, rien n'est enregistré", () => {
     expect(payments(db)).toHaveLength(1);
   });
 });
+
+const refund = (amount, extra = {}) => ({ refund: { amount, method: "cash", confirmation: "REMBOURSER", ...extra } });
+const expenses = (db) => [...db.records].filter(([path]) => path.startsWith("expenses/")).map(([, value]) => value);
+
+describe("lot F — remboursement en espèces du trop-perçu par le caissier", () => {
+  it("sans répartition : la part rattachée passe sur le nouveau frais, le reste est remboursé (reçu RMB, 2 parts liées)", async () => {
+    const db = school([{ id: "fee2", name: "Minerval", amount: 50 }]);
+    await pay(db, 60);
+    const original = payments(db)[0];
+    const result = await change(db, cashier, refund(10));
+    expect(db.records.get("students/student").className).toBe("2ème");
+    const kept = db.records.get(`payments/${original.id}`), moved = payments(db).find((payment) => payment.id !== original.id);
+    expect(kept).toMatchObject({ feeTypeId: "fee", amount: 10, refundedAmount: 10, refundedByClassChangeId: result.classChange.id, receiptNumber: original.receiptNumber });
+    expect(moved).toMatchObject({ feeTypeId: "fee2", amount: 50, splitFromPaymentId: original.id, receiptNumber: original.receiptNumber });
+    expect(expenses(db)).toEqual([expect.objectContaining({ category: "Remboursement élève", amount: 10, paymentMethod: "Espèces", refundMethod: "cash",
+      receiptNumber: "RMB-2026-0001", studentId: "student", refundOfPaymentIds: [original.id] })]);
+    expect(result.classChange.refund).toMatchObject({ receiptNumber: "RMB-2026-0001", amount: 10 });
+    // Un nouveau changement de classe ne rattache jamais la part déjà remboursée.
+    db.records.set("feeTypes/fee3", { id: "fee3", schoolId: "school", schoolYearId: "year", className: "3ème", name: "Minerval", amount: 50, createdAt: "2026-11-13T11:00:00.000Z" });
+    const again = await change(db, cashier, { className: "3ème" });
+    expect(again.classChange.moves.map((move) => move.paymentId)).toEqual([moved.id]);
+  });
+
+  it("refuse sans la phrase « REMBOURSER », avec un autre montant ou un autre mode ; rien n'est enregistré", async () => {
+    const db = school([{ id: "fee2", name: "Minerval", amount: 50 }]);
+    await pay(db, 60);
+    const before = structuredClone([...db.records]);
+    await expect(change(db, cashier, refund(10, { confirmation: "OUI" }))).rejects.toMatchObject({ code: "class-change-overpaid", message: expect.stringContaining("REMBOURSER") });
+    await expect(change(db, cashier, refund(9))).rejects.toMatchObject({ code: "class-change-overpaid" });
+    await expect(change(db, cashier, refund(10, { method: "mobile-money" }))).rejects.toMatchObject({ code: "class-change-overpaid" });
+    expect([...db.records]).toEqual(before);
+  });
+
+  it("caisse insuffisante : refus total avec le montant manquant", async () => {
+    const db = school([{ id: "fee2", name: "Minerval", amount: 50 }]);
+    await pay(db, 60);
+    await executeFinancialOperation({ db, caller: cashier, now: paidAt, body: { action: "create-expense", schoolYearId: "year", amount: 55, category: "Fournitures",
+      description: "Papier", beneficiary: "Fictif", paymentMethod: "Espèces", clientRequestId: key("expense") } });
+    const before = structuredClone([...db.records]);
+    await expect(change(db, cashier, refund(10))).rejects.toMatchObject({ code: "insufficient-funds", message: expect.stringContaining("il manque 5,00 $") });
+    expect([...db.records]).toEqual(before);
+  });
+
+  it("répartition active : seule la part rattachée quitte l'ancien frais ; le remboursement est pris dans « Non affecté »", async () => {
+    const db = school([{ id: "fee2", name: "Minerval", amount: 60 }]);
+    await activate(db);
+    await pay(db, 100);
+    expect([balance(db, rubricId).receivedMinor, balance(db, "UNALLOCATED").receivedMinor]).toEqual([8000, 2000]);
+    await change(db, cashier, refund(40));
+    // Ancien frais : 100 → 40 (part remboursée gardée) ; Fonctionnement 80 → 32, Non affecté 20 → 8, puis + 60 (Minerval 2ème).
+    expect(balance(db, rubricId)).toMatchObject({ receivedMinor: 3200, spentMinor: 0, availableMinor: 3200 });
+    expect(balance(db, "UNALLOCATED")).toMatchObject({ receivedMinor: 6800, spentMinor: 4000, availableMinor: 2800 });
+    const types = movements(db).map((movement) => movement.type).filter((type) => type !== "opening").sort();
+    expect(types).toEqual(["expense", "reassignment-in", "reassignment-out", "receipt"]);
+    expect(movements(db).find((movement) => movement.type === "expense").lines).toEqual([{ rubricId: "UNALLOCATED", amountMinor: -4000 }]);
+  });
+
+  it("répartition active : « Non affecté » insuffisant → refus total avec le montant manquant", async () => {
+    const db = school([{ id: "fee2", name: "Minerval", amount: 10 }]);
+    await activate(db);
+    await pay(db, 100);
+    const before = structuredClone([...db.records]);
+    await expect(change(db, cashier, refund(90))).rejects.toMatchObject({ code: "refund-unallocated-insufficient", message: expect.stringContaining("il manque 62,00 $") });
+    expect([...db.records]).toEqual(before);
+  });
+});

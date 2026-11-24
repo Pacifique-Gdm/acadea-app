@@ -3,27 +3,44 @@ import { AdminDrawer } from "../ui/AdminDrawer";
 import { listArchivedYears, readArchivedYear, type ArchivedYear, type ArchiveSummary } from "../../services/schoolYearArchive";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../ui/ErrorNotice";
+import { createLoadCache } from "../../utils/loadCache";
+import { auth } from "../../firebase";
 
-export function SchoolYearArchiveDrawer({ schoolId, onClose }: { schoolId: string; onClose: () => void }) {
-  const [years, setYears] = useState<ArchivedYear[]>([]);
+/** Archives gardées pendant la session : rouvrir le tiroir les affiche tout de suite. La liste
+ * est relue seulement si l'année active de l'école change (une année vient d'être archivée).
+ * Le résumé d'une année archivée (lecture seule) est gardé par école et par année. */
+const archivedYearsCache = createLoadCache<ArchivedYear[]>();
+const archiveSummaryCache = createLoadCache<ArchiveSummary>(30);
+// La personne connectée fait partie de la clé : le contenu dépend de son rôle.
+const viewerId = () => auth?.currentUser?.uid ?? "";
+const archivedYearsKey = (schoolId: string, activeSchoolYearId?: string, viewer = viewerId()) => `${viewer}:${schoolId}:${activeSchoolYearId ?? ""}`;
+
+export function SchoolYearArchiveDrawer({ schoolId, activeSchoolYearId, onClose }: { schoolId: string; activeSchoolYearId?: string; onClose: () => void }) {
+  const yearsKey = archivedYearsKey(schoolId, activeSchoolYearId);
+  const cachedYears = archivedYearsCache.peek(yearsKey);
+  const [years, setYears] = useState<ArchivedYear[]>(() => cachedYears ?? []);
   const [summary, setSummary] = useState<ArchiveSummary>();
   const [selectedYearId, setSelectedYearId] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !cachedYears);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
   useEffect(() => {
+    const cached = archivedYearsCache.peek(yearsKey);
+    if (cached) { setYears(cached); setLoading(false); return undefined; }
     let active = true;
     setLoading(true); setError("");
-    listArchivedYears(schoolId).then(({ years: result }) => { if (active) setYears(result); })
+    archivedYearsCache.load(yearsKey, () => listArchivedYears(schoolId).then(({ years: result }) => result)).then((result) => { if (active) setYears(result); })
       .catch((cause) => { if (active) setError(userFacingError(cause, "Archives indisponibles.")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [schoolId, retry]);
+  }, [schoolId, yearsKey, retry]);
   async function openYear(yearId: string) {
     if (!years.some((year) => year.id === yearId)) return;
     setSelectedYearId(yearId);
+    const cached = archiveSummaryCache.peek(`${viewerId()}:${schoolId}:${yearId}`);
+    if (cached) { setSummary(cached); setError(""); return; }
     setSummary(undefined); setLoading(true); setError("");
-    try { setSummary(await readArchivedYear(schoolId, yearId)); }
+    try { setSummary(await archiveSummaryCache.load(`${viewerId()}:${schoolId}:${yearId}`, () => readArchivedYear(schoolId, yearId))); }
     catch (cause) { setError(userFacingError(cause, "Archives indisponibles.")); }
     finally { setLoading(false); }
   }

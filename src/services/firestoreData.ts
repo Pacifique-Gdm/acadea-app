@@ -425,7 +425,8 @@ export async function loadFirestoreData(
         loadDocument<AppData["parents"][number]>("parents", user.parentId),
         loadCollection<AppData["payments"][number]>("payments", parentFilter),
         loadCollection<AppData["messages"][number]>("messages", [["schoolId", user.schoolId], ["threadParentId", user.parentId]]),
-        maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", schoolFilter)),
+        // Valves de l'année affichée seulement (comme l'écoute en temps réel), pas de toutes les années.
+        maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", annualFilter)),
       ]);
       return scopedData;
     }

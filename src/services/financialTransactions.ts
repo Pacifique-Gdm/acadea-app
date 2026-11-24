@@ -34,8 +34,12 @@ type FinancialResponse = {
 /** Lot E : résultat du changement de classe fait par le serveur (caissier seulement). */
 export type StudentClassChangeResult = {
   id: string; studentId: string; fromClassName: string; toClassName: string; updatedAt: string; stays: string[];
-  moves: { paymentId: string; receiptNumber: string | null; fromFeeTypeId: string; pieces: { paymentId: string; feeTypeId: string; amount: number }[]; allocation: "reassigned" | "unchanged" }[];
+  moves: { paymentId: string; receiptNumber: string | null; fromFeeTypeId: string; pieces: { paymentId: string; feeTypeId: string; amount: number }[]; refundedAmount?: number; allocation: "reassigned" | "unchanged" }[];
+  /** Lot F : remboursement en espèces du trop-perçu, fait dans la même opération. */
+  refund?: StudentRefundReceipt;
 };
+
+export type StudentRefundReceipt = { expenseId: string; receiptNumber: string; amount: number; currency: "USD" | "CDF"; method: "cash"; paymentMethod: string; cashierName: string; createdAt: string };
 
 export class FinancialRequestError extends Error {
   readonly status: number;
@@ -200,7 +204,8 @@ export function deleteFinancialTransaction(input: { kind: "payment" | "expense";
 
 /** Lot E : seul le caissier change la classe d'un élève qui a payé ; le serveur rattache ses paiements en une fois. */
 export async function changeStudentClassTransaction(input: { schoolYearId: string; studentId: string; className: string; classId?: string; subClassId?: string;
-  classOptionKey?: string; section?: string; option?: string; expectedUpdatedAt: string; clientRequestId: string }) {
+  classOptionKey?: string; section?: string; option?: string; expectedUpdatedAt: string; clientRequestId: string;
+  refund?: { amount: number; method: "cash"; confirmation: string } }) {
   const payload = await financialRequest({ action: "change-student-class", ...input });
   if (!payload.classChange) throw new FinancialRequestError(500, "unknown", "Changement de classe non confirmé.");
   return payload.classChange;

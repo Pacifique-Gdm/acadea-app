@@ -4,7 +4,10 @@
 // - Répartition : rien n'est réécrit ni effacé. Chaque paiement déjà réparti reçoit une écriture inverse
 //   « reassignment-out » sur l'ancien frais, puis une écriture « reassignment-in » sur le nouveau.
 // - Aucun mouvement de caisse : l'argent reste en caisse, seul son frais change.
-// - Trop-perçu, réduction, répartition en attente ou rubrique déjà dépensée : refus, rien n'est enregistré.
+// - Réduction, répartition en attente ou rubrique déjà dépensée : refus, rien n'est enregistré.
+// - Lot F : un trop-perçu est remboursé en espèces dans la même opération (phrase « REMBOURSER »).
+//   La part remboursée reste sur l'ancien frais (marquée « remboursée ») ; la sortie de caisse « Remboursement élève »
+//   est prise dans « Non affecté » si la répartition est active (s'il ne suffit pas : refus total, montant manquant affiché).
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { CLASS_CHANGE_SOCIAL_CASE_MESSAGE, isClassChange } from "../../src/utils/classChangeGuard.js";
@@ -16,9 +19,15 @@ import { validClassReferences } from "./manualStudentSave.js";
 import { buildStudentChangeLog, summarizeStudentChanges } from "./studentChangeLog.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { createTransactionOverlay } from "./transactionOverlay.js";
+import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
+import { CashBalanceError, protectCashMutation } from "./cashBalance.js";
 import { UNALLOCATED_RUBRIC_ID } from "./feeAllocationMath.js";
 
-export const CLASS_CHANGE_KEYS = ["action", "schoolYearId", "studentId", "className", "classId", "subClassId", "classOptionKey", "section", "option", "expectedUpdatedAt", "clientRequestId"];
+export const CLASS_CHANGE_KEYS = ["action", "schoolYearId", "studentId", "className", "classId", "subClassId", "classOptionKey", "section", "option", "expectedUpdatedAt", "clientRequestId", "refund"];
+/** Lot F : modes de remboursement acceptés (liste unique, partagée avec l'écran). */
+export const REFUND_METHODS = Object.freeze({ cash: "Espèces" });
+export const REFUND_CONFIRMATION = "REMBOURSER";
+export const REFUND_CATEGORY = "Remboursement élève";
 const CLASS_FIELDS = ["className", "classId", "subClassId", "classOptionKey", "section", "option"];
 const MAX_PAYMENTS = 60;
 const sha = (value) => createHash("sha256").update(value).digest("hex");
@@ -70,7 +79,9 @@ export async function changeStudentClass(transaction, db, caller, body, hash, no
   // Paiements de l'année, encaissés cette année (les arriérés d'années passées ne bougent pas).
   const payments = paymentsSnapshot.docs.map((document) => ({ ...document.data(), id: document.id }))
     .filter((payment) => payment.schoolId === caller.schoolId && payment.schoolYearId === schoolYearId
-      && (payment.collectionSchoolYearId ?? schoolYearId) === schoolYearId && payment.formerStudent !== true);
+      && (payment.collectionSchoolYearId ?? schoolYearId) === schoolYearId && payment.formerStudent !== true
+      // Lot F : une part déjà remboursée au parent n'est plus de l'argent de l'élève ; elle ne se rattache jamais.
+      && !payment.refundedByClassChangeId);
   if (payments.length > MAX_PAYMENTS) refuse(409, "failed-precondition", `Cet élève a plus de ${MAX_PAYMENTS} paiements cette année : contactez l'assistance.`);
   if (payments.some((payment) => payment.supportDecisionId)) refuse(409, "failed-precondition", "Un ancien paiement par un tiers doit d'abord être rapproché.");
   if (payments.some((payment) => payment.currency !== currency)) refuse(409, "currency-reconciliation-required", "Un paiement a une autre devise que l'année : changement de classe bloqué.");
@@ -91,9 +102,17 @@ export async function changeStudentClass(transaction, db, caller, body, hash, no
     payments: payments.map((payment) => ({ id: payment.id, feeTypeId: payment.feeTypeId, amountMinor: recordedMinor(payment.amount), createdAt: payment.createdAt })),
     oldFees: fees.map((fee) => ({ id: fee.id, name: text(fee.name, 160) })), newFees,
   });
+  // Lot F : le trop-perçu est remboursé tout de suite, en espèces, avec une confirmation écrite.
+  const refund = body.refund;
   if (plan.overpaidMinor > 0) {
-    refuse(409, "class-change-overpaid", `Ce changement de classe laisserait un trop-perçu de ${money(plan.overpaidMinor, currency)}. Il sera possible avec le remboursement par le caissier, bientôt disponible. Rien n'a été modifié.`);
-  }
+    const asked = refund && typeof refund === "object" && !Array.isArray(refund) ? refund : null;
+    let askedMinor = -1;
+    try { askedMinor = asked ? toMoneyMinor(asked.amount) : -1; } catch { askedMinor = -1; }
+    if (!asked || asked.confirmation !== REFUND_CONFIRMATION || !Object.hasOwn(REFUND_METHODS, asked.method) || askedMinor !== plan.overpaidMinor
+      || Object.keys(asked).some((key) => !["amount", "method", "confirmation"].includes(key))) {
+      refuse(409, "class-change-overpaid", `Ce changement de classe crée un trop-perçu de ${money(plan.overpaidMinor, currency)}. Confirmez son remboursement en espèces en tapant « ${REFUND_CONFIRMATION} ». Rien n'a été modifié.`);
+    }
+  } else if (refund !== undefined) refuse(400, "invalid-argument", "Aucun trop-perçu à rembourser pour ce changement de classe.");
 
   // Rattachement et répartition, dans le tampon (lectures puis écritures, cumul juste des rubriques).
   const classChangeId = `cc_${hash.slice(0, 32)}`;
@@ -111,14 +130,21 @@ export async function changeStudentClass(transaction, db, caller, body, hash, no
     }
     const history = [...(Array.isArray(current.classChangeHistory) ? current.classChangeHistory : []),
       { classChangeId, fromFeeTypeId: current.feeTypeId, fromAmount: current.amount, fromClassName: text(student.className, 120), toClassName: className, at: now, by: caller.uid }];
+    // Lot F : avec un trop-perçu, le paiement d'origine reste sur l'ancien frais pour la part remboursée ;
+    // toutes les parts rattachées deviennent de nouveaux paiements liés (même reçu, même date).
+    const refunded = move.overpaidMinor > 0;
+    const copy = Object.fromEntries(Object.entries(current).filter(([key]) => !["offlineProposal", "proposedAt", "correctionReason", "classChangeHistory"].includes(key)));
     const targets = move.pieces.map((piece, index) => {
-      const id = index === 0 ? current.id : `pay_${sha(`${hash}\0${current.id}\0${index}`).slice(0, 24)}`;
-      const base = index === 0 ? current : Object.fromEntries(Object.entries(current).filter(([key]) => !["offlineProposal", "proposedAt", "correctionReason", "classChangeHistory"].includes(key)));
-      return { ...base, id, feeTypeId: piece.feeTypeId, amount: fromMoneyMinor(piece.amountMinor), updatedAt: now, updatedBy: caller.uid,
-        classChangeHistory: history, ...(index === 0 ? {} : { splitFromPaymentId: current.id }) };
+      const own = index === 0 && !refunded;
+      const id = own ? current.id : `pay_${sha(`${hash}\0${current.id}\0${index}`).slice(0, 24)}`;
+      return { ...(own ? current : copy), id, feeTypeId: piece.feeTypeId, amount: fromMoneyMinor(piece.amountMinor), updatedAt: now, updatedBy: caller.uid,
+        classChangeHistory: history, ...(own ? {} : { splitFromPaymentId: current.id }) };
     });
+    const kept = refunded ? { ...current, amount: fromMoneyMinor(move.overpaidMinor), updatedAt: now, updatedBy: caller.uid, classChangeHistory: history,
+      refundedAmount: fromMoneyMinor(move.overpaidMinor), refundedByClassChangeId: classChangeId } : null;
     if (allocated) {
-      const out = await prepareFeeAllocationReceipt({ db, transaction: overlay.transaction, caller, payment: null, previous: current,
+      // Écriture inverse sur l'ancien frais : tout le paiement, ou seulement la part rattachée s'il y a un remboursement.
+      const out = await prepareFeeAllocationReceipt({ db, transaction: overlay.transaction, caller, payment: kept, previous: current,
         requestId: `${hash.slice(0, 40)}-out-${sha(current.id).slice(0, 16)}`, now, reassignment: { kind: "out", classChangeId } });
       out();
       for (const target of targets) {
@@ -127,9 +153,42 @@ export async function changeStudentClass(transaction, db, caller, body, hash, no
         into();
       }
     }
-    targets.forEach((target, index) => paymentWrites.push({ ref: db.doc(`payments/${target.id}`), data: target, create: index > 0 }));
+    if (kept) paymentWrites.push({ ref: db.doc(`payments/${current.id}`), data: kept, create: false });
+    targets.forEach((target) => paymentWrites.push({ ref: db.doc(`payments/${target.id}`), data: target, create: target.id !== current.id }));
     summary.push({ paymentId: current.id, receiptNumber: current.receiptNumber ?? null, fromFeeTypeId: current.feeTypeId,
-      pieces: targets.map((target) => ({ paymentId: target.id, feeTypeId: target.feeTypeId, amount: target.amount })), allocation: allocated ? "reassigned" : "unchanged" });
+      pieces: targets.map((target) => ({ paymentId: target.id, feeTypeId: target.feeTypeId, amount: target.amount })),
+      refundedAmount: kept ? kept.amount : 0, allocation: allocated ? "reassigned" : "unchanged" });
+  }
+
+  // Lot F : sortie de caisse « Remboursement élève », prise dans « Non affecté » quand la répartition est active.
+  let refundExpense = null, refundCounter = null;
+  if (plan.overpaidMinor > 0) {
+    const counterRef = db.doc(`financialCounters/${caller.schoolId}_${schoolYearId}_refund`);
+    const counter = (await transaction.get(counterRef)).data();
+    const sequence = (Number.isSafeInteger(counter?.lastRefundNumber) ? counter.lastRefundNumber : 0) + 1;
+    const prefix = `RMB-${String(year.name ?? "").match(/\d{4}/)?.[0] ?? now.slice(0, 4)}`;
+    const studentName = [student.nom, student.postnom, student.prenom].map((value) => text(value, 120)).filter(Boolean).join(" ") || "Élève";
+    const expenseId = `exp_rmb_${hash.slice(0, 24)}`;
+    refundExpense = {
+      id: expenseId, schoolId: caller.schoolId, schoolYearId, currency, amount: fromMoneyMinor(plan.overpaidMinor), category: REFUND_CATEGORY,
+      description: `Remboursement du trop-perçu (changement de classe : ${text(student.className, 120)} → ${className})`,
+      beneficiary: `${studentName} (parent ou tuteur)`, paymentMethod: REFUND_METHODS[body.refund.method], refundMethod: body.refund.method,
+      receiptNumber: `${prefix}-${String(sequence).padStart(4, "0")}`, studentId, classChangeId,
+      refundOfPaymentIds: plan.moves.filter((move) => move.overpaidMinor > 0).map((move) => move.paymentId),
+      ...(operational ? { allocationRubricId: UNALLOCATED_RUBRIC_ID } : {}),
+      spentAt: now.slice(0, 10), createdAt: now, updatedAt: now, createdBy: caller.uid, updatedBy: caller.uid, cashierName: actorName,
+      provenance: "financial-api", clientRequestIdHash: hash,
+    };
+    try {
+      const spend = await prepareFeeAllocationExpense({ db, transaction: overlay.transaction, caller, expense: refundExpense, requestId: hash, now });
+      spend();
+    } catch (error) {
+      if (error?.code !== "allocation-insufficient-funds") throw error;
+      const unallocated = overlay.known("feeAllocationBalances/").find((row) => row.rubricId === UNALLOCATED_RUBRIC_ID && row.schoolId === caller.schoolId);
+      const availableMinor = unallocated ? (unallocated.openingMinor ?? 0) + unallocated.receivedMinor - unallocated.spentMinor - unallocated.reservedMinor : 0;
+      refuse(409, "refund-unallocated-insufficient", `Le remboursement de ${money(plan.overpaidMinor, currency)} doit être pris dans la rubrique « Non affecté », qui n'a que ${money(Math.max(0, availableMinor), currency)} : il manque ${money(plan.overpaidMinor - Math.max(0, availableMinor), currency)}. Rien n'a été enregistré.`);
+    }
+    refundCounter = { ref: counterRef, value: { schoolId: caller.schoolId, schoolYearId, kind: "refund", lastRefundNumber: sequence, updatedAt: now } };
   }
 
   // Contrôle final des rubriques (net de toutes les écritures) : jamais sous l'argent déjà dépensé ou réservé.
@@ -143,8 +202,27 @@ export async function changeStudentClass(transaction, db, caller, body, hash, no
     }
   }
 
+  // Caisse : le remboursement sort de la caisse ; si elle ne suffit pas, tout est refusé (dernière lecture).
+  if (refundExpense) {
+    try {
+      await protectCashMutation({ db, transaction, schoolId: caller.schoolId, schoolYearId, currency, yearCurrency: currency, deltaCents: -plan.overpaidMinor, now });
+    } catch (error) {
+      if (error instanceof CashBalanceError && error.code === "insufficient-funds") {
+        refuse(409, "insufficient-funds", `Caisse insuffisante pour rembourser ${money(plan.overpaidMinor, currency)} : il manque ${money(error.details?.shortfallCents ?? plan.overpaidMinor, currency)}. Rien n'a été enregistré.`);
+      }
+      throw error;
+    }
+  }
+
   // Écritures (aucune lecture après ce point).
   overlay.flush();
+  if (refundExpense) {
+    transaction.create(db.doc(`expenses/${refundExpense.id}`), refundExpense);
+    transaction.set(refundCounter.ref, refundCounter.value, { merge: true });
+    const refundAuditId = `audit_fin_${hash.slice(0, 24)}`;
+    transaction.set(db.doc(`auditLogs/${refundAuditId}`), buildServerAudit({ id: refundAuditId, eventType: AUDIT_EVENT_TYPES.FINANCE_EXPENSE_CREATED, actor: { ...caller, name: actorName },
+      schoolId: caller.schoolId, schoolYearId, resourceType: "expense", resourceId: refundExpense.id, metadata: { category: REFUND_CATEGORY, amount: refundExpense.amount, receiptNumber: refundExpense.receiptNumber } }));
+  }
   for (const write of paymentWrites) {
     if (write.create) transaction.create(write.ref, write.data);
     else transaction.set(write.ref, write.data);
@@ -163,5 +241,6 @@ export async function changeStudentClass(transaction, db, caller, body, hash, no
       changes: `${summarizeStudentChanges(changeLog)} · ${plan.moves.length} paiement(s) rattaché(s) à la nouvelle classe (${money(movedMinor, currency)})`,
       classChangeId, movedPayments: plan.moves.length } }));
   // Pas de fiche complète dans la réponse : elle est gardée pour la reprise d'un double clic (taille limitée).
-  return { classChange: { id: classChangeId, studentId, fromClassName: text(student.className, 120), toClassName: className, updatedAt: now, stays: plan.stays, moves: summary } };
+  return { classChange: { id: classChangeId, studentId, fromClassName: text(student.className, 120), toClassName: className, updatedAt: now, stays: plan.stays, moves: summary,
+    ...(refundExpense ? { refund: { expenseId: refundExpense.id, receiptNumber: refundExpense.receiptNumber, amount: refundExpense.amount, currency, method: refundExpense.refundMethod, paymentMethod: refundExpense.paymentMethod, cashierName: actorName, createdAt: now } } : {}) } };
 }

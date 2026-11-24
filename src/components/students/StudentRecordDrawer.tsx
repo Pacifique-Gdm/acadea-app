@@ -18,6 +18,11 @@ import { needsStorageUpload, uploadStudentPhoto } from "../../services/studentPh
 import { userFacingError } from "../../utils/userFacingError";
 import { waitForCondition } from "../../utils/waitForCondition";
 import { changeStudentClassTransaction } from "../../services/financialTransactions";
+import { generateRefundPdf } from "../../utils/pdf";
+import { fromMoneyMinor } from "../../utils/money";
+
+/** Lot F : phrase à taper pour confirmer le remboursement du trop-perçu (le serveur la vérifie aussi). */
+export const REFUND_CONFIRMATION = "REMBOURSER";
 import { classChangePreview } from "../../utils/classChangePreview";
 
 /** Droits de la fiche élève officielle (création, modification, parent, options et sous-classes). */
@@ -79,6 +84,7 @@ export function StudentRecordDrawer({
   const creationIds = useRef(new Map<string, string>());
   // Une seule clé par ouverture de la fiche : un double clic ne rattache jamais deux fois.
   const classChangeRequestId = useRef(`class-change-${crypto.randomUUID()}`);
+  const [refundConfirmation, setRefundConfirmation] = useState("");
   const previousRecord = target.mode === "edit" ? studentRecords.find((item) => item.id === target.student.id) : undefined;
   const classPreview = previousRecord && capabilities.canChangePaidClass && isClassChange(previousRecord, form)
     && hasYearPayments(data.payments, previousRecord.id, school.id, previousRecord.schoolYearId ?? year.id)
@@ -143,8 +149,8 @@ export function StudentRecordDrawer({
         setSaveError(CLASS_CHANGE_WITH_PAYMENTS_MESSAGE);
         return;
       }
-      if (paidClassChange && classPreview?.overpaidMinor) {
-        setSaveError(classPreview.message);
+      if (paidClassChange && classPreview?.overpaidMinor && refundConfirmation.trim() !== REFUND_CONFIRMATION) {
+        setSaveError(`Tapez « ${REFUND_CONFIRMATION} » pour confirmer le remboursement en espèces du trop-perçu.`);
         return;
       }
       const academicError = academicChanged ? validateStudentAcademicSelection(structuredClasses, form, optionChoices) : "";
@@ -202,11 +208,14 @@ export function StudentRecordDrawer({
       if (paidClassChange && previousStudent) {
         // D'abord la classe et le rattachement des paiements (serveur, une seule opération), puis le reste de la fiche.
         const stamps = previousStudent as Student & { updatedAt?: string; createdAt?: string };
-        await changeStudentClassTransaction({ schoolYearId: targetYearId, studentId: student.id, className: student.className,
+        const changed = await changeStudentClassTransaction({ schoolYearId: targetYearId, studentId: student.id, className: student.className,
           ...(student.classId ? { classId: student.classId } : {}), ...(student.subClassId ? { subClassId: student.subClassId } : {}),
           ...(student.classOptionKey ? { classOptionKey: student.classOptionKey } : {}), ...(student.section ? { section: student.section } : {}),
           ...(student.option ? { option: student.option } : {}), expectedUpdatedAt: stamps.updatedAt ?? stamps.createdAt ?? "",
-          clientRequestId: classChangeRequestId.current });
+          clientRequestId: classChangeRequestId.current,
+          ...(classPreview?.overpaidMinor ? { refund: { amount: fromMoneyMinor(classPreview.overpaidMinor), method: "cash" as const, confirmation: REFUND_CONFIRMATION } } : {}) });
+        // Lot F : reçu du remboursement en deux exemplaires (école et parent).
+        if (changed.refund) await generateRefundPdf(changed.refund, previousStudent, changed.fromClassName, changed.toClassName, school, year).catch(() => undefined);
       }
       const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
       const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
@@ -396,6 +405,12 @@ export function StudentRecordDrawer({
       {classPreview && (
         <div role="status" className={`mb-3 rounded-lg border px-3 py-2 text-sm ${classPreview.overpaidMinor ? "border-orange-300 bg-orange-50 text-orange-900" : "border-sky-200 bg-sky-50 text-sky-900"}`}>
           {classPreview.message}
+          {classPreview.overpaidMinor > 0 && (
+            <label className="mt-2 grid gap-1 font-semibold">
+              Mode de remboursement : Espèces. Tapez « {REFUND_CONFIRMATION} » pour confirmer
+              <input className="input" value={refundConfirmation} onChange={(event) => setRefundConfirmation(event.target.value)} data-refund-confirmation autoComplete="off" />
+            </label>
+          )}
         </div>
       )}
       <StudentForm

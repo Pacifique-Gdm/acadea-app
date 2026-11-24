@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { schoolYearOpeningDecision } from "../../../api/_lib/schoolYearOpening.js";
 import type { ReactNode } from "react";
 import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, HeartPulse, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
@@ -6,7 +6,7 @@ import { AdminDrawer, ImageUploadField, LogoutButton } from "../../components/ui
 import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
 import type { AppUser, Coordination, CoordinationYearGovernance, PersonnelProfile, School, SubCoordination } from "../../types";
 import { loadCoordinationReadModel, type CoordinationReadModel } from "../../services/coordinationReadModel";
-import { closeCoordinationSchoolYears, loadCoordinationSchoolYearStatus, openCoordinationSchoolYears, reactivateCoordinationSchoolYears, YEAR_CONFIRMATIONS, type CoordinationSchoolYearRow } from "../../services/coordinationSchoolYears";
+import { closeCoordinationSchoolYears, coordinationYearStatusCache, coordinationYearStatusKey, loadCoordinationSchoolYearStatus, openCoordinationSchoolYears, reactivateCoordinationSchoolYears, YEAR_CONFIRMATIONS, type CoordinationSchoolYearRow, type CoordinationSchoolYearStatus } from "../../services/coordinationSchoolYears";
 import { loadCoordinationPersonnelProfile, transferCoordinationPersonnel, updateCoordinationSettings } from "../../services/coordinationService";
 import { escapePdfHtml, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { activityTimestamp, formatActivityDateTime, isSuperAdministratorAuditLog } from "../../utils/activityHistory";
@@ -50,13 +50,15 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
   const [from, setFrom] = useState(localDate);
   const [to, setTo] = useState(localDate);
   const [financialDateError, setFinancialDateError] = useState("");
-  const [yearRows, setYearRows] = useState<CoordinationSchoolYearRow[]>([]);
-  const [referenceYear, setReferenceYear] = useState<string | null>(null);
+  const yearStatusKey = coordinationYearStatusKey({ uid: user.id, coordinationId: coordination.id, subCoordinationId: user.subCoordinationId, refreshToken });
+  const cachedYearStatus = coordinationYearStatusCache.peek(yearStatusKey);
+  const [yearRows, setYearRows] = useState<CoordinationSchoolYearRow[]>(() => cachedYearStatus?.rows.filter((row) => schools.some((school) => school.id === row.schoolId)) ?? []);
+  const [referenceYear, setReferenceYear] = useState<string | null>(() => cachedYearStatus?.referenceYear ?? null);
   const [yearName, setYearName] = useState("");
   const [yearBusy, setYearBusy] = useState(false);
   const yearLock = useRef(false);
-  const [yearStatusReady, setYearStatusReady] = useState(false);
-  const [yearGovernance, setYearGovernance] = useState<CoordinationYearGovernance | null>(null);
+  const [yearStatusReady, setYearStatusReady] = useState(() => Boolean(cachedYearStatus));
+  const [yearGovernance, setYearGovernance] = useState<CoordinationYearGovernance | null>(() => cachedYearStatus?.governance ?? null);
   const [yearConfirmation, setYearConfirmation] = useState<{ action: "close" | "reactivate"; value: string; requestId: string } | null>(null);
   const [yearResults, setYearResults] = useState<Array<{ schoolId: string; status: string; reason?: string }>>([]);
   const [settingsForm, setSettingsForm] = useState({ name: coordination.name, code: coordination.code ?? "", phone: coordination.phone ?? "", email: coordination.email ?? "", address: coordination.address ?? "", logoUrl: coordination.logoUrl ?? "" });
@@ -76,16 +78,26 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
   const financialVerificationReady = loadedModelScope === modelScope && !loading && !error && expenseResolution.status === "ready";
 
   useEffect(() => { setSettingsForm({ name: coordination.name, code: coordination.code ?? "", phone: coordination.phone ?? "", email: coordination.email ?? "", address: coordination.address ?? "", logoUrl: coordination.logoUrl ?? "" }); }, [coordination]);
+  const applyYearStatus = useCallback((result: CoordinationSchoolYearStatus) => {
+    setYearRows(result.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(result.referenceYear); setYearGovernance(result.governance); setYearStatusReady(true);
+  }, [allSchoolIds]);
   useEffect(() => {
-    if (!drawer) return undefined;
+    // Le tiroir « Année scolaire » n'affiche que l'état des années : il ne relit plus les élèves,
+    // frais, paiements, dépenses, personnels et journaux à chaque ouverture.
+    if (!drawer || drawer === "years") return undefined;
     let cancelled = false; setLoading(true); setErrorLoad("");
     loadCoordinationReadModel(coordination.id, allSchoolIds, user.subCoordinationId).then((result) => { if (!cancelled) { setModel(result); setLoadedModelScope(modelScope); } }).catch((cause) => { if (!cancelled) setErrorLoad(userFacingError(cause, "Chargement impossible.")); }).finally(() => { if (!cancelled) setLoading(false); });
-    if (drawer === "years") {
-      setYearStatusReady(false);
-      loadCoordinationSchoolYearStatus().then((result) => { if (!cancelled) { setYearRows(result.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(result.referenceYear); setYearGovernance(result.governance); setYearStatusReady(true); } }).catch(() => { if (!cancelled) setErrorLoad("Années indisponibles."); });
-    }
     return () => { cancelled = true; };
   }, [allSchoolIds, coordination.id, drawer, modelScope, refreshToken, user.subCoordinationId, errorLoadRetry.token]);
+  useEffect(() => {
+    if (drawer !== "years") return undefined;
+    // Déjà chargé pendant la session (même clé) : affiché tout de suite, aucun nouvel appel.
+    const cached = coordinationYearStatusCache.peek(yearStatusKey);
+    if (cached) { applyYearStatus(cached); return undefined; }
+    let cancelled = false; setYearStatusReady(false); setErrorLoad("");
+    coordinationYearStatusCache.load(yearStatusKey, loadCoordinationSchoolYearStatus).then((result) => { if (!cancelled) applyYearStatus(result); }).catch(() => { if (!cancelled) setErrorLoad("Années indisponibles."); });
+    return () => { cancelled = true; };
+  }, [applyYearStatus, drawer, yearStatusKey, errorLoadRetry.token]);
   useEffect(() => {
     if (!selectedPersonnel?.schoolId) { setSelectedPersonnelProfile(undefined); setPersonnelProfileReady(false); return undefined; }
     let cancelled = false;
@@ -177,7 +189,8 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
       setYearConfirmation(null);
       setYearStatusReady(false);
       const status = await loadCoordinationSchoolYearStatus();
-      setYearRows(status.rows.filter((row) => allSchoolIds.includes(row.schoolId))); setReferenceYear(status.referenceYear); setYearGovernance(status.governance); setYearStatusReady(true);
+      coordinationYearStatusCache.set(yearStatusKey, status);
+      applyYearStatus(status);
     } catch (cause) { setError(userFacingError(cause, "Opération impossible.")); }
     finally { yearLock.current = false; setYearBusy(false); }
   }
