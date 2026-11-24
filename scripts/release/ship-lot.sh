@@ -47,6 +47,9 @@ echo "  fusionnée : $SHA"
 
 # 4. Construction et vérifications AVANT la mise en ligne.
 PREV=$(cd "$DEPLOY" && MSYS_NO_PATHCONV=1 timeout 90 vercel inspect acadea-app.vercel.app --scope pacifique-gdms-projects 2>&1 | awk '$1=="url"{print $2}')
+# Sans l'adresse de la version en ligne, aucun retour arrière n'est possible : un nouvel essai, puis arrêt avant toute mise en ligne.
+[ -n "$PREV" ] || { sleep 20; PREV=$(cd "$DEPLOY" && MSYS_NO_PATHCONV=1 timeout 90 vercel inspect acadea-app.vercel.app --scope pacifique-gdms-projects 2>&1 | awk '$1=="url"{print $2}'); }
+[ -n "$PREV" ] || stop "version en ligne avant introuvable (réseau ?) : rien n'est mis en ligne ; relancer la mise en ligne plus tard"
 echo "  version en ligne avant : $PREV"
 git -C "$DEPLOY" fetch -q origin && git -C "$DEPLOY" merge -q --ff-only origin/main || stop "mise à jour du dossier de déploiement"
 [ "$(git -C "$DEPLOY" rev-parse HEAD)" = "$SHA" ] || stop "main ne correspond pas à la fusion"

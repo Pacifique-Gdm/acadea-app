@@ -8,5 +8,6 @@ export const CASHIER_STUDENT_RECORDS_ENABLED = true;
 /** Mêmes droits que le secrétaire sur la fiche élève : créer, modifier, parent, options et sous-classes. */
 export function cashierStudentRecordCapabilities(user: Pick<AppUser, "role" | "status" | "active">, year: Pick<SchoolYear, "status">, enabled = CASHIER_STUDENT_RECORDS_ENABLED): StudentRecordCapabilities {
   const allowed = enabled && user.role === "cashier" && user.status !== "inactive" && user.active !== false && year.status === "active";
-  return { canCreate: allowed, canEdit: allowed, canCreateParent: allowed, canManageOptions: allowed };
+  // Lot E : seul le caissier change la classe d'un élève qui a déjà payé (le serveur le contrôle aussi).
+  return { canCreate: allowed, canEdit: allowed, canCreateParent: allowed, canManageOptions: allowed, canChangePaidClass: allowed };
 }

@@ -12,7 +12,9 @@ const activeYear = { status: "active" } as const;
 describe("lot B : fiche élève officielle depuis « Enregistrer un paiement »", () => {
   it("donne au caissier les mêmes droits que le secrétaire sur la fiche élève (lot C)", () => {
     expect(CASHIER_STUDENT_RECORDS_ENABLED).toBe(true);
-    expect(cashierStudentRecordCapabilities(cashier, activeYear)).toEqual({ canCreate: true, canEdit: true, canCreateParent: true, canManageOptions: true });
+    expect(cashierStudentRecordCapabilities(cashier, activeYear)).toEqual({ canCreate: true, canEdit: true, canCreateParent: true, canManageOptions: true, canChangePaidClass: true });
+    // Lot E : seul le caissier change la classe d'un élève qui a payé.
+    expect(cashierStudentRecordCapabilities({ ...cashier, role: "secretary" }, activeYear, true).canChangePaidClass).toBe(false);
     expect(cashierStudentRecordCapabilities(cashier, activeYear, false).canCreate).toBe(false);
     expect(cashierStudentRecordCapabilities({ ...cashier, status: "inactive" }, activeYear, true).canEdit).toBe(false);
     expect(cashierStudentRecordCapabilities(cashier, { status: "archived" }, true).canCreate).toBe(false);

@@ -32,10 +32,10 @@ describe("classes et sous-classes structurées", () => {
     await assertFails(updateDoc(doc(context("school_admin"), "classes", "sub-a"), { active: false }));
   });
   it("refuse la matérialisation d'une classe legacy d'une autre école", async () => assertFails(setDoc(doc(context("secretary"), "classes", "foreign-legacy"), { id: "foreign-legacy", schoolId: "school-b", schoolYearId: "year-b", name: "Classe étrangère", active: true, createdBy: "secretary-a", createdAt: "2026-08-10", updatedAt: "2026-08-10" })));
-  it("autorise l'élève seulement avec la sous-classe de l'option sélectionnée", async () => {
+  it("lot E : la classe, la sous-classe et l'option ne s'écrivent plus directement (seul le serveur les change)", async () => {
     await seed("classes/sub-a", child());
     await seed("students/student-a", { id: "student-a", schoolId: school, schoolYearId: year, status: "ACTIVE" });
-    await assertSucceeds(updateDoc(doc(context("secretary"), "students", "student-a"), { classId: "parent", subClassId: "sub-a", classOptionKey: "parent::scientifique" }));
+    await assertFails(updateDoc(doc(context("secretary"), "students", "student-a"), { classId: "parent", subClassId: "sub-a", classOptionKey: "parent::scientifique" }));
     await assertFails(updateDoc(doc(context("secretary"), "students", "student-a"), { classOptionKey: "parent::litteraire" }));
   });
   it("refuse toute nouvelle référence vers une sous-classe désactivée", async () => {

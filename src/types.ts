@@ -242,6 +242,12 @@ export interface Payment {
   updatedBy?: string;
     provenance?: "financial-api" | "personnel-payroll";
   clientRequestIdHash?: string;
+  /** Lot E : paiement coupé lors d'un changement de classe (même reçu que le paiement d'origine). */
+  splitFromPaymentId?: string;
+  classChangeHistory?: { classChangeId: string; fromFeeTypeId: string; fromAmount: number; fromClassName: string; toClassName: string; at: string; by: string }[];
+  /** Lot F : part remboursée au parent lors d'un changement de classe (reste sur l'ancien frais). */
+  refundedAmount?: number;
+  refundedByClassChangeId?: string;
 }
 
 export interface SchoolClassRecord {
