@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { deleteDoc, doc } from "firebase/firestore";
-import { Edit3, Trash2, Upload } from "lucide-react";
+import { Edit3, Trash2, Upload, Users } from "lucide-react";
 import { Field } from "../ui";
 import { AttachmentsList } from "./AttachmentsList";
 import type { ValveAttachmentListItem } from "./AttachmentsList";
@@ -10,6 +10,7 @@ import { db } from "../../firebase";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { deleteValveAttachments, uploadValveAttachments } from "../../services/valvesStorage";
 import { createAuditLog } from "../../utils/audit";
+import { computeValveAudience } from "../../utils/valveAudience.js";
 import type {
   AppData,
   AppNotification,
@@ -97,6 +98,7 @@ export function ValvesDrawerContent({
   const [body, setBody] = useState("");
   const [attachments, setAttachments] = useState<ValveAttachmentDraft[]>([]);
   const [editingId, setEditingId] = useState("");
+  const [refreshingAudienceId, setRefreshingAudienceId] = useState("");
   const [modifyConfirmation, setModifyConfirmation] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<ValvePublication | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
@@ -265,6 +267,8 @@ export function ValvesDrawerContent({
         kind,
         visibility,
         ...(visibility === "class" ? { targetClassKey } : {}),
+        // Public lu par les règles de sécurité : un parent ne lit que ce qui le concerne.
+        ...computeValveAudience({ visibility, targetClassKey: visibility === "class" ? targetClassKey : undefined, schoolId: school.id, schoolYearId: year.id }, yearData.parents, yearData.students),
         body: trimmedBody,
         authorId: existingPublication?.authorId ?? user.id,
         authorName: existingPublication?.authorName ?? user.name,
@@ -396,6 +400,30 @@ export function ValvesDrawerContent({
       isPublishingRef.current = false;
       setIsPublishing(false);
       setPublishProgress("");
+    }
+  }
+
+  /** Recalcule le public d'une publication (familles inscrites ou enfants changés de classe depuis). */
+  async function refreshPublicationAudience(publication: ValvePublication) {
+    if (refreshingAudienceId) return;
+    setRefreshingAudienceId(publication.id);
+    setFeedback("");
+    try {
+      const audience = computeValveAudience(publication, yearData.parents, yearData.students);
+      const unchanged = publication.audienceAll === audience.audienceAll
+        && JSON.stringify(publication.audienceParentIds ?? null) === JSON.stringify(audience.audienceParentIds);
+      if (unchanged) {
+        setFeedback("Le public de cette publication est déjà à jour.");
+        return;
+      }
+      const persisted = await persistFirestorePatch({ valves: [{ ...publication, ...audience, updatedAt: new Date().toISOString() }] }, { throwOnError: true });
+      if (!persisted) throw new Error("Service indisponible. Veuillez réessayer.");
+      updateData({ valves: data.valves.map((item) => (item.id === publication.id ? { ...item, ...audience } : item)) }, { persist: false });
+      setFeedback(audience.audienceAll ? "Public mis à jour : tous les parents." : `Public mis à jour : ${audience.audienceParentIds.length} famille(s).`);
+    } catch (error) {
+      setFeedback(getValvePublicationErrorMessage(error, "Mise à jour du public impossible. Veuillez réessayer."));
+    } finally {
+      setRefreshingAudienceId("");
     }
   }
 
@@ -576,6 +604,9 @@ export function ValvesDrawerContent({
               </div>
               {canManage && (
                 <div className="flex shrink-0 flex-wrap gap-2">
+                  <button onClick={() => void refreshPublicationAudience(publication)} type="button" className="rounded bg-slate-100 p-2 text-slate-700 disabled:opacity-50" title="Mettre à jour le public" aria-label="Mettre à jour le public" disabled={Boolean(refreshingAudienceId)}>
+                    <Users className={`h-4 w-4 ${refreshingAudienceId === publication.id ? "animate-pulse" : ""}`} />
+                  </button>
                   <button onClick={() => editPublication(publication)} type="button" className="rounded bg-slate-100 p-2 text-slate-700" title="Modifier">
                     <Edit3 className="h-4 w-4" />
                   </button>

@@ -30,7 +30,7 @@ describe("Valves : chaque publication n'arrive que chez les bonnes personnes", (
   it("le parent ne charge que les Valves de l'année affichée (plus toutes les années de l'école)", () => {
     const source = readFileSync(new URL("../services/firestoreData.ts", import.meta.url), "utf8");
     const parentBlock = source.slice(source.indexOf('if (user.role === "parent") {'), source.indexOf("return scopedData;", source.indexOf('if (user.role === "parent") {')));
-    expect(parentBlock).toContain('loadCollection<AppData["valves"][number]>("valves", annualFilter)');
+    expect(parentBlock).toContain('loadParentValves(annualFilter, user.parentId ?? "")');
     expect(parentBlock).not.toContain('("valves", schoolFilter)');
   });
 });

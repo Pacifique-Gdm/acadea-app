@@ -617,6 +617,10 @@ export interface ValvePublication {
   kind: ValvePublicationKind;
   visibility: ValveVisibility;
   targetClassKey?: string;
+  /** Public lisible par les règles de sécurité : « Tous les parents ». */
+  audienceAll?: boolean;
+  /** Public lisible par les règles : parents concernés par une section ou une classe. */
+  audienceParentIds?: string[];
   body: string;
   attachmentName?: string;
   attachmentType?: string;

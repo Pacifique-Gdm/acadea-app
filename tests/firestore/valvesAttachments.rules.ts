@@ -12,7 +12,7 @@ const path = `valves/${schoolId}/${schoolYearId}/${publicationId}/${fileId}.pdf`
 const url = `https://firebasestorage.googleapis.com/v0/b/acadea-staging.appspot.com/o/${encodeURIComponent(path)}?alt=media&token=test`;
 let environment: RulesTestEnvironment;
 
-const publication = (attachments?: unknown[]) => ({ id: publicationId, schoolId, schoolYearId, title: "Information", body: "Texte", authorId: "secretary-a", ...(attachments ? { attachments } : {}) });
+const publication = (attachments?: unknown[]) => ({ id: publicationId, schoolId, schoolYearId, title: "Information", body: "Texte", authorId: "secretary-a", visibility: "all_parents", audienceAll: true, audienceParentIds: [], ...(attachments ? { attachments } : {}) });
 const attachment = (overrides: Record<string, unknown> = {}) => ({ name: "document.pdf", type: "application/pdf", size: 1024, path, url, ...overrides });
 
 beforeAll(async () => { environment = await initializeTestEnvironment({ projectId, firestore: { rules: readFileSync("firestore.rules", "utf8") } }); }, 30_000);
