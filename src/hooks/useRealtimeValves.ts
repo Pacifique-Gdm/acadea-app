@@ -55,24 +55,39 @@ type SubscribeOptions = {
   onValves: (valves: ValvePublication[], scope: RealtimeValvesScope) => void;
 };
 
+/** Requêtes Valves permises par les règles. Un parent ne lit que ce qui le concerne : les
+ * publications « Tous les parents » et celles dont il fait partie du public. */
+export function valveQueries(database: Firestore, user: Pick<AppUser, "role" | "parentId">, schoolId: string, schoolYearId: string) {
+  const scope = [where("schoolId", "==", schoolId), where("schoolYearId", "==", schoolYearId)];
+  if (user.role !== "parent") return [query(collection(database, "valves"), ...scope)];
+  if (!user.parentId) return [];
+  return [
+    query(collection(database, "valves"), ...scope, where("audienceAll", "==", true)),
+    query(collection(database, "valves"), ...scope, where("audienceParentIds", "array-contains", user.parentId)),
+  ];
+}
+
 export function subscribeToRealtimeValves({ database, user, schoolId, schoolYearId, onValves }: SubscribeOptions) {
   if (!canSubscribeToRealtimeValves(user, schoolId, schoolYearId)) return undefined;
   const scope = { schoolId, schoolYearId };
-  const valvesQuery = query(
-    collection(database, "valves"),
-    where("schoolId", "==", schoolId),
-    where("schoolYearId", "==", schoolYearId),
-  );
-  return onSnapshot(
+  const queries = valveQueries(database, user, schoolId, schoolYearId);
+  if (queries.length === 0) return undefined;
+  // Une liste par requête ; l'écran reçoit leur réunion, sans doublon, dès que toutes ont répondu.
+  const parts: Array<ValvePublication[] | undefined> = queries.map(() => undefined);
+  const unsubscribes = queries.map((valvesQuery, index) => onSnapshot(
     valvesQuery,
     (snapshot) => {
-      const valves = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as ValvePublication);
-      onValves(valves, scope);
+      parts[index] = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as ValvePublication);
+      if (parts.some((part) => part === undefined)) return;
+      const merged = new Map<string, ValvePublication>();
+      for (const part of parts) for (const publication of part ?? []) merged.set(publication.id, publication);
+      onValves([...merged.values()], scope);
     },
     (error) => {
       console.warn("Écoute en temps réel des Valves indisponible.", error);
     },
-  );
+  ));
+  return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
 }
 
 export function useRealtimeValves({

@@ -245,6 +245,22 @@ async function loadPaymentsForYear(schoolId: string, schoolYearId: string, serve
   return [...new Map([...annual, ...collected].map((payment) => [payment.id, payment])).values()];
 }
 
+/** Valves lisibles par un parent : « Tous les parents » + publications où il est dans le public. */
+async function loadParentValves(annualFilter: [string, unknown][], parentId: string) {
+  if (!db || !parentId) return [];
+  const [all, targeted] = await Promise.all([
+    loadCollection<AppData["valves"][number]>("valves", [...annualFilter, ["audienceAll", true]]),
+    (async () => {
+      const constraints = [...annualFilter.map(([field, value]) => where(field, "==", value)), where("audienceParentIds", "array-contains", parentId)];
+      const snapshot = await withFirestoreTimeout(getDocs(query(collection(db!, "valves"), ...constraints)), "valves").catch((error) => {
+        throw describeFirestoreError("valves", error);
+      });
+      return snapshot.docs.map((item) => normalizeSchoolDomainDocument("valves", { id: item.id, ...item.data() })) as unknown as AppData["valves"];
+    })(),
+  ]);
+  return [...new Map([...all, ...targeted].map((publication) => [publication.id, publication])).values()];
+}
+
 async function loadCollectionInSections<T>(collectionName: string, filters: [string, unknown][], sections: readonly string[]) {
   if (!db) return [];
   const constraints = [...filters.map(([field, value]) => where(field, "==", value)), where("section", "in", [...sections])];
@@ -425,8 +441,9 @@ export async function loadFirestoreData(
         loadDocument<AppData["parents"][number]>("parents", user.parentId),
         loadCollection<AppData["payments"][number]>("payments", parentFilter),
         loadCollection<AppData["messages"][number]>("messages", [["schoolId", user.schoolId], ["threadParentId", user.parentId]]),
-        // Valves de l'année affichée seulement (comme l'écoute en temps réel), pas de toutes les années.
-        maybeLoad("valves", () => loadCollection<AppData["valves"][number]>("valves", annualFilter)),
+        // Valves de l'année affichée seulement (comme l'écoute en temps réel), et seulement celles
+        // dont le parent fait partie du public (règles de sécurité) : « Tous » + sa liste.
+        maybeLoad("valves", () => loadParentValves(annualFilter, user.parentId ?? "")),
       ]);
       return scopedData;
     }
@@ -567,7 +584,7 @@ export async function loadParentPortalData(user: AppUser) {
       ["schoolId", user.schoolId],
       ["threadParentId", user.parentId],
     ]),
-    valves: await loadCollection<AppData["valves"][number]>("valves", schoolFilter),
+    valves: await loadParentValves(schoolFilter, user.parentId ?? ""),
   };
 
   return parentData;
@@ -611,7 +628,7 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string,
     loadCollection<AppData["expenses"][number]>("expenses", annualFilter, true),
     loadCollection<NonNullable<AppData["cashInflows"]>[number]>("cashInflows", annualFilter, true),
     secondary("messages", async () => ({ messages: await loadSchoolMessages(user, user.schoolId!, schoolYearId, true) })),
-    secondary("valves", async () => ({ valves: await loadCollection<AppData["valves"][number]>("valves", annualFilter, true) })),
+    secondary("valves", async () => ({ valves: user.role === "parent" ? await loadParentValves(annualFilter, user.parentId ?? "") : await loadCollection<AppData["valves"][number]>("valves", annualFilter, true) })),
     secondary("attendance", async () => {
       const [attendance, attendanceSettings] = await Promise.all([
         loadCollection<AppData["attendance"][number]>("attendance", annualFilter, true),

@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.25.0] — 2026-11-24 — Fonctionnalité
+- Valves : la Visibilité est respectée par les règles de sécurité ; un parent ne lit que les publications qui le concernent ; bouton « Mettre à jour le public » ; script de reprise des publications existantes
+
 ## [1.24.3] — 2026-11-24 — Correction
 - Valves : photos PNG mieux compressées, publications et notifications seulement pour les familles d'enfants encore inscrits, chargement limité à l'année
 
