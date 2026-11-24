@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.25.4] — 2026-11-24 — Correction
+- Écran de connexion : photo, slogan « La gestion scolaire dans ma poche » et 4 avantages (proposition B)
+
 ## [1.25.3] — 2026-11-24 — Correction
 - ship-lot.sh attend que la construction soit prête chez Vercel avant les vérifications ; une preuve de source laissée par une construction coupée ne bloque plus ; met en ligne la 1.25.0 (Valves)
 
