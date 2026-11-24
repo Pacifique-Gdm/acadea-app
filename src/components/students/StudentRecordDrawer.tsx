@@ -17,6 +17,8 @@ import { discardUploadedPhotoIfUnused, findSavedStudent } from "../../services/s
 import { needsStorageUpload, uploadStudentPhoto } from "../../services/studentPhotoStorage";
 import { userFacingError } from "../../utils/userFacingError";
 import { waitForCondition } from "../../utils/waitForCondition";
+import { changeStudentClassTransaction } from "../../services/financialTransactions";
+import { classChangePreview } from "../../utils/classChangePreview";
 
 /** Droits de la fiche élève officielle (création, modification, parent, options et sous-classes). */
 export interface StudentRecordCapabilities {
@@ -24,6 +26,8 @@ export interface StudentRecordCapabilities {
   canEdit: boolean;
   canCreateParent: boolean;
   canManageOptions: boolean;
+  /** Lot E : changer la classe d'un élève qui a déjà payé (caissier seulement). */
+  canChangePaidClass?: boolean;
 }
 
 /** Fiche à ouvrir : un nouvel élève, ou un élève existant à modifier. */
@@ -73,6 +77,13 @@ export function StudentRecordDrawer({
   const [isSaving, setIsSaving] = useState(false);
   const saveInProgressRef = useRef(false);
   const creationIds = useRef(new Map<string, string>());
+  // Une seule clé par ouverture de la fiche : un double clic ne rattache jamais deux fois.
+  const classChangeRequestId = useRef(`class-change-${crypto.randomUUID()}`);
+  const previousRecord = target.mode === "edit" ? studentRecords.find((item) => item.id === target.student.id) : undefined;
+  const classPreview = previousRecord && capabilities.canChangePaidClass && isClassChange(previousRecord, form)
+    && hasYearPayments(data.payments, previousRecord.id, school.id, previousRecord.schoolYearId ?? year.id)
+    ? classChangePreview({ student: previousRecord, next: form, feeTypes: data.feeTypes, payments: data.payments, schoolYearId: previousRecord.schoolYearId ?? year.id,
+      currency: (year as SchoolYear & { currency?: string }).currency === "CDF" ? "CDF" : school.currency === "CDF" ? "CDF" : "USD" }) : undefined;
   const [ownClasses, setOwnClasses] = useState<SchoolClassRecord[]>([]);
   const [ownClassesLoaded, setOwnClassesLoaded] = useState(false);
   const listensItself = providedClasses === undefined;
@@ -126,9 +137,14 @@ export function StudentRecordDrawer({
       const academicChanged = !previousStudent || previousStudent.classId !== form.classId
         || previousStudent.className !== form.className || previousStudent.option !== form.option
         || previousStudent.subClassId !== form.subClassId || previousStudent.classOptionKey !== form.classOptionKey;
-      // Protection provisoire : pas de changement de classe pour un élève qui a déjà payé cette année (le serveur refuse aussi).
-      if (previousStudent && isClassChange(previousStudent, form) && hasYearPayments(data.payments, previousStudent.id, school.id, previousStudent.schoolYearId ?? year.id)) {
+      // Lot E : un élève qui a déjà payé cette année ne change de classe que par le caissier (le serveur refuse aussi).
+      const paidClassChange = Boolean(previousStudent && isClassChange(previousStudent, form) && hasYearPayments(data.payments, previousStudent.id, school.id, previousStudent.schoolYearId ?? year.id));
+      if (paidClassChange && !capabilities.canChangePaidClass) {
         setSaveError(CLASS_CHANGE_WITH_PAYMENTS_MESSAGE);
+        return;
+      }
+      if (paidClassChange && classPreview?.overpaidMinor) {
+        setSaveError(classPreview.message);
         return;
       }
       const academicError = academicChanged ? validateStudentAcademicSelection(structuredClasses, form, optionChoices) : "";
@@ -183,6 +199,15 @@ export function StudentRecordDrawer({
       if (!student.photoPath) delete student.photoPath;
       const previousParentId = studentRecords.find((item) => item.id === student.id)?.parentId;
       if (!exists) attemptedCreation = { id: student.id, schoolYearId: targetYearId, withParent: Boolean(selectedParentId) };
+      if (paidClassChange && previousStudent) {
+        // D'abord la classe et le rattachement des paiements (serveur, une seule opération), puis le reste de la fiche.
+        const stamps = previousStudent as Student & { updatedAt?: string; createdAt?: string };
+        await changeStudentClassTransaction({ schoolYearId: targetYearId, studentId: student.id, className: student.className,
+          ...(student.classId ? { classId: student.classId } : {}), ...(student.subClassId ? { subClassId: student.subClassId } : {}),
+          ...(student.classOptionKey ? { classOptionKey: student.classOptionKey } : {}), ...(student.section ? { section: student.section } : {}),
+          ...(student.option ? { option: student.option } : {}), expectedUpdatedAt: stamps.updatedAt ?? stamps.createdAt ?? "",
+          clientRequestId: classChangeRequestId.current });
+      }
       const persistedStudent = await saveManualStudent(studentForPersistence(studentBeforeParentMutation(student, previousParentId)), exists ? "update" : "create");
       const nextStudents = exists ? studentRecords.map((item) => (item.id === student.id ? persistedStudent : item)) : [...studentRecords, persistedStudent];
 
@@ -368,6 +393,11 @@ export function StudentRecordDrawer({
 
   return (
     <AdminDrawer title={form.id.startsWith("new") ? "Ajouter un élève" : "Modifier l'élève"} onClose={() => { setQuickParentFeedback(""); onClose(); }} closeLabel="Fermer le formulaire élève">
+      {classPreview && (
+        <div role="status" className={`mb-3 rounded-lg border px-3 py-2 text-sm ${classPreview.overpaidMinor ? "border-orange-300 bg-orange-50 text-orange-900" : "border-sky-200 bg-sky-50 text-sky-900"}`}>
+          {classPreview.message}
+        </div>
+      )}
       <StudentForm
         form={form}
         setForm={setForm}
