@@ -84,15 +84,19 @@ export function buildValveClassChoices(students: Pick<Student, "className" | "op
   return Array.from(new Map([...choices, ...selectedChoice].map((choice) => [choice.value, choice])).values());
 }
 
+/** Enfant encore inscrit : un élève transféré, sorti ou décédé ne compte plus pour le public
+ * d'une publication (classe, section) ni pour les notifications. */
+const isEnrolledChild = (student: Pick<Student, "status">) => (student.status ?? "ACTIVE") === "ACTIVE";
+
 export function parentCanViewValvePublication(
   publication: ValvePublication,
   parent: Pick<ParentProfile, "id" | "studentIds">,
-  students: Pick<Student, "id" | "parentId" | "className" | "option">[],
+  students: Pick<Student, "id" | "parentId" | "className" | "option" | "status">[],
 ) {
   const visibility = normalizeValveVisibility(publication.visibility as LegacyValveVisibility);
   if (visibility === "all_parents") return true;
 
-  const children = students.filter((student) => student.parentId === parent.id || parent.studentIds.includes(student.id));
+  const children = students.filter((student) => (student.parentId === parent.id || parent.studentIds.includes(student.id)) && isEnrolledChild(student));
   if (visibility === "class") {
     if (!publication.targetClassKey) return false;
     return children.some((student) => getValveStudentClassKey(student) === publication.targetClassKey);
@@ -102,8 +106,11 @@ export function parentCanViewValvePublication(
 
 export function getValvePublicationParents(publication: ValvePublication, parents: ParentProfile[], students: Student[]) {
   const parentMap = new Map<string, ParentProfile>();
+  // Notification : seulement aux parents qui ont encore un enfant inscrit cette année dans l'école.
+  const enrolled = students.filter((student) => student.schoolId === publication.schoolId && isEnrolledChild(student));
   parents.forEach((parent) => {
-    if (parentCanViewValvePublication(publication, parent, students)) {
+    const hasEnrolledChild = enrolled.some((student) => student.parentId === parent.id || parent.studentIds.includes(student.id));
+    if (hasEnrolledChild && parentCanViewValvePublication(publication, parent, enrolled)) {
       parentMap.set(parent.id, parent);
     }
   });
