@@ -830,7 +830,7 @@ export function DisciplinePortal({
         </AdminDrawer>
       )}
       {archiveOpen && (
-        <SchoolYearArchiveDrawer schoolId={school.id} onClose={() => setArchiveOpen(false)} />
+        <SchoolYearArchiveDrawer schoolId={school.id} activeSchoolYearId={school.activeSchoolYearId} onClose={() => setArchiveOpen(false)} />
       )}
       {historyOpen && (
         <AdminDrawer title="Historique disciplinaire" onClose={() => setHistoryOpen(false)} closeLabel="Fermer l'historique disciplinaire">
