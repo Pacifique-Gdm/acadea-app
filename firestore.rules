@@ -1829,10 +1829,36 @@ service cloud.firestore {
         && activeSchoolYearBelongsToSchool(resource.data.schoolYearId, tenantSchoolId());
     }
 
+    // Public d'une publication Valves (1.24.x) : « Tous les parents » (audienceAll) ou liste des
+    // parents concernés par la section ou la classe (audienceParentIds), cohérent avec la Visibilité.
+    function validValveAudience() {
+      return request.resource.data.audienceAll is bool
+        && request.resource.data.audienceParentIds is list
+        && request.resource.data.audienceParentIds.size() <= 5000
+        && ((request.resource.data.audienceAll == true
+            && request.resource.data.visibility in ["all_parents", "parents", "all", "staff"]
+            && request.resource.data.audienceParentIds.size() == 0)
+          || (request.resource.data.audienceAll == false
+            && request.resource.data.visibility is string
+            && !(request.resource.data.visibility in ["all_parents", "parents", "all", "staff"])));
+    }
+
+    // Un parent ne lit que les publications de son école dont il fait partie du public.
+    function parentValveReader() {
+      return parentUser()
+        && resource.data.schoolId == tenantSchoolId()
+        && (resource.data.audienceAll == true
+          || tenantParentId() in resource.data.audienceParentIds);
+    }
+
     match /valves/{valveId} {
-      allow read: if superAdmin() || sameTenantResource() || disciplineTenantResource();
-      allow create: if (schoolAdmin() || secretary()) && activeTenantYearCreate() && validValveAttachmentWrite(valveId);
+      allow read: if superAdmin()
+        || (sameTenantResource() && role() != "parent")
+        || disciplineTenantResource()
+        || parentValveReader();
+      allow create: if (schoolAdmin() || secretary()) && activeTenantYearCreate() && validValveAttachmentWrite(valveId) && validValveAudience();
       allow update: if (schoolAdmin() || secretary()) && activeTenantYearUpdate()
+        && validValveAudience()
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(["attachments", "attachmentDataUrl", "attachmentUrl", "attachmentPath"])
           || validValveAttachmentWrite(valveId));
       allow delete: if (schoolAdmin() || secretary()) && sameTenantResource()

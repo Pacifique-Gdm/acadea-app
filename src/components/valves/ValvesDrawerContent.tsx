@@ -10,6 +10,7 @@ import { db } from "../../firebase";
 import { persistFirestorePatch } from "../../services/firestoreData";
 import { deleteValveAttachments, uploadValveAttachments } from "../../services/valvesStorage";
 import { createAuditLog } from "../../utils/audit";
+import { computeValveAudience } from "../../utils/valveAudience.js";
 import type {
   AppData,
   AppNotification,
@@ -265,6 +266,8 @@ export function ValvesDrawerContent({
         kind,
         visibility,
         ...(visibility === "class" ? { targetClassKey } : {}),
+        // Public lu par les règles de sécurité : un parent ne lit que ce qui le concerne.
+        ...computeValveAudience({ visibility, targetClassKey: visibility === "class" ? targetClassKey : undefined, schoolId: school.id, schoolYearId: year.id }, yearData.parents, yearData.students),
         body: trimmedBody,
         authorId: existingPublication?.authorId ?? user.id,
         authorName: existingPublication?.authorName ?? user.name,
