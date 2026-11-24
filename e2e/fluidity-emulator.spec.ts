@@ -15,7 +15,7 @@ test("authenticated conditional creation rejects collisions and cross-school wri
         const { conditionalFirestoreWrite } = await import(path);
         try { await conditionalFirestoreWrite("valves", value.id, value, false); return "created"; }
         catch (error) { return String((error as { code?: string }).code); }
-      }, { id, schoolId, schoolYearId: f.year, title, content: "Fixture", attachments: [], createdAt: new Date().toISOString() });
+      }, { id, schoolId, schoolYearId: f.year, title, content: "Fixture", attachments: [], visibility: "all_parents", audienceAll: true, audienceParentIds: [], createdAt: new Date().toISOString() });
       expect(await write(f.school, "Original")).toBe("created");
       expect(await write(f.school, "Collision")).toBe("ALREADY_EXISTS");
       expect((await f.db.doc("valves/" + id).get()).data()?.title).toBe("Original");
@@ -23,7 +23,7 @@ test("authenticated conditional creation rejects collisions and cross-school wri
       const denied = await page.evaluate(async ({ schoolId, year, id }) => {
         const path = "/src/services/conditionalFirestoreWrite.ts";
         const { conditionalFirestoreWrite } = await import(path);
-        try { await conditionalFirestoreWrite("valves", id, { id, schoolId, schoolYearId: year, title: "Forbidden", attachments: [] }, false); return false; }
+        try { await conditionalFirestoreWrite("valves", id, { id, schoolId, schoolYearId: year, title: "Forbidden", attachments: [], visibility: "all_parents", audienceAll: true, audienceParentIds: [] }, false); return false; }
         catch { return true; }
       }, { schoolId: f.other, year: f.year, id: id + "-other" });
       expect(denied).toBe(true);
