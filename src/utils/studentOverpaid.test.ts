@@ -14,6 +14,11 @@ const pay = (feeTypeId: string, amount: number, extra: Partial<Payment> = {}) =>
   ({ id: `${feeTypeId}-${amount}`, schoolId: "ecole-a", schoolYearId: "annee-a", studentId: "eleve-a", feeTypeId, amount, paidAt: "2026-11-01", cashierName: "Caissier", ...extra }) as Payment;
 
 describe("trop-perçu d'un élève", () => {
+  it("lot F : une part déjà remboursée au parent (changement de classe) n'est plus un trop-perçu", () => {
+    const payments = [pay("minerval-2p", 100), pay("minerval-1p", 25, { refundedAmount: 25, refundedByClassChangeId: "cc_1" }), pay("minerval-1p", 10)];
+    expect(getStudentDetachedPaid(student, fees, payments)).toBe(10);
+  });
+
   it("overpaidMoney rend ce qui dépasse le montant dû, jamais un nombre négatif", () => {
     expect(overpaidMoney(100, 120.5)).toBe(20.5);
     expect(overpaidMoney(100, 60)).toBe(0);

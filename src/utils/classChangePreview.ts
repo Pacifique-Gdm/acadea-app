@@ -14,7 +14,8 @@ export function classChangePreview({ student, next, feeTypes, payments, schoolYe
   student: Student; next: Pick<Student, "className" | "option">; feeTypes: FeeType[]; payments: Payment[]; schoolYearId: string; currency: "USD" | "CDF";
 }) {
   const yearPayments = payments.filter((payment) => payment.studentId === student.id && payment.schoolId === student.schoolId
-    && payment.schoolYearId === schoolYearId && (payment.collectionSchoolYearId ?? schoolYearId) === schoolYearId && !payment.formerStudent);
+    && payment.schoolYearId === schoolYearId && (payment.collectionSchoolYearId ?? schoolYearId) === schoolYearId && !payment.formerStudent
+    && !payment.refundedByClassChangeId);
   const yearFees = feeTypes.filter((fee) => fee.schoolId === student.schoolId && fee.schoolYearId === schoolYearId);
   const newFees = yearFees.filter((fee) => feeAppliesToStudent(fee, next) && Number(fee.amount) > 0)
     .map((fee) => ({ id: fee.id, name: fee.name ?? "", netMinor: toMoneyMinor(Number(fee.amount)) }));
@@ -25,7 +26,7 @@ export function classChangePreview({ student, next, feeTypes, payments, schoolYe
   const paidMinor = yearPayments.reduce((sum, payment) => sum + toMoneyMinor(Number(payment.amount)), 0);
   const dueMinor = newFees.reduce((sum, fee) => sum + fee.netMinor, 0);
   const message = plan.overpaidMinor > 0
-    ? `Ce changement de classe laisserait un trop-perçu de ${money(plan.overpaidMinor, currency)}. Il sera possible avec le remboursement par le caissier, bientôt disponible.`
+    ? `Ce changement de classe crée un trop-perçu de ${money(plan.overpaidMinor, currency)}. Il sera remboursé tout de suite au parent, en espèces, pris dans la caisse (rubrique « Non affecté » si la répartition est active).`
     : `Changement de classe : les paiements de l'année (${money(paidMinor, currency)}) seront rattachés aux frais de la nouvelle classe. Reste à payer ensuite : ${money(Math.max(0, dueMinor - paidMinor), currency)}.`;
   return { plan, overpaidMinor: plan.overpaidMinor, paidMinor, dueMinor, message };
 }

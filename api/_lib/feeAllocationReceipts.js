@@ -51,7 +51,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   // Lot E : changement de classe. « out » retire le paiement de l'ancienne ancre (écriture inverse), « in » le remet
   // sur l'ancre du frais de la nouvelle classe. Les mouvements déjà écrits ne changent jamais.
   if (reassignment && (!["out", "in"].includes(reassignment.kind) || !identifier(reassignment.classChangeId)
-    || (reassignment.kind === "out" ? payment || !previous : !payment || previous))) fail("Rattachement de changement de classe invalide.");
+    || (reassignment.kind === "out" ? !previous : !payment || previous))) fail("Rattachement de changement de classe invalide.");
   if (!isFeeAllocationReceiptSandbox(db) && !allocationSupportedProject(db)) return noop;
   const source = payment ?? previous;
   if (!source || !["USD", "CDF"].includes(source.currency)
