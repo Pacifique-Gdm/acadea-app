@@ -582,6 +582,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
       expected: dashboardFinancialStats.expected,
       formerPaid,
       remaining,
+      overpaid: dashboardFinancialStats.overpaid ?? 0,
       transactions: transactions.map((transaction) => ({ ...transaction, currency: currentCurrency })),
       classRows: classDisplayRows,
       totalGirls,
@@ -705,6 +706,7 @@ export function Dashboard({ data, school, year, refreshing = false, refreshError
           <Metric label={"D\u00e9penses"} value={formatCurrencyMoney(totalExpenses, currentCurrency)} />
           <Metric label="Reste" value={formatCurrencyMoney(remaining, currentCurrency)} />
         </div>
+        {(dashboardFinancialStats.overpaid ?? 0) > 0 && <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-sm font-semibold text-amber-800">Trop-perçu des élèves : {formatCurrencyMoney(dashboardFinancialStats.overpaid ?? 0, currentCurrency)}</p>}
         <div className="mt-5 grid gap-3">
           {feeProgressRows.map((row) => (
             <div key={row.name} className="rounded border border-slate-100 bg-slate-50 p-3">

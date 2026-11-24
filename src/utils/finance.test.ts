@@ -19,7 +19,7 @@ describe("finance", () => {
     ] as Payment[];
 
     expect(getStudentFeeSummaries(student, fees, payments)).toEqual([
-      { feeTypeId: "fee-a", feeName: "Minerval", expected: 100, paid: 35, remaining: 65 },
+      { feeTypeId: "fee-a", feeName: "Minerval", expected: 100, paid: 35, remaining: 65, overpaid: 0 },
     ]);
   });
 

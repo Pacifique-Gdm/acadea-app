@@ -3,7 +3,8 @@ import type { Expense, FeeType, Payment, Student } from "../types";
 import { buildSchoolYearDataIndexes, getPaymentsForStudentFee, sumPayments } from "./dataIndexes";
 import type { SchoolYearDataIndexes } from "./dataIndexes";
 import { feeAppliesToStudent } from "./stats";
-import { remainingMoney, sumMoney } from "./money";
+import { getStudentDetachedPaid } from "./studentFeeSummary";
+import { overpaidMoney, remainingMoney, sumMoney } from "./money";
 
 export type DashboardFinancialStats = {
   official: number;
@@ -11,6 +12,8 @@ export type DashboardFinancialStats = {
   expected: number;
   paid: number;
   remaining: number;
+  /** Trop-perçu : somme, élève par élève et frais par frais, de ce qui a été payé au-delà du montant net dû. */
+  overpaid?: number;
   /** Lot 27c-2 : paiements d'anciens élèves, comptés à la fois dans le prévu et dans l'encaissé. */
   formerPaid?: number;
 };
@@ -60,10 +63,11 @@ export function formerStudentPaymentsOfYear(payments: Payment[], yearId: string,
 export function buildDashboardFinancialAggregates(students: Student[], feeTypes: FeeType[], payments: Payment[], indexes?: SchoolYearDataIndexes, formerPayments: Payment[] = []): DashboardFinancialAggregates {
   const dataIndexes = resolveIndexes(students, feeTypes, payments, indexes);
   const rowsByFeeName = new Map<string, { name: string; official: number; reduction: number; expected: number; paid: number }>();
-  const totals = { official: 0, reduction: 0, expected: 0, paid: 0 };
+  const totals = { official: 0, reduction: 0, expected: 0, paid: 0, overpaid: 0 };
 
   students.forEach((student) => {
     const applicableFeeTypes = dataIndexes.applicableFeeTypesByStudentId.get(student.id) ?? feeTypes.filter((fee) => feeAppliesToStudent(fee, student));
+    totals.overpaid = sumMoney([totals.overpaid, getStudentDetachedPaid(student, feeTypes, payments, dataIndexes)]);
 
     applicableFeeTypes.forEach((fee) => {
       const feePayments = getPaymentsForStudentFee(dataIndexes, student.id, fee.id);
@@ -74,6 +78,7 @@ export function buildDashboardFinancialAggregates(students: Student[], feeTypes:
       totals.reduction = sumMoney([totals.reduction, balance.reduction]);
       totals.expected = sumMoney([totals.expected, net]);
       totals.paid = sumMoney([totals.paid, paid]);
+      totals.overpaid = sumMoney([totals.overpaid, overpaidMoney(net, paid)]);
 
       const key = fee.name.trim().toLowerCase();
       const current = rowsByFeeName.get(key) ?? { name: fee.name, official: 0, reduction: 0, expected: 0, paid: 0 };

@@ -8,7 +8,7 @@ const COORDINATION_ARREARS_MAX_AGE_MS = 5 * 60 * 1000;
 import type { HistoricalDebt } from "../../services/financialTransactions";
 import { historicalArrearsPdfSection } from "../control/historicalArrearsPdf";
 import { formatCurrencyMoney, resolveSchoolCurrency, resolveSchoolYearCurrency } from "../../utils/currency";
-import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
+import { getStudentFeeSummaries, getStudentOverpaid } from "../../utils/studentFeeSummary";
 import { sumMoney } from "../../utils/money";
 import { pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
 import { coordinationPdfInstitution } from "./coordinationPdfInstitution";
@@ -81,10 +81,12 @@ export function CoordinationStudentRecord({ student, user, coordination, schools
   }
   const arrearsCard = <section className="grid min-w-0 gap-3 rounded border border-amber-200 bg-amber-50 p-4"><h3 className="font-bold">Dettes des années antérieures</h3>{arrearsLoading ? <p role="status">Chargement des arriérés…</p> : arrearsError ? <ErrorNotice error={arrearsError} /> : <>{arrears.length === 0 && <p>Aucun arriéré pour cet élève.</p>}{arrears.map((debt) => <article key={`${debt.schoolYearId}:${debt.feeTypeId}`} className="min-w-0 rounded border bg-white p-3"><h4 className="break-words font-semibold">{debt.feeName} — {debt.yearName}</h4><div className="grid min-w-0 gap-2 sm:grid-cols-3"><p>Attendu : {formatCurrencyMoney(debt.expected, debt.currency)}</p><p>Payé : {formatCurrencyMoney(debt.paid, debt.currency)}</p><p>Restant : {formatCurrencyMoney(debt.remaining, debt.currency)}</p></div><p>{debt.remaining === 0 ? "Soldée" : "À payer"}</p></article>)}</>}</section>;
   const totals = getStudentFeeSummaries(student, financial.feeTypes, financial.payments).reduce((result, summary) => ({ expected: sumMoney([result.expected, summary.expected]), paid: sumMoney([result.paid, summary.paid]), remaining: sumMoney([result.remaining, summary.remaining]) }), { expected: 0, paid: 0, remaining: 0 });
+  const overpaid = getStudentOverpaid(student, financial.feeTypes, financial.payments);
   const financialOverview = <>
     {loading ? <p role="status">Chargement des paiements…</p> : detailError ? <ErrorNotice error={detailError} /> : <div className="grid min-w-0 grid-cols-3 divide-x divide-slate-200 rounded border border-slate-200 bg-slate-50 shadow-sm" aria-label="Résumé financier">
       {([ ["Total attendu", totals.expected], ["Total payé", totals.paid], ["Total restant", totals.remaining] ] as const).map(([label, amount]) => <div key={label} className="min-w-0 px-1 py-2 text-center sm:px-3 sm:py-3"><p className="break-words text-[10px] leading-tight text-slate-600 sm:text-xs">{label}</p><p className="mt-1 min-w-0 break-words text-[11px] font-bold leading-tight text-ink sm:text-base">{formatCurrencyMoney(amount, resolveSchoolYearCurrency(year, school))}</p></div>)}
     </div>}
+    {!loading && !detailError && overpaid > 0 && <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">Trop-perçu : {formatCurrencyMoney(overpaid, resolveSchoolYearCurrency(year, school))} (payé au-delà des frais de sa classe actuelle)</p>}
     {arrearsCard}
   </>;
   return <div className="grid min-w-0 gap-3">

@@ -14,6 +14,8 @@ export type CoordinationCurrencyFinancialGroup = {
   expenses: number;
   cashInflows: number;
   remaining: number;
+  /** Trop-perçu des élèves (payé au-delà des frais de leur classe actuelle). */
+  overpaid: number;
   recoveryRate: number;
   /** Lot 27c-2 : paiements d'anciens élèves, déjà inclus dans le prévu et dans l'encaissé. */
   formerPaid?: number;
@@ -88,6 +90,7 @@ export function groupCoordinationFinancialsByCurrency({
     const official = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.official));
     const reduction = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.reduction));
     const paid = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.paid));
+    const overpaid = sumMoney(schoolAggregates.map((aggregate) => aggregate.financialStats.overpaid ?? 0));
     const currencyPayments = payments.filter((payment) => scopedSchoolIds.has(payment.schoolId) && payment.currency === currency);
     const currencyExpenses = expenses.filter((expense) => scopedSchoolIds.has(expense.schoolId) && expense.currency === currency);
     const currencyCashInflows = cashInflows.filter((inflow) => scopedSchoolIds.has(inflow.schoolId) && inflow.currency === currency);
@@ -102,6 +105,7 @@ export function groupCoordinationFinancialsByCurrency({
       expenses: sumMoney(currencyExpenses.map((expense) => expense.amount)),
       cashInflows: sumMoney(currencyCashInflows.map((inflow) => inflow.amount)),
       remaining: remainingMoney(expected, paid),
+      overpaid,
       recoveryRate: expected > 0 ? Math.round((paid / expected) * 100) : 0,
       formerPaid,
       feeProgressRows,

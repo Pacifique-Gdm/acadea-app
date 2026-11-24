@@ -30,6 +30,11 @@ export function sumMoney(values: readonly number[]): number {
   }, 0));
 }
 
+/** Trop-perçu : ce qui a été payé au-delà du montant dû (jamais négatif). */
+export function overpaidMoney(expected: number, paid: number): number {
+  return fromMoneyMinor(Math.max(0, toMoneyMinor(paid) - toMoneyMinor(expected)));
+}
+
 export function remainingMoney(expected: number, paid: number, discount = 0): number {
   return fromMoneyMinor(Math.max(0, toMoneyMinor(expected) - toMoneyMinor(paid) - toMoneyMinor(discount)));
 }

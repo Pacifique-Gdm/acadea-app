@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.22.0] — 2026-11-23 — Fonctionnalité
+- Trop-perçu visible partout : fiche de l'élève, Contrôle (cartes, historique, PDF), tableau de bord de l'école et de la coordination (écran et PDF), fiche vue par la coordination ; le reste à payer ne change pas
+
 ## [1.21.1] — 2026-11-23 — Correction
 - Partie 2 des cas sociaux réservée à l'Administrateur de l'école : lecture et publication refusées aux autres rôles, écran réservé
 
