@@ -18,6 +18,18 @@ stop() { echo "ARRÊT : $1"; exit 1; }
 [ -n "$PR" ] || stop "numéro de PR manquant (bash scripts/release/ship-lot.sh <PR>)"
 git -C "$DEPLOY" rev-parse --git-dir >/dev/null 2>&1 || stop "dossier de déploiement introuvable : $DEPLOY (variable ACADEA_DEPLOY_DIR)"
 
+# Reprise : une PR déjà fusionnée dont la construction a échoué (réseau, ressources du poste) reprend à l'étape 4,
+# seulement si sa fusion est exactement le dernier état de main (contrôles et version vérifiés avant la fusion).
+PRSTATE=$(gh pr view "$PR" --repo "$REPO" --json state,mergeCommit --jq '.state + " " + (.mergeCommit.oid // "")') || stop "PR introuvable"
+if [ "${PRSTATE%% *}" = "MERGED" ]; then
+  SHA="${PRSTATE#* }"; git -C "$DEPLOY" fetch -q origin main || stop "récupération de main"
+  [ -n "$SHA" ] && [ "$(git -C "$DEPLOY" rev-parse origin/main)" = "$SHA" ] || stop "PR déjà fusionnée, mais main a avancé depuis : mettre en ligne la PR suivante"
+  NEWV=$(git -C "$DEPLOY" show "$SHA:package.json" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).version))')
+  echo "  reprise : PR déjà fusionnée ($SHA, version $NEWV), étape 4"
+  RESUME=1
+fi
+
+if [ -z "${RESUME:-}" ]; then
 # 1. Contrôles GitHub (dont version-check).
 sleep 20
 gh pr checks "$PR" --repo "$REPO" --watch --interval 30 >/dev/null 2>&1
@@ -44,6 +56,7 @@ state=$(gh pr view "$PR" --repo "$REPO" --json mergeable,mergeStateStatus --jq '
 gh pr merge "$PR" --repo "$REPO" --merge >/dev/null 2>&1 || stop "fusion refusée"
 SHA=$(gh pr view "$PR" --repo "$REPO" --json mergeCommit --jq .mergeCommit.oid); [ -n "$SHA" ] || stop "commit de fusion introuvable"
 echo "  fusionnée : $SHA"
+fi
 
 # 4. Construction et vérifications AVANT la mise en ligne.
 PREV=$(cd "$DEPLOY" && MSYS_NO_PATHCONV=1 timeout 90 vercel inspect acadea-app.vercel.app --scope pacifique-gdms-projects 2>&1 | awk '$1=="url"{print $2}')
@@ -53,7 +66,8 @@ PREV=$(cd "$DEPLOY" && MSYS_NO_PATHCONV=1 timeout 90 vercel inspect acadea-app.v
 echo "  version en ligne avant : $PREV"
 git -C "$DEPLOY" fetch -q origin && git -C "$DEPLOY" merge -q --ff-only origin/main || stop "mise à jour du dossier de déploiement"
 [ "$(git -C "$DEPLOY" rev-parse HEAD)" = "$SHA" ] || stop "main ne correspond pas à la fusion"
-out=$(node "$DEPLOY/scripts/release/deploy-production-manual.cjs" "--cwd=$DEPLOY" 2>&1 | grep "^{\"status\"" | tail -1); echo "  construction : $out"
+build=$(node "$DEPLOY/scripts/release/deploy-production-manual.cjs" "--cwd=$DEPLOY" 2>&1); out=$(echo "$build" | grep "^{\"status\"" | tail -1); echo "  construction : $out"
+[ -n "$out" ] || { echo "  fin du message de la construction :"; echo "$build" | tail -15 | sed 's/^/    /'; }
 URL=$(echo "$out" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{console.log(JSON.parse(d).url||"")}catch{console.log("")}})')
 [ -n "$URL" ] || stop "construction échouée"
 ACADEA_DEPLOY_DIR="$DEPLOY" bash "$DEPLOY/scripts/release/verify-production-build.sh" "$URL" "$SHA" || stop "vérification de la construction (rien n'est en ligne)"
