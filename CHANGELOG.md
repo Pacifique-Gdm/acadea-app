@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.24.1] — 2026-11-24 — Correction
+- Formulaire Année scolaire : il s'ouvre tout de suite avec les données déjà chargées, sans tout relire à chaque ouverture
+
 ## [1.24.0] — 2026-11-24 — Fonctionnalité
 - Lot F du caissier : remboursement en espèces du trop-perçu lors d'un changement de classe, pris dans « Non affecté », reçu en deux exemplaires
 

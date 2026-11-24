@@ -740,7 +740,7 @@ export function ParentPortal({
       )}
       {parentLibraryOpen && <LibraryDrawer audience="parent" onClose={() => setParentLibraryOpen(false)} />}
       {parentGradesOpen && <ParentPublishedGradesDrawer school={school} year={year} initialStudentId={gradeNotificationTarget?.studentId} initialSlot={gradeNotificationTarget?.slot} onClose={() => { setParentGradesOpen(false); setGradeNotificationTarget(undefined); }} />}
-      {parentArchiveOpen && <SchoolYearArchiveDrawer schoolId={school.id} onClose={() => setParentArchiveOpen(false)} />}
+      {parentArchiveOpen && <SchoolYearArchiveDrawer schoolId={school.id} activeSchoolYearId={school.activeSchoolYearId} onClose={() => setParentArchiveOpen(false)} />}
 
       {renderBottomNavigation(activeParentTab, (tab: ParentTab) => {
           closeParentMessagesDrawer();

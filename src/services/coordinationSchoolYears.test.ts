@@ -22,6 +22,8 @@ describe("confirmations annuelles et contrat UI", () => {
     expect(source).toContain("yearConfirmation.value !== YEAR_CONFIRMATIONS");
     expect(source).toContain("if (yearLock.current || !yearStatusReady) return;");
     expect(source).toContain("yearLock.current = true;");
-    expect(source).toContain("setYearGovernance(status.governance)");
+    // Après ouverture, clôture ou réactivation : état relu au serveur, puis affiché et gardé.
+    expect(source).toContain("setYearGovernance(result.governance)");
+    expect(source).toContain("applyYearStatus(status);");
   });
 });
