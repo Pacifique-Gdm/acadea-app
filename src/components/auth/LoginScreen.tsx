@@ -8,6 +8,18 @@ import { userFacingError } from "../../utils/userFacingError";
 import { ARCHIVED_TEACHER_LOGIN_MARKER } from "../../services/auth";
 import { ErrorNotice } from "../ui/ErrorNotice";
 
+// Textes de la proposition B : slogan sur la photo et 4 avantages.
+const LOGIN_SLOGAN = "La gestion scolaire dans ma poche";
+const LOGIN_ADVANTAGES = [
+  "Paiements et reçus en quelques secondes",
+  "Suivi des élèves, des présences et des dettes",
+  "Répartition des frais claire et transparente",
+  "Parents, enseignants et direction connectés",
+];
+// Photo : Katerina Holmes, Pexels (licence Pexels, usage commercial permis), 84 Ko.
+const LOGIN_PHOTO_SRC = "/connexion-enseignante.jpg";
+const LOGIN_PHOTO_CREDIT = "Photo : Katerina Holmes · Pexels";
+
 export function LoginScreen({
   onLogin,
   onDismissError,
@@ -72,7 +84,7 @@ export function LoginScreen({
   }
 
   return (
-    <main className="flex h-dvh w-full flex-col items-center justify-center overflow-hidden bg-[#F5F7FB] px-3 py-2 sm:px-6 sm:py-4">
+    <main className="flex min-h-dvh w-full flex-col bg-white lg:h-dvh lg:overflow-hidden">
       <EnvironmentBanner />
       <style>{`
         @keyframes loginCardIn {
@@ -80,6 +92,28 @@ export function LoginScreen({
           to { opacity: 1; transform: translateY(0); }
         }
       `}</style>
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+      <aside className="relative h-[300px] shrink-0 overflow-hidden lg:h-auto lg:w-[55%]">
+        <img
+          src={LOGIN_PHOTO_SRC}
+          alt="Enseignante souriante qui interroge ses élèves dans une classe lumineuse"
+          className="absolute inset-0 h-full w-full object-cover object-[50%_6%] lg:object-[50%_30%]"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#14213d]/90 via-[#14213d]/45 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 p-5 pb-10 text-white lg:p-14">
+          <h1 className="text-[1.65rem] font-extrabold leading-tight tracking-tight sm:text-3xl lg:text-5xl">{LOGIN_SLOGAN}</h1>
+          <ul className="mt-6 hidden gap-3 text-lg lg:grid">
+            {LOGIN_ADVANTAGES.map((advantage) => (
+              <li key={advantage} className="flex items-start gap-3">
+                <span aria-hidden="true" className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-emerald-500 text-sm font-extrabold">✓</span>
+                {advantage}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="absolute right-3 top-2 text-[10px] text-white/70">{LOGIN_PHOTO_CREDIT}</p>
+      </aside>
+      <div className="relative -mt-6 flex flex-1 flex-col items-center justify-center rounded-t-[26px] bg-white px-4 pb-6 pt-5 lg:mt-0 lg:rounded-none lg:bg-[#F5F7FB] lg:px-10 lg:py-6">
       <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-6">
         <PlatformLogoSlot logoUrl={platformLogoUrl} />
 
@@ -147,6 +181,16 @@ export function LoginScreen({
         </div>
         </>}
       </section>
+      <ul className="mt-4 grid w-full max-w-[460px] gap-1.5 text-xs text-slate-500 lg:hidden">
+        {LOGIN_ADVANTAGES.map((advantage) => (
+          <li key={advantage} className="flex items-start gap-2">
+            <span aria-hidden="true" className="font-extrabold text-emerald-500">✓</span>
+            {advantage}
+          </li>
+        ))}
+      </ul>
+      </div>
+      </div>
     </main>
   );
 }
