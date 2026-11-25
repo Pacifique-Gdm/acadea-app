@@ -42,12 +42,14 @@ type SecretaryMenuModuleProps = {
   initialBiometricView?: SecretaryBiometricView;
   onBiometricViewChange?: (view: SecretaryBiometricView | null) => void;
   renderPublishedTimetable?: () => ReactNode;
+  /** Bouton « Enfants » du personnel, 3e de la liste (après Salaire/Prime et Emploi du temps). */
+  renderStaffChildren?: () => ReactNode;
 };
 
 const menuButtonClass = "flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/40";
 const menuIconClass = "rounded bg-blue-50 p-2 text-blue-700";
 
-export function SecretaryMenuModule({ user, data, yearData, school, year, onYearChange, updateData, createId, onLogout, valvesUploadsEnabled, maxValveDocumentBytes, initialBiometricView, onBiometricViewChange, renderPublishedTimetable }: SecretaryMenuModuleProps) {
+export function SecretaryMenuModule({ user, data, yearData, school, year, onYearChange, updateData, createId, onLogout, valvesUploadsEnabled, maxValveDocumentBytes, initialBiometricView, onBiometricViewChange, renderPublishedTimetable, renderStaffChildren }: SecretaryMenuModuleProps) {
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [ageDrawerOpen, setAgeDrawerOpen] = useState(false);
   const [statisticsDrawerOpen, setStatisticsDrawerOpen] = useState(false);
@@ -112,6 +114,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
     <div className="grid gap-3">
       <OwnPayrollEntry user={user} school={school} /><FeeAllocationEntry user={user} schools={[school]} />
       {renderPublishedTimetable?.()}
+      {renderStaffChildren?.()}
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
       <button type="button" onClick={() => setLibraryOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Bibliothèque</span></button>
       <button type="button" onClick={() => setMedicalDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><HeartPulse className="h-5 w-5" /></span><span className="font-bold text-ink">Fiches médicales</span></button>

@@ -29,6 +29,28 @@ export async function loadStaffChildren(): Promise<StaffChildrenResult> {
   };
 }
 
+/** Signal de vrai changement : identifiants des notifications « Paiement enregistré » adressées à ce membre
+ * du personnel (lot 4), déjà reçues en direct par l'application. Un nouvel identifiant = un nouveau paiement. */
+export function staffPaymentNotificationIds(notifications: ReadonlyArray<{ id: string; recipientUserId?: string; type?: string; event?: string }> | undefined, userId: string): string[] {
+  return (notifications ?? []).filter((item) => item.recipientUserId === userId && item.type === "payment" && item.event === "payment_recorded").map((item) => item.id).sort();
+}
+
+// Point de partage du signal : l'application publie la liste, l'écran « Enfants » la lit (aucune lecture Firestore).
+let publishedPaymentIds = "";
+const paymentIdListeners = new Set<() => void>();
+export function publishStaffPaymentNotificationIds(ids: string[]) {
+  const next = ids.join("|");
+  if (next === publishedPaymentIds) return;
+  publishedPaymentIds = next;
+  paymentIdListeners.forEach((listener) => listener());
+}
+export const subscribeStaffPaymentNotificationIds = (listener: () => void) => { paymentIdListeners.add(listener); return () => { paymentIdListeners.delete(listener); }; };
+export const readStaffPaymentNotificationIds = () => publishedPaymentIds;
+/** Vrai changement : une notification « Paiement enregistré » que la réponse gardée n'avait pas encore vue. */
+export function hasNewStaffPayment(seenPaymentIds: readonly string[], signal: string) {
+  return Boolean(signal) && signal.split("|").some((id) => !seenPaymentIds.includes(id));
+}
+
 /** Ce que l'enfant paie selon la décision de l'administrateur : rien, la moitié, ou une réduction. */
 export function staffChildSupportLabel(decision: Pick<StaffChildDecision, "nature" | "lines">): string {
   if (decision.nature === "full") return "Prise en charge : rien à payer";

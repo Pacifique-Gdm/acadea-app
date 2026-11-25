@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.27.2] — 2026-11-25 — Correction
+- « Enfants » s'ouvre sans rechargement ; bouton « Enfants » 3e du Menu
+
 ## [1.27.1] — 2026-11-25 — Correction
 - Notification de paiement envoyée aussi au membre du personnel dont l'enfant est pris en charge
 
