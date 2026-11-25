@@ -47,9 +47,16 @@ describe("« Enfants » : pas de rechargement à chaque accès (comme l'Année s
     publishStaffPaymentNotificationIds(["x1", "x2"]);
     expect(listener).toHaveBeenCalledTimes(2);
     expect(readStaffPaymentNotificationIds()).toBe("x1|x2");
-    stop();
-    publishStaffPaymentNotificationIds([]);
+    // Une notification lue qui sort de la liste des non lues ne relance rien.
+    publishStaffPaymentNotificationIds(["x2"]);
     expect(listener).toHaveBeenCalledTimes(2);
+    stop();
+    publishStaffPaymentNotificationIds(["x3"]);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it("l'écoute des notifications non lues, déjà active, publie aussi le signal (aucune lecture en plus)", () => {
+    expect(read("src/hooks/usePaginatedNotifications.ts")).toContain("publishStaffPaymentNotificationIds(staffPaymentNotificationIds(unread, user.id));");
   });
 
   it("l'application publie le signal depuis les notifications déjà reçues en direct (aucune lecture en plus)", () => {
