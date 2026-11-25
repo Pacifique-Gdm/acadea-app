@@ -99,8 +99,8 @@ export function LoginScreen({
           alt="Enseignante souriante qui interroge ses élèves dans une classe lumineuse"
           className="absolute inset-0 h-full w-full object-cover object-[50%_6%] lg:object-[50%_30%]"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-[#14213d]/90 via-[#14213d]/45 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 p-5 pb-10 text-white lg:p-14">
+        <div className="absolute inset-0 bg-gradient-to-t from-[#14213d]/30 via-transparent to-transparent lg:from-[#14213d]/90 lg:via-[#14213d]/45" />
+        <div className="absolute inset-x-0 bottom-0 hidden p-5 pb-10 text-white lg:block lg:p-14">
           <h1 className="text-[1.65rem] font-extrabold leading-tight tracking-tight sm:text-3xl lg:text-5xl">{LOGIN_SLOGAN}</h1>
           <ul className="mt-6 hidden gap-3 text-lg lg:grid">
             {LOGIN_ADVANTAGES.map((advantage) => (
@@ -113,7 +113,9 @@ export function LoginScreen({
         </div>
         <p className="absolute right-3 top-2 text-[10px] text-white/70">{LOGIN_PHOTO_CREDIT}</p>
       </aside>
-      <div className="relative -mt-6 flex flex-1 flex-col items-center justify-center rounded-t-[26px] bg-white px-4 pb-6 pt-5 lg:mt-0 lg:rounded-none lg:bg-[#F5F7FB] lg:px-10 lg:py-6">
+      {/* Téléphone : le slogan passe sous la photo pour qu'elle reste visible (ordinateur inchangé). */}
+      <h1 className="px-5 pt-4 text-[1.5rem] font-extrabold leading-tight tracking-tight text-[#14213d] lg:hidden">{LOGIN_SLOGAN}</h1>
+      <div className="relative flex flex-1 flex-col items-center justify-center bg-white px-4 pb-6 pt-3 lg:mt-0 lg:rounded-none lg:bg-[#F5F7FB] lg:px-10 lg:py-6">
       <section className="w-full max-w-[460px] overflow-hidden rounded-[22px] border border-white/80 bg-white p-3 shadow-[0_24px_80px_rgba(15,23,42,0.10)] [animation:loginCardIn_520ms_ease-out] sm:rounded-[24px] sm:p-6">
         <PlatformLogoSlot logoUrl={platformLogoUrl} />
 
