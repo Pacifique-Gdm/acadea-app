@@ -7,6 +7,7 @@ describe("navigation Enseignant Phase 3", () => {
       { id: "dashboard", label: "Dashboard" },
       { id: "courses", label: "Mes cours" },
       { id: "schedule", label: "Mon horaire" },
+      { id: "children", label: "Enfants" },
       { id: "menu", label: "Menu" },
     ]);
   });

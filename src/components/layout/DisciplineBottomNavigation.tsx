@@ -1,8 +1,8 @@
-import { BookOpen, CalendarDays, CheckCircle2, Menu as MenuIcon, MessageSquare } from "lucide-react";
+import { Baby, BookOpen, CalendarDays, CheckCircle2, Menu as MenuIcon, MessageSquare } from "lucide-react";
 import { InstallPwaNavButton } from "./InstallPwaNavButton";
 import { MobileBottomNavigation } from "./MobileBottomNavigation";
 
-type DisciplineTab = "status" | "attendance" | "messages" | "menu";
+type DisciplineTab = "status" | "attendance" | "messages" | "children" | "menu";
 
 export function DisciplineBottomNavigation({
   activeTab,
@@ -19,6 +19,7 @@ export function DisciplineBottomNavigation({
     { id: "status", label: "Statut", icon: CheckCircle2 },
     { id: "attendance", label: "Présence", icon: CalendarDays },
     { id: "messages", label: "Messages", icon: MessageSquare },
+    { id: "children", label: "Enfants", icon: Baby },
     { id: "menu", label: "Menu", icon: MenuIcon },
   ] satisfies { id: DisciplineTab; label: string; icon: typeof BookOpen }[];
 
