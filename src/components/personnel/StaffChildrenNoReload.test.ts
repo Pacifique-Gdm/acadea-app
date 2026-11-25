@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
-import { hasNewStaffPayment, publishStaffPaymentNotificationIds, readStaffPaymentNotificationIds, staffPaymentNotificationIds, subscribeStaffPaymentNotificationIds } from "../../services/staffChildren";
+import { hasNewStaffPayment, publishStaffPaymentNotificationIds, readStaffChildrenRefresh, readStaffPaymentNotificationIds, requestStaffChildrenRefresh, staffPaymentNotificationIds, subscribeStaffChildrenRefresh, subscribeStaffPaymentNotificationIds } from "../../services/staffChildren";
 
 const read = (path: string) => readFileSync(path, "utf8").replace(/\r\n/g, "\n");
 const order = (source: string, marks: string[]) => marks.map((mark) => { const index = source.indexOf(mark); expect(index, mark).toBeGreaterThanOrEqual(0); return index; });
@@ -10,11 +10,10 @@ describe("« Enfants » : pas de rechargement à chaque accès (comme l'Année s
   it("la réponse est gardée pendant la session et réutilisée à la réouverture", () => {
     const screen = read("src/components/personnel/StaffChildrenContent.tsx");
     expect(screen).toContain("const staffChildrenCache = createLoadCache<StaffChildrenCacheEntry>(10);");
-    expect(screen).toContain("if (cached && !newPayment) { setData(cached.result); setLoading(false); setError(\"\"); return undefined; }");
+    expect(screen).toContain("if (cached && !newPayment && !refreshAsked) { setData(cached.result); setLoading(false); setError(\"\"); return undefined; }");
     // Pendant une relecture, les données déjà affichées restent visibles.
     expect(screen).toContain("{loading && !data && <BlockSkeleton");
-    expect(screen).toContain("}, [cacheKey, paymentSignal, refreshCount]);");
-    expect(screen).toContain("data-staff-children-refresh");
+    expect(screen).toContain("}, [cacheKey, paymentSignal, headerRefresh]);");
   });
 
   it("seul un nouveau paiement (nouvelle notification « Paiement enregistré ») demande une relecture", () => {
@@ -78,6 +77,8 @@ describe("Menu : « Enfants » est le 3e bouton de la liste", () => {
     const menu = read("src/modules/secretary/SecretaryMenuModule.tsx");
     expect(increasing(order(menu, ["<OwnPayrollEntry", "{renderPublishedTimetable?.()}", "{renderStaffChildren?.()}", ">Valves</span>"]))).toBe(true);
     expect(menu).toContain("      {renderPublishedTimetable?.()}\n      {renderStaffChildren?.()}\n");
+    // Toujours 3e, même quand « Répartition » est partagée : elle vient après « Enfants ».
+    expect(increasing(order(menu, ["{renderStaffChildren?.()}", "<FeeAllocationEntry user={user} schools={[school]} />"]))).toBe(true);
     expect(read("src/App.tsx")).toContain('renderStaffChildren={() => <StaffChildrenEntry school={school} />}');
   });
 
@@ -90,5 +91,27 @@ describe("Menu : « Enfants » est le 3e bouton de la liste", () => {
     expect(read("src/modules/teacher/TeacherPortal.tsx")).not.toContain("<StaffChildrenEntry");
     expect(read("src/modules/discipline/DisciplinePortal.tsx")).not.toContain("<StaffChildrenEntry");
     expect(read("src/modules/menu/MenuModule.tsx")).not.toContain("<StaffChildrenEntry");
+  });
+});
+
+describe("« Enfants » sans bande du haut ; la flèche de l'en-tête suffit", () => {
+  it("plus de titre, de phrase ni de bouton « Actualiser » : seulement les cartes ou le message", () => {
+    const screen = read("src/components/personnel/StaffChildrenContent.tsx");
+    expect(screen).not.toContain("<h1");
+    expect(screen).not.toContain("Enfants à votre charge inscrits dans cet établissement");
+    expect(screen).not.toContain("data-staff-children-refresh");
+    expect(screen).not.toContain("RefreshCw");
+    expect(screen).toContain("{STAFF_NO_CHILDREN_MESSAGE}");
+  });
+
+  it("la flèche « Actualiser » de l'en-tête demande une relecture de « Enfants »", () => {
+    expect(read("src/components/layout/Header.tsx")).toContain("if (refreshed !== false) { setManualRefreshToken((value) => value + 1); requestStaffChildrenRefresh(); }");
+    const listener = vi.fn();
+    const stop = subscribeStaffChildrenRefresh(listener);
+    const before = readStaffChildrenRefresh();
+    requestStaffChildrenRefresh();
+    expect(readStaffChildrenRefresh()).toBe(before + 1);
+    expect(listener).toHaveBeenCalledTimes(1);
+    stop();
   });
 });

@@ -15,6 +15,7 @@ import { useHeaderAd } from "../../hooks/useHeaderAd";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../ui/ErrorNotice";
 import { studyFunctionLabel } from "../../utils/studyFunction";
+import { requestStaffChildrenRefresh } from "../../services/staffChildren";
 
 type HeaderYearData = Pick<AppData, "auditLogs" | "messages" | "notifications" | "parents" | "students" | "users">;
 
@@ -92,7 +93,7 @@ export function Header({
     setManualRefreshing(true);
     try {
       const refreshed = await Promise.resolve(onRefresh());
-      if (refreshed !== false) setManualRefreshToken((value) => value + 1);
+      if (refreshed !== false) { setManualRefreshToken((value) => value + 1); requestStaffChildrenRefresh(); }
     } finally {
       setManualRefreshing(false);
     }

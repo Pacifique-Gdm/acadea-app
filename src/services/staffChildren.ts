@@ -32,7 +32,7 @@ export async function loadStaffChildren(): Promise<StaffChildrenResult> {
 /** Signal de vrai changement : identifiants des notifications « Paiement enregistré » adressées à ce membre
  * du personnel (lot 4), déjà reçues en direct par l'application. Un nouvel identifiant = un nouveau paiement. */
 export function staffPaymentNotificationIds(notifications: ReadonlyArray<{ id: string; recipientUserId?: string; type?: string; event?: string }> | undefined, userId: string): string[] {
-  return (notifications ?? []).filter((item) => item.recipientUserId === userId && item.type === "payment" && item.event === "payment_recorded").map((item) => item.id).sort();
+  return (notifications ?? []).filter((item) => item.recipientUserId === userId && item.type === "payment" && (item.event === "payment_recorded" || item.event === "support_recorded")).map((item) => item.id).sort();
 }
 
 // Point de partage du signal : l'application publie la liste, l'écran « Enfants » la lit (aucune lecture Firestore).
@@ -50,6 +50,16 @@ export function publishStaffPaymentNotificationIds(ids: string[]) {
 }
 export const subscribeStaffPaymentNotificationIds = (listener: () => void) => { paymentIdListeners.add(listener); return () => { paymentIdListeners.delete(listener); }; };
 export const readStaffPaymentNotificationIds = () => publishedPaymentIds;
+// Flèche « Actualiser » de l'en-tête : chaque appui demande une relecture de « Enfants » (affiché ou à la prochaine ouverture).
+let staffChildrenRefreshCount = 0;
+const refreshListeners = new Set<() => void>();
+export function requestStaffChildrenRefresh() {
+  staffChildrenRefreshCount += 1;
+  refreshListeners.forEach((listener) => listener());
+}
+export const subscribeStaffChildrenRefresh = (listener: () => void) => { refreshListeners.add(listener); return () => { refreshListeners.delete(listener); }; };
+export const readStaffChildrenRefresh = () => staffChildrenRefreshCount;
+
 /** Vrai changement : une notification « Paiement enregistré » que la réponse gardée n'avait pas encore vue. */
 export function hasNewStaffPayment(seenPaymentIds: readonly string[], signal: string) {
   return Boolean(signal) && signal.split("|").some((id) => !seenPaymentIds.includes(id));

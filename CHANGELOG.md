@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.27.3] — 2026-11-25 — Correction
+- Alertes téléphone et notification « Prise en charge enregistrée » pour le personnel ; « Enfants » sans bande du haut, toujours 3e du Menu
+
 ## [1.27.2] — 2026-11-25 — Correction
 - « Enfants » s'ouvre sans rechargement ; bouton « Enfants » 3e du Menu
 

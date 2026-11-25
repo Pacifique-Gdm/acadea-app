@@ -112,9 +112,11 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
     </label>
     {year.status === "archived" && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">Vous consultez une année scolaire archivée en lecture seule.</p>}
     <div className="grid gap-3">
-      <OwnPayrollEntry user={user} school={school} /><FeeAllocationEntry user={user} schools={[school]} />
+      <OwnPayrollEntry user={user} school={school} />
       {renderPublishedTimetable?.()}
       {renderStaffChildren?.()}
+      {/* « Enfants » reste 3e : « Répartition » (seulement si une rubrique est partagée) vient après. */}
+      <FeeAllocationEntry user={user} schools={[school]} />
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
       <button type="button" onClick={() => setLibraryOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Bibliothèque</span></button>
       <button type="button" onClick={() => setMedicalDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><HeartPulse className="h-5 w-5" /></span><span className="font-bold text-ink">Fiches médicales</span></button>
