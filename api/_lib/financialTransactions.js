@@ -574,6 +574,12 @@ async function createPayment(transaction, db, caller, body, hash, now) {
     .map((payment) => fromMoneyMinor(recordedMinor(payment.amount))));
   const financialStudent = debt ? { id: studentId, ...(await transaction.get(db.doc(`students/${studentId}`))).data() } : { ...currentStudent, id: studentId };
   const balance = supportBalance(financialStudent, { ...fee, id: feeTypeId }, matchingPayments);
+  // Lot 4 : membre du personnel désigné par la décision de prise en charge active (motif « Personnel de l'école ») ;
+  // lu ici, avant toute écriture de la transaction, pour lui envoyer la même notification qu'au parent.
+  const staffRecipientIds = formerStudentId ? [] : [...new Set((await transaction.get(db.collection("socialSupportDecisions").where("studentId", "==", currentStudentId))).docs
+    .map((document) => document.data())
+    .filter((decision) => decision.schoolId === caller.schoolId && decision.schoolYearId === collectionSchoolYearId && decision.status === "active" && decision.reason === "personnel" && typeof decision.personnelId === "string" && decision.personnelId)
+    .map((decision) => decision.personnelId))].slice(0, 5);
   // Lot 26c : plus de paiement « par un tiers » ; tout paiement passe par la caisse normale,
   // jusqu'au reste dû (montant net − déjà payé). Les anciens paiements restent comptés comme avant.
   if (body.supportDecisionId !== undefined) throw new FinancialApiError(400, "invalid-argument", "Le paiement par un tiers n'existe plus : enregistrez un paiement ordinaire.");
@@ -641,17 +647,28 @@ async function createPayment(transaction, db, caller, body, hash, now) {
   transaction.set(prefixCounterRef, { schoolId: caller.schoolId, prefix, kind: "receipt-prefix", lastReceiptNumber: sequence, updatedAt: now }, { merge: true });
   const auditId = `audit_fin_${hash.slice(0, 24)}`;
   transaction.set(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_PAYMENT_CREATED, actor: { ...caller, name: actorName }, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, resourceType: "payment", resourceId: paymentId, metadata: { receiptNumber, amount, ...(debt ? { debtSchoolYearId, feeTypeId } : {}), ...(formerStudentId ? { formerStudent: true, formerStudentId } : {}) } }));
-  if (typeof currentStudent.parentId === "string" && currentStudent.parentId) {
+  if ((typeof currentStudent.parentId === "string" && currentStudent.parentId) || staffRecipientIds.length) {
     const notificationId = `notif_fin_${hash.slice(0, 24)}`;
     const studentName = [currentStudent.nom, currentStudent.postnom, currentStudent.prenom].map((value) => text(value, 120)).filter(Boolean).join(" ") || "Élève";
     const symbol = (debt?.currency ?? currency) === "CDF" ? "FC" : "$";
     const formatAmount = (value) => symbol === "$" ? `$${value.toFixed(2)}` : `${value.toFixed(2)} FC`;
     const remaining = fromMoneyMinor(Math.max(toMoneyMinor(balance.remaining) - toMoneyMinor(amount), 0));
-    transaction.set(db.doc(`notifications/${notificationId}`), {
+    const notificationBody = `Élève : ${studentName}\nType de frais : ${text(fee.name, 160) || "Frais"}${debt ? ` — ${formerStudentId ? "Ancien élève, dette" : "Arriéré"} ${debt.yearName}` : ""}\nMontant payé : ${formatAmount(amount)}\nReste à payer : ${formatAmount(remaining)}`;
+    if (typeof currentStudent.parentId === "string" && currentStudent.parentId) transaction.set(db.doc(`notifications/${notificationId}`), {
       id: notificationId, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, parentId: currentStudent.parentId, studentId: currentStudentId,
       recipientRole: "parent", type: "payment", module: "payments", event: "payment_recorded", destination: "/dashboard",
-      title: "Paiement enregistré", body: `Élève : ${studentName}\nType de frais : ${text(fee.name, 160) || "Frais"}${debt ? ` — ${formerStudentId ? "Ancien élève, dette" : "Arriéré"} ${debt.yearName}` : ""}\nMontant payé : ${formatAmount(amount)}\nReste à payer : ${formatAmount(remaining)}`,
+      title: "Paiement enregistré", body: notificationBody,
       createdAt: now, read: false,
+    });
+    // Lot 4 : même texte, notification personnelle (visible seulement par ce membre du personnel).
+    staffRecipientIds.forEach((recipientUserId, index) => {
+      const staffNotificationId = `notif_fin_staff_${index}_${hash.slice(0, 24)}`;
+      transaction.set(db.doc(`notifications/${staffNotificationId}`), {
+        id: staffNotificationId, schoolId: caller.schoolId, schoolYearId: collectionSchoolYearId, recipientUserId, studentId: currentStudentId,
+        type: "payment", module: "payments", event: "payment_recorded", destination: "/dashboard",
+        title: "Paiement enregistré", body: notificationBody,
+        createdAt: now, read: false,
+      });
     });
   }
   return { payment };

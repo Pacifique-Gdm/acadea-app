@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.27.1] — 2026-11-25 — Correction
+- Notification de paiement envoyée aussi au membre du personnel dont l'enfant est pris en charge
+
 ## [1.27.0] — 2026-11-25 — Fonctionnalité
 - Onglet « Enfants » pour le personnel : enfants à charge, frais, paiements et reçus
 
