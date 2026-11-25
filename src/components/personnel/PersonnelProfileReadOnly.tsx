@@ -3,6 +3,8 @@ import { isArchivedPersonnel, isServicePersonnel, personnelIdentity, personnelRo
 import type { PersonnelRecord } from "../../services/personnel";
 import { schoolSectionLabels } from "../../utils/schoolConfig";
 import { userSectionIds } from "../../utils/userSections";
+import { studyFunctionLabel } from "../../utils/studyFunction";
+import type { AppUser } from "../../types";
 
 const shown = (value: unknown) => value === undefined || value === null || value === "" ? "Non renseigné" : String(value);
 const dateShown = (value: unknown) => {
@@ -18,7 +20,7 @@ export function PersonnelProfileReadOnly({ personnel, profile, schoolName }: { p
   const detailSections: Array<[string, Array<[string, unknown]>]> = [
     ["IDENTIFICATION", [["Matricule", profile?.matricule], ["Nom", identity.lastName], ["Postnom", identity.middleName], ["Prénom", identity.firstName], ["Sexe", profile?.gender], ["Date de naissance", dateShown(profile?.birthDate)], ["Lieu de naissance", profile?.birthPlace]]],
     ["COORDONNÉES", [["Téléphone", personnel.phone], ...(!service ? [["E-mail", personnel.email] as [string, unknown]] : []), ["Adresse", profile?.address ?? (service ? undefined : personnel.address)]]],
-    ["SITUATION PROFESSIONNELLE", [["Fonction", profile?.jobTitle ?? (service ? personnel.jobTitle : personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels])], ...(schoolName ? [["École", schoolName] as [string, unknown]] : []), ["Date d’engagement", dateShown(profile?.engagementDate)], ["Type de contrat", profile?.contractType], ["Sections", (service ? personnel.sectionIds ?? [] : userSectionIds(personnel)).map((section) => schoolSectionLabels[section]).join(", ")], ["Statut", isArchivedPersonnel(personnel) ? "Archivé" : "Actif"]]],
+    ["SITUATION PROFESSIONNELLE", [["Fonction", profile?.jobTitle ?? (service ? personnel.jobTitle : studyFunctionLabel(personnel as AppUser) ?? personnelRoleLabels[personnel.role as keyof typeof personnelRoleLabels])], ...(schoolName ? [["École", schoolName] as [string, unknown]] : []), ["Date d’engagement", dateShown(profile?.engagementDate)], ["Type de contrat", profile?.contractType], ["Sections", (service ? personnel.sectionIds ?? [] : userSectionIds(personnel)).map((section) => schoolSectionLabels[section]).join(", ")], ["Statut", isArchivedPersonnel(personnel) ? "Archivé" : "Actif"]]],
     ["FORMATION ET QUALIFICATIONS", [["Niveau d’études", profile?.educationLevel], ["Diplôme", profile?.diploma], ["Spécialité", profile?.specialty], ["Établissement de formation", profile?.trainingInstitution], ["Année d’obtention", profile?.graduationYear]]],
     ["INFORMATIONS COMPLÉMENTAIRES", [["Personne à contacter", profile?.emergencyContactName], ["Lien avec la personne", profile?.emergencyContactRelationship], ["Téléphone", profile?.emergencyContactPhone]]],
     ["OBSERVATIONS", [["Observations", profile?.observations]]],

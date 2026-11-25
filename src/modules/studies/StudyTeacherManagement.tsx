@@ -6,7 +6,8 @@ import { provisionSchoolUser } from "../../services/provisioning";
 import { subscribeToSchoolTeacherAccounts } from "../../services/teacherAccounts";
 import type { AppData, AppUser, School, SchoolSection, SchoolYear } from "../../types";
 import { isValidProvisioningPhone, nextSchoolStaffEmail, normalizeProvisioningPhone } from "../../utils/schoolAccountCredentials";
-import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
+import { schoolSectionLabels } from "../../utils/schoolConfig";
+import { sectionsAvailableToUser } from "../../utils/userSections";
 import { temporaryPasswordAfterPhoneChange } from "../../utils/temporaryPassword";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
@@ -34,7 +35,8 @@ export function StudyTeacherCreateContent({ user, school, year, appData, updateD
   const [errorLoad, setErrorLoad] = useState("");
   const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const [success, setSuccess] = useState("");
-  const schoolSections = getSchoolSections(school);
+  // Lot 2 : le directeur ne choisit que parmi SES sections (le serveur le vérifie aussi).
+  const schoolSections = sectionsAvailableToUser(user, school);
   const generatedEmail = useMemo(
     () => nextSchoolStaffEmail(school, "teacher", [...appData.users, ...teacherAccounts], appData.parents),
     [appData.parents, appData.users, school, teacherAccounts],

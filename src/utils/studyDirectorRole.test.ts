@@ -7,7 +7,7 @@ const rules = readFileSync(new URL("../../firestore.rules", import.meta.url), "u
 
 describe("rôle Directeur des études", () => {
   it("est proposé par le formulaire Administrateur", () => {
-    expect(menu).toContain('<option value="study_director">Directeur des études</option>');
+    expect(menu).toContain('<option value="study_director">Direction des études</option>');
     expect(menu).toContain("temporaryPasswordAfterPhoneChange");
     expect(menu).toContain("provisionSchoolUser");
   });

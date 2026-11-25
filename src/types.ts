@@ -35,6 +35,8 @@ export interface AppUser {
   section?: SchoolSection;
   /** Périmètre multi-sections. `section` reste lu pour les comptes historiques. */
   sectionIds?: SchoolSection[];
+  /** Lot 2 : fonction affichée d'un compte study_director (absente = Directeur des études). */
+  studyFunction?: string;
   activeSchoolYearId?: string;
   parentId?: string;
   studentIds?: string[];

@@ -119,6 +119,21 @@ export function normalizeSectionIds(value) {
   return normalized;
 }
 
+// Lot 2 (Direction des études) : fonctions affichées pour un compte study_director (le rôle ne change pas).
+export const STUDY_FUNCTIONS = new Set(["director_of_studies", "prefect_of_studies", "primary_director", "nursery_director"]);
+
+/** Lot 2 : un directeur qui a des sections ne crée ou ne modifie un enseignant que dans SES sections.
+ * Un compte historique sans section garde son périmètre non borné (même règle que l'écran et les règles de sécurité). */
+export function assertStudyDirectorSections(directorProfile, sectionIds, currentSectionIds = []) {
+  const raw = Array.isArray(directorProfile?.sectionIds) && directorProfile.sectionIds.length ? directorProfile.sectionIds : (directorProfile?.section ? [directorProfile.section] : []);
+  const own = raw.map(normalizeText).filter(Boolean).map(normalizeSchoolSection).filter(Boolean);
+  if (!own.length) return;
+  const outside = (list) => list.some((section) => !own.includes(normalizeSchoolSection(normalizeText(section))));
+  if (!sectionIds.length || outside(sectionIds) || outside(currentSectionIds)) {
+    throw Object.assign(new Error("Vous pouvez créer ou modifier un enseignant uniquement dans vos sections."), { statusCode: 403, code: "permission-denied" });
+  }
+}
+
 function configuredSchoolSections(school = {}) {
   const canonical = (value) => {
     const normalized = normalizeText(value).toLowerCase();
@@ -191,6 +206,7 @@ async function assertAuthorizedCaller({ db, caller, schoolId, allowSecretary = f
     if (!callerSnapshot.exists || profile?.role !== "study_director" || profile?.schoolId !== schoolId || profile?.status === "inactive" || profile?.active === false) {
       throw Object.assign(new Error("Compte Directeur des études non autorisé."), { statusCode: 403, code: "permission-denied" });
     }
+    return profile;
   }
 }
 
@@ -733,6 +749,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     if (!name || !phone || !email) throw Object.assign(new Error("Nom, telephone et email sont requis."), { statusCode: 400, code: "invalid-argument" });
     const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
     assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
+    if (caller.role === "study_director") assertStudyDirectorSections(callerProfile, sectionIds, Array.isArray(target.sectionIds) && target.sectionIds.length ? target.sectionIds : (target.section ? [target.section] : []));
     const previousAuth = await auth.getUser(personnelId);
     await auth.updateUser(personnelId, { displayName: name, email });
     const profileRef = db.doc(`personnelProfiles/${personnelId}`);
@@ -998,7 +1015,7 @@ export default async function handler(req, res) {
       return;
     }
 
-    await assertAuthorizedCaller({
+    const directorProfile = await assertAuthorizedCaller({
       db,
       caller,
       schoolId,
@@ -1009,6 +1026,12 @@ export default async function handler(req, res) {
     });
     const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
     assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
+    if (directorProfile) assertStudyDirectorSections(directorProfile, sectionIds);
+    const studyFunction = role === "study_director" ? normalizeText(body.studyFunction) : "";
+    if (studyFunction && !STUDY_FUNCTIONS.has(studyFunction)) {
+      sendJson(res, 400, { error: "Fonction de la direction des études invalide.", code: "invalid-argument" });
+      return;
+    }
     await requireActiveSchoolYear(db, schoolId, schoolYearId);
 
     const parentId = role === "parent" ? normalizeText(body.parentId) || uid("parent") : "";
@@ -1039,6 +1062,7 @@ export default async function handler(req, res) {
         active: true,
         createdAt: now,
         ...(sectionIds.length ? { section: sectionIds[0], sectionIds } : {}),
+        ...(studyFunction ? { studyFunction } : {}),
       };
 
       const userRef = db.doc(`users/${authUser.uid}`);
