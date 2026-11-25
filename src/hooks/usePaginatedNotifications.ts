@@ -4,6 +4,7 @@ import type { Firestore, Query } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
 import { countUnreadNotifications, loadNotificationsPage, type NotificationsCursor } from "../services/notificationsPagination";
 import type { AppNotification, AppUser, Message } from "../types";
+import { publishStaffPaymentNotificationIds, staffPaymentNotificationIds } from "../services/staffChildren";
 
 type UsePaginatedNotificationsOptions = {
   user: AppUser;
@@ -213,7 +214,10 @@ export function usePaginatedNotifications({
         notificationQuery,
         (snapshot) => {
           snapshots[index] = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppNotification);
-          setUnreadCount(mergeRealtimeNotifications(user, messages, snapshots).length);
+          const unread = mergeRealtimeNotifications(user, messages, snapshots);
+          setUnreadCount(unread.length);
+          // « Enfants » du personnel : un nouveau « Paiement enregistré » non lu = vrai changement (même écoute, aucune lecture en plus).
+          publishStaffPaymentNotificationIds(staffPaymentNotificationIds(unread, user.id));
         },
         (error) => {
           console.warn("Ecoute des notifications non lues impossible.", error);

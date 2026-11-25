@@ -29,6 +29,32 @@ export async function loadStaffChildren(): Promise<StaffChildrenResult> {
   };
 }
 
+/** Signal de vrai changement : identifiants des notifications « Paiement enregistré » adressées à ce membre
+ * du personnel (lot 4), déjà reçues en direct par l'application. Un nouvel identifiant = un nouveau paiement. */
+export function staffPaymentNotificationIds(notifications: ReadonlyArray<{ id: string; recipientUserId?: string; type?: string; event?: string }> | undefined, userId: string): string[] {
+  return (notifications ?? []).filter((item) => item.recipientUserId === userId && item.type === "payment" && item.event === "payment_recorded").map((item) => item.id).sort();
+}
+
+// Point de partage du signal : l'application publie la liste, l'écran « Enfants » la lit (aucune lecture Firestore).
+// Les identifiants s'ajoutent seulement (deux sources : liste des notifications et écoute des non lues) :
+// une notification lue qui sort d'une liste ne relance rien ; seul un identifiant jamais vu prévient l'écran.
+const knownPaymentIds = new Set<string>();
+let publishedPaymentIds = "";
+const paymentIdListeners = new Set<() => void>();
+export function publishStaffPaymentNotificationIds(ids: string[]) {
+  const before = knownPaymentIds.size;
+  ids.forEach((id) => knownPaymentIds.add(id));
+  if (knownPaymentIds.size === before) return;
+  publishedPaymentIds = [...knownPaymentIds].sort().join("|");
+  paymentIdListeners.forEach((listener) => listener());
+}
+export const subscribeStaffPaymentNotificationIds = (listener: () => void) => { paymentIdListeners.add(listener); return () => { paymentIdListeners.delete(listener); }; };
+export const readStaffPaymentNotificationIds = () => publishedPaymentIds;
+/** Vrai changement : une notification « Paiement enregistré » que la réponse gardée n'avait pas encore vue. */
+export function hasNewStaffPayment(seenPaymentIds: readonly string[], signal: string) {
+  return Boolean(signal) && signal.split("|").some((id) => !seenPaymentIds.includes(id));
+}
+
 /** Ce que l'enfant paie selon la décision de l'administrateur : rien, la moitié, ou une réduction. */
 export function staffChildSupportLabel(decision: Pick<StaffChildDecision, "nature" | "lines">): string {
   if (decision.nature === "full") return "Prise en charge : rien à payer";

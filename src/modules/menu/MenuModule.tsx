@@ -71,6 +71,8 @@ type MenuModuleProps = {
   formatFeeTargetLabel: (fee: Pick<FeeType, "className" | "classOptionKey">) => string;
   renderFinancialReport: () => ReactNode;
   renderActivityHistory: (role: "admin" | "cashier") => ReactNode;
+  /** Bouton « Enfants » du personnel (administrateur), 3e de la liste du Menu. */
+  renderStaffChildren?: () => ReactNode;
   maxValveDocumentBytes: number;
   onOpenBiometrics: (mode: "fingerprints" | "cards") => void;
   initialBiometricsOpen?: boolean;
@@ -104,6 +106,7 @@ export function MenuModule({
   formatFeeTargetLabel,
   renderFinancialReport,
   renderActivityHistory,
+  renderStaffChildren,
   maxValveDocumentBytes,
   onOpenBiometrics,
   initialBiometricsOpen = false,
@@ -1398,6 +1401,7 @@ export function MenuModule({
         </p>
       )}
       <OwnPayrollEntry user={user} school={school} />
+      {renderStaffChildren?.()}
       <FeeAllocationEntry user={user} schools={[school]} />
       {visibleMenuSections.filter((section) => section.id !== "years").map((section) => {
         const Icon = section.icon;

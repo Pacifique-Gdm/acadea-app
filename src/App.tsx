@@ -74,6 +74,7 @@ import { filterByAllowedSections } from "./utils/userSections";
 import { getStudentSection } from "./utils/studentClasses";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
 import { StaffChildrenContent, StaffChildrenEntry } from "./components/personnel/StaffChildrenContent";
+import { publishStaffPaymentNotificationIds, staffPaymentNotificationIds } from "./services/staffChildren";
 import type {
   AppData,
   AppNotification,
@@ -254,6 +255,8 @@ export default function App() {
     });
   }, []);
   const [dataRefreshToken, setDataRefreshToken] = useState(0);
+  // Écran « Enfants » du personnel : nouvelles notifications « Paiement enregistré » = vrai changement (relecture).
+  useEffect(() => { publishStaffPaymentNotificationIds(staffPaymentNotificationIds(data.notifications, user?.id ?? "")); }, [data.notifications, user?.id]);
   const refreshInFlightRef = useRef(false);
   const schoolRefreshRef = useRef<ReturnType<typeof startSchoolRefresh> | null>(null);
   const realtimeReadRevisions = useRef<Partial<Record<keyof AppData, number>>>({});
@@ -1461,7 +1464,7 @@ export default function App() {
             canAttachFiles
           /></NestedScreen>
         )}
-        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></NestedScreen><StaffChildrenEntry school={school} /><PushNotificationSettings user={user} /></div>}
+        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} renderStaffChildren={() => <StaffChildrenEntry school={school} />} /></NestedScreen><PushNotificationSettings user={user} /></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1612,7 +1615,6 @@ export default function App() {
         {!standaloneAdminRoute && activeTab === "menu" && (
           <div className="grid gap-6">
             <PushNotificationSettings user={user} />
-            {user.role === "school_admin" && <StaffChildrenEntry school={school} />}
             {secondaryRefreshIssues.valves && <p className="text-sm text-amber-800" role="status">Valves non actualisées. {secondaryRefreshIssues.valves}</p>}
             {secondaryRefreshIssues.attendance && <p className="text-sm text-amber-800" role="status">Présences non actualisées. {secondaryRefreshIssues.attendance}</p>}
             {canReadPublishedTimetable(user) && <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />}<MenuModule
@@ -1626,6 +1628,7 @@ export default function App() {
             updateData={updateData}
             onLogout={logout}
             valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled}
+            renderStaffChildren={() => <>{user.role === "school_admin" && <StaffChildrenEntry school={school} />}</>}
             onCreateParentFromDirectory={() => openParentFormFromDirectory()}
             onEditParentFromDirectory={(parent) => openParentFormFromDirectory(parent.id)}
             createId={uid}
