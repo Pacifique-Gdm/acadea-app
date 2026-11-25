@@ -11,6 +11,7 @@ import { canUseFirestoreData } from "../../services/firestoreData";
 import { deleteFeeType } from "../../services/feeTypesRepository";
 import { addFeeKind as persistFeeKind, FeeTypeSaveError, saveFeeTypes, type FeeKindAddRequest, type FeeTypeSaveRequest } from "../../services/feeTypeMutations";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
+import { STUDY_FUNCTION_LABELS, type StudyFunction } from "../../utils/studyFunction";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
@@ -123,6 +124,7 @@ export function MenuModule({
   const schoolSectionSavingRef = useRef(false);
   const [schoolUserRole, setSchoolUserRole] = useState<SchoolUserProvisionRole>("cashier");
   const [schoolUserSections, setSchoolUserSections] = useState<SchoolSection[]>([]);
+  const [schoolUserStudyFunction, setSchoolUserStudyFunction] = useState<StudyFunction>("director_of_studies");
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
   const [cashierEmail, setCashierEmail] = useState("");
@@ -550,6 +552,7 @@ export function MenuModule({
         phone: normalizedPhone,
         section: schoolUserSections[0],
         sectionIds: schoolUserSections,
+        ...(schoolUserRole === "study_director" ? { studyFunction: schoolUserStudyFunction } : {}),
       });
     } catch (error) {
       setCashierError(error instanceof Error ? `Création du compte de connexion impossible : ${userFacingError(error, "erreur inconnue")}` : "Création du compte de connexion impossible.");
@@ -569,6 +572,7 @@ export function MenuModule({
     setShowCashierPassword(false);
     setSchoolUserRole("cashier");
     setSchoolUserSections([]);
+    setSchoolUserStudyFunction("director_of_studies");
     setCashierSuccess(`Compte ${schoolUserProvisionLabels[schoolUserRole].toLowerCase()} créé avec succès. Il peut maintenant se connecter avec son email et son mot de passe.`);
     window.setTimeout(() => setCreatePersonnelOpen(false), 2000);
   }
@@ -1112,11 +1116,17 @@ export function MenuModule({
             <select value={schoolUserRole} onChange={(event) => { setSchoolUserRole(event.target.value as SchoolUserProvisionRole); setSchoolUserEmailManuallyEdited(false); }} className="input">
               <option value="cashier">Caissier</option>
               <option value="discipline_director">Directeur de Discipline</option>
-              <option value="study_director">Directeur des études</option>
+              <option value="study_director">Direction des études</option>
               <option value="secretary">Secrétaire</option>
               <option value="teacher">Enseignant</option>
             </select>
           </label>
+          {schoolUserRole === "study_director" && <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
+            Fonction
+            <select value={schoolUserStudyFunction} onChange={(event) => setSchoolUserStudyFunction(event.target.value as StudyFunction)} className="input">
+              {Object.entries(STUDY_FUNCTION_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>}
           <MultiSelectDropdown label="Sections" options={schoolSectionChoices.map((section) => ({ value: section, label: schoolSectionLabels[section] }))} values={schoolUserSections} onChange={(values) => setSchoolUserSections(values as SchoolSection[])} placeholder={schoolSectionChoices.length ? "Non renseignée" : "Aucune section disponible"} />
           <Field label="Nom complet" value={cashierName} onChange={setCashierName} />
           <Field label="Téléphone" value={cashierPhone} onChange={(value) => {

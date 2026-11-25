@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.26.0] — 2026-11-25 — Fonctionnalité
+- Direction des études : nouveau libellé, champ « Fonction » (Directeur des études, Préfet d'études, Directeur primaire, Directrice maternelle) affichée seule ; création et modification d'enseignants limitées aux sections du directeur, vérifiées par le serveur
+
 ## [1.25.5] — 2026-11-25 — Correction
 - Écran de connexion sur téléphone : la photo redevient visible (slogan sous la photo, dégradé léger, carte qui ne la recouvre plus) ; ordinateur inchangé
 

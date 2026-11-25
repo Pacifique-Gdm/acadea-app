@@ -14,6 +14,7 @@ import { HeaderAdBanner } from "../ads/HeaderAd";
 import { useHeaderAd } from "../../hooks/useHeaderAd";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../ui/ErrorNotice";
+import { studyFunctionLabel } from "../../utils/studyFunction";
 
 type HeaderYearData = Pick<AppData, "auditLogs" | "messages" | "notifications" | "parents" | "students" | "users">;
 
@@ -191,7 +192,7 @@ export function Header({
                 {schoolLogoUrl ? <img src={schoolLogoUrl} alt="" className="h-full w-full object-cover" /> : "A"}
               </div>
               <p className="truncate text-sm font-bold text-ink">{school.name}</p>
-              <p className="hidden truncate text-xs text-slate-500 md:block">· {userDisplayName ? `${userDisplayName}, ` : ""}{roleLabels[user.role]}</p>
+              <p className="hidden truncate text-xs text-slate-500 md:block">· {userDisplayName ? `${userDisplayName}, ` : ""}{studyFunctionLabel(user) ?? roleLabels[user.role]}</p>
             </div>
             {headerTools(true)}
           </div>
@@ -206,7 +207,7 @@ export function Header({
             </div>
             <div className="min-w-0">
               <p className="truncate text-lg font-bold text-ink">{userDisplayName ? `Bonjour, ${userDisplayName}` : "Bonjour !"}</p>
-              <p className="text-xs text-slate-500">{roleLabels[user.role]}</p>
+              <p className="text-xs text-slate-500">{studyFunctionLabel(user) ?? roleLabels[user.role]}</p>
               <p className="mt-1 truncate text-sm font-semibold text-ink">{school.name}</p>
               {schoolMotto && <p className="truncate text-xs italic text-slate-500">{schoolMotto}</p>}
               <div className="mt-1 flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium leading-4 text-slate-500">
