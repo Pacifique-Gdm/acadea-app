@@ -26,6 +26,16 @@ const id = (value) =>
   typeof value === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(value)
     ? value
     : fail("Identifiant invalide.");
+
+/** Ce que l'enfant paie selon la décision (sans montant), comme l'écran « Enfants » du personnel. */
+export function supportNotificationLabel(decision) {
+  if (decision.nature === "full") return "Prise en charge : rien à payer";
+  const values = Object.values(decision.lines ?? {}).map((line) => line.value);
+  if (decision.nature === "percent" && values.length > 0 && values.every((value) => value === 50)) return "Prise en charge : la moitié";
+  if (decision.nature === "percent" && values.length > 0 && values.every((value) => value === 100)) return "Prise en charge : rien à payer";
+  return "Prise en charge : réduction accordée";
+}
+
 export async function manageSocialSupport({ db, caller, body }) {
   if (!managingRoles.includes(caller.role) || !caller.schoolId)
     fail("Gestion des prises en charge non autorisée.", 403);
@@ -209,6 +219,7 @@ export async function manageSocialSupport({ db, caller, body }) {
     if (!cancelling && body.action !== "save-social-support")
       fail("Action invalide.");
     let next;
+    let personnelAccountId = null;
     const feeLocks = [];
     if (cancelling) {
       if (payments.some((p) => p.supportDecisionId === decisionId))
@@ -237,6 +248,9 @@ export async function manageSocialSupport({ db, caller, body }) {
           tx.get(db.doc(`users/${personnelId}`)),
           tx.get(db.doc(`personnelProfiles/${personnelId}`)),
         ]);
+        // Le membre du personnel a un compte dans cette école : il sera prévenu (notification personnelle).
+        personnelAccountId =
+          snaps[0].exists && snaps[0].data().schoolId === schoolId ? personnelId : null;
         if (
           !snaps.some(
             (s) =>
@@ -383,6 +397,25 @@ export async function manageSocialSupport({ db, caller, body }) {
       studentId,
       decisionId,
     });
+    if (!cancelling && next.reason === "personnel" && personnelAccountId) {
+      // Même forme que la notification de paiement au personnel (lot 4) : seul ce membre du personnel la voit.
+      const notificationId = `notif_support_${hash.slice(0, 24)}`;
+      tx.set(db.doc(`notifications/${notificationId}`), {
+        id: notificationId,
+        schoolId,
+        schoolYearId: yearId,
+        recipientUserId: personnelAccountId,
+        studentId,
+        type: "payment",
+        module: "payments",
+        event: "support_recorded",
+        destination: "/dashboard",
+        title: "Prise en charge enregistrée",
+        body: `Élève : ${next.studentName || "Élève"}\nClasse : ${next.className || "—"}\n${supportNotificationLabel(next)}`,
+        createdAt: now,
+        read: false,
+      });
+    }
     const result = { decision: next };
     tx.set(requestRef, { fingerprint, result, schoolId });
     return result;

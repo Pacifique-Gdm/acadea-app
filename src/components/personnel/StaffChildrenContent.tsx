@@ -1,11 +1,11 @@
 // Lot 3 : onglet (ou tiroir) « Enfants » du personnel. Même présentation que l'onglet « Enfants » du parent :
 // frais attendus après la décision de l'administrateur, montant payé, solde, détail par frais et reçus.
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Baby, Download, RefreshCw } from "lucide-react";
+import { Baby, Download } from "lucide-react";
 import { AdminDrawer, BlockSkeleton, Metric } from "../ui";
 import { ErrorNotice } from "../ui/ErrorNotice";
 import { StudentPhoto } from "../students/StudentPhoto";
-import { hasNewStaffPayment, loadStaffChildren, readStaffPaymentNotificationIds, staffChildSupportLabel, subscribeStaffPaymentNotificationIds, type StaffChildrenResult } from "../../services/staffChildren";
+import { hasNewStaffPayment, loadStaffChildren, readStaffChildrenRefresh, readStaffPaymentNotificationIds, requestStaffChildrenRefresh, staffChildSupportLabel, subscribeStaffChildrenRefresh, subscribeStaffPaymentNotificationIds, type StaffChildrenResult } from "../../services/staffChildren";
 import { getStudentFeeSummaries } from "../../utils/studentFeeSummary";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { sumMoney } from "../../utils/money";
@@ -22,8 +22,9 @@ const progressBarTone = (percent: number) => percent >= 100 ? "bg-mint" : percen
 
 /** Comme pour l'Année scolaire : la réponse est gardée pendant la session. Rouvrir l'onglet ou le tiroir
  * l'affiche tout de suite, sans nouvel appel. Relecture seulement si un vrai changement arrive (nouvelle
- * notification « Paiement enregistré » pour ce membre du personnel), si l'année active change, ou sur « Actualiser ». */
-type StaffChildrenCacheEntry = { result: StaffChildrenResult; seenPaymentIds: string[] };
+ * notification « Paiement enregistré » pour ce membre du personnel), si l'année active change, ou sur la flèche
+ * « Actualiser » de l'en-tête. */
+type StaffChildrenCacheEntry = { result: StaffChildrenResult; seenPaymentIds: string[]; refreshSeen: number };
 const staffChildrenCache = createLoadCache<StaffChildrenCacheEntry>(10);
 const staffChildrenCacheKey = (school: Pick<School, "id" | "activeSchoolYearId">, viewer = auth?.currentUser?.uid ?? "") => `${viewer}:${school.id}:${school.activeSchoolYearId ?? ""}`;
 
@@ -33,39 +34,31 @@ export function StaffChildrenContent({ school }: { school: School }) {
   const [data, setData] = useState<StaffChildrenResult | undefined>(() => initial?.result);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(() => !initial);
-  const [refreshCount, setRefreshCount] = useState(0);
   const [busyPaymentId, setBusyPaymentId] = useState("");
   const paymentSignal = useSyncExternalStore(subscribeStaffPaymentNotificationIds, readStaffPaymentNotificationIds);
   const paymentSignalRef = useRef(paymentSignal);
   paymentSignalRef.current = paymentSignal;
+  const headerRefresh = useSyncExternalStore(subscribeStaffChildrenRefresh, readStaffChildrenRefresh);
   useEffect(() => {
     const cached = staffChildrenCache.peek(cacheKey);
     const newPayment = Boolean(cached && hasNewStaffPayment(cached.seenPaymentIds, paymentSignal));
-    if (cached && !newPayment) { setData(cached.result); setLoading(false); setError(""); return undefined; }
-    if (newPayment) staffChildrenCache.clear();
+    const refreshAsked = Boolean(cached && cached.refreshSeen !== headerRefresh);
+    if (cached && !newPayment && !refreshAsked) { setData(cached.result); setLoading(false); setError(""); return undefined; }
+    if (newPayment || refreshAsked) staffChildrenCache.clear();
     let active = true;
     setLoading(true); setError("");
     const seenPaymentIds = paymentSignalRef.current ? paymentSignalRef.current.split("|") : [];
-    staffChildrenCache.load(cacheKey, () => loadStaffChildren().then((result) => ({ result, seenPaymentIds })))
+    const refreshSeen = headerRefresh;
+    staffChildrenCache.load(cacheKey, () => loadStaffChildren().then((result) => ({ result, seenPaymentIds, refreshSeen })))
       .then((entry) => { if (active) setData(entry.result); })
       .catch((reason) => { if (active) setError(userFacingError(reason, "Chargement de vos enfants impossible.")); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [cacheKey, paymentSignal, refreshCount]);
-  const refresh = () => { staffChildrenCache.clear(); setRefreshCount((value) => value + 1); };
+  }, [cacheKey, paymentSignal, headerRefresh]);
 
   return <section className="grid min-w-0 gap-4" data-staff-children>
-    <div className="flex min-w-0 items-start justify-between gap-3 rounded border border-slate-200 bg-white p-4">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-bold text-ink">Enfants</h1>
-        <p className="break-words text-sm text-slate-500">Enfants à votre charge inscrits dans cet établissement, selon la décision de l'administration.</p>
-      </div>
-      <button type="button" data-staff-children-refresh onClick={refresh} disabled={loading} aria-busy={loading} className="inline-flex shrink-0 items-center gap-2 rounded bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50">
-        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Actualiser
-      </button>
-    </div>
     {loading && !data && <BlockSkeleton className="h-32" label="Chargement de vos enfants" />}
-    <ErrorNotice error={error} onRetry={refresh} />
+    <ErrorNotice error={error} onRetry={requestStaffChildrenRefresh} />
     {!error && data && data.children.length === 0 && <p role="status" className="rounded border border-slate-200 bg-white p-6 text-center text-sm font-semibold text-slate-700">{STAFF_NO_CHILDREN_MESSAGE}</p>}
     {data && data.children.map(({ student, decision, payments }) => {
       const currency = data.currency;

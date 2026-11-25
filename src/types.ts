@@ -546,7 +546,7 @@ export interface AppNotification {
   schoolRecipient?: "admin" | "cashier" | "discipline" | "both";
   type: "payment" | "financial_correction" | "message" | "valve" | "attendance" | "availability" | "observation" | "grade_publication";
   module?: "payments" | "attendance" | "discipline" | "announcements" | "grades";
-  event?: "payment_recorded" | "payment_corrected" | "personnel_payment_corrected" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published" | "grades_published";
+  event?: "payment_recorded" | "support_recorded" | "payment_corrected" | "personnel_payment_corrected" | "student_absent" | "student_late" | "discipline_incident_created" | "announcement_published" | "grades_published";
   destination?: "/dashboard";
   title: string;
   body: string;

@@ -16,7 +16,7 @@ import { deactivateInvalidToken, isInvalidTokenError } from "./cleanupInvalidTok
 // Quatre semaines : le téléphone reçoit la notification dès qu'il retrouve la connexion.
 const TTL_SECONDS = 28 * 24 * 60 * 60;
 
-export type PersonalEvent = "message_received" | "payment_corrected" | "payment_cancelled" | "grades_published" | "allocation_alert";
+export type PersonalEvent = "message_received" | "payment_corrected" | "payment_cancelled" | "grades_published" | "allocation_alert" | "payment_recorded" | "support_recorded";
 type NotificationValue = Record<string, unknown>;
 type UserRecord = { id: string; role?: string; status?: string; active?: boolean; archivedAt?: unknown; schoolId?: string; coordinationId?: string };
 type TokenRecord = { id: string; token?: string; userId?: string; active?: boolean };
@@ -30,6 +30,10 @@ export function personalEvent(value: NotificationValue): PersonalEvent | null {
   if (value.type === "grade_publication") return "grades_published";
   // Lot 27a-bis : alerte de la répartition des frais (paiement en attente depuis plus d'une heure, écart de nuit).
   if (value.type === "allocation_alert") return "allocation_alert";
+  // Personnel dont l'enfant est pris en charge : paiement enregistré (le parent a sa propre fonction,
+  // destinataire « parent », jamais celle-ci) et nouvelle prise en charge.
+  if (value.type === "payment" && value.event === "payment_recorded" && value.recipientRole === undefined) return "payment_recorded";
+  if (value.type === "payment" && value.event === "support_recorded") return "support_recorded";
   return null;
 }
 

@@ -7,7 +7,7 @@ export type PushContext = { schoolName?: string; firstName?: string; sex?: strin
 export type PushKind =
   | "payment_recorded" | "payment_corrected" | "payment_cancelled"
   | "student_absent" | "student_late" | "discipline_incident_created"
-  | "announcement_published" | "grades_published";
+  | "announcement_published" | "grades_published" | "support_recorded";
 
 const clean = (value: unknown, max = 120) => {
   if (typeof value !== "string") return "";
@@ -35,6 +35,7 @@ export function pushText(kind: PushKind, context: PushContext, extra: { title?: 
     case "discipline_incident_created": return { title: `${s} — Information discipline`, body: `Une information concernant ${c} est disponible.` };
     case "announcement_published": return { title: `${s} — Nouvelle annonce`, body: clean(extra.title, 160) || "Une nouvelle annonce est disponible." };
     case "grades_published": return { title: `${s} — Nouvelles notes`, body: `Les notes de ${c} ont été publiées.` };
+    case "support_recorded": return { title: `${s} — Prise en charge`, body: `Une prise en charge a été enregistrée pour ${c}. Touchez pour voir le détail.` };
   }
 }
 
