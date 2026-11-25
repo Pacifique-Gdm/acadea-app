@@ -73,6 +73,7 @@ import { resolveSchoolCurrency, schoolWithYearCurrency } from "./utils/currency"
 import { filterByAllowedSections } from "./utils/userSections";
 import { getStudentSection } from "./utils/studentClasses";
 import type { SchoolLevelChoice } from "./utils/schoolConfig";
+import { StaffChildrenContent, StaffChildrenEntry } from "./components/personnel/StaffChildrenContent";
 import type {
   AppData,
   AppNotification,
@@ -108,7 +109,7 @@ const NestedScreen = ({ children }: { children: ReactNode }) => (
   <Suspense fallback={<p role="status" className="p-6 text-center text-sm text-slate-500">Chargement…</p>}>{children}</Suspense>
 );
 
-type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "menu";
+type Tab = "dashboard" | "students" | "parents" | "control" | "reports" | "messages" | "children" | "menu";
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
@@ -1460,7 +1461,7 @@ export default function App() {
             canAttachFiles
           /></NestedScreen>
         )}
-        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></NestedScreen><PushNotificationSettings user={user} /></div>}
+        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} /></NestedScreen><StaffChildrenEntry school={school} /><PushNotificationSettings user={user} /></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1607,9 +1608,11 @@ export default function App() {
             <MessagesModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} updateData={updateData} createId={uid} />
           </>
         )}
+        {!standaloneAdminRoute && activeTab === "children" && user.role === "cashier" && <StaffChildrenContent school={school} />}
         {!standaloneAdminRoute && activeTab === "menu" && (
           <div className="grid gap-6">
             <PushNotificationSettings user={user} />
+            {user.role === "school_admin" && <StaffChildrenEntry school={school} />}
             {secondaryRefreshIssues.valves && <p className="text-sm text-amber-800" role="status">Valves non actualisées. {secondaryRefreshIssues.valves}</p>}
             {secondaryRefreshIssues.attendance && <p className="text-sm text-amber-800" role="status">Présences non actualisées. {secondaryRefreshIssues.attendance}</p>}
             {canReadPublishedTimetable(user) && <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />}<MenuModule

@@ -1,4 +1,5 @@
 import { manageSocialSupport } from "./_lib/socialSupport.js";
+import { listStaffChildren } from "./_lib/staffChildren.js";
 import { manageFeeAllocationRubrics, rubricActions } from "./_lib/feeAllocationRubrics.js";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
@@ -121,6 +122,12 @@ export default async function handler(req, res) {
       // Lot « 3 étapes » : la photo facultative d'une justification doit exister dans le stockage avant d'être retenue.
       const fileExists = manage === manageAllocationReconciliation ? async (path) => (await initAdmin().bucket.file(path).exists())[0] : undefined;
       return sendJson(res, 200, await manage({ db, caller: actor, body: { ...body, action: allocationAction }, ...(fileExists ? { fileExists } : {}) }));
+    }
+    // Lot 3 : enfants à la charge du membre du personnel connecté (lecture seule, filtrée par le serveur).
+    if (requestedAction === "list-staff-children") {
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: requestedAction, ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return sendJson(res, 200, await listStaffChildren({ db, caller }));
     }
     if (["list-social-support", "list-social-support-personnel", "save-social-support", "cancel-social-support"].includes(requestedAction)) {
       await requireActiveApiUser(db, caller);

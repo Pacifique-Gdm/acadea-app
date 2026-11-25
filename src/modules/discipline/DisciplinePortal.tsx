@@ -30,8 +30,9 @@ import { userSectionIds } from "../../utils/userSections";
 import type { SchoolClassRecord } from "../../types";
 import type { AppData, AppNotification, AppUser, AttendanceRecord, AttendanceSettings, AttendanceStatus, AuditLog, DisciplineSanction, Message, School, SchoolYear, Student } from "../../types";
 import { userFacingError } from "../../utils/userFacingError";
+import { StaffChildrenContent } from "../../components/personnel/StaffChildrenContent";
 
-type DisciplineTab = "status" | "attendance" | "messages" | "menu";
+type DisciplineTab = "status" | "attendance" | "messages" | "children" | "menu";
 
 type NewDisciplineSanctionFormInput = {
   students: Student[];
@@ -741,6 +742,7 @@ export function DisciplinePortal({
         {activeDisciplineTab === "messages" && (
           <MessagesModuleComponent user={user} data={data} yearData={yearData} school={school} year={year} updateData={updateData} createId={createId} />
         )}
+        {activeDisciplineTab === "children" && <StaffChildrenContent school={school} />}
         {activeDisciplineTab === "menu" && (
           <section className="grid min-w-0 gap-3">
             <OwnPayrollEntry user={user} school={school} /><FeeAllocationEntry user={user} schools={[school]} />
