@@ -112,6 +112,8 @@ export interface Timetable {
   status: TimetableStatus;
   activeDraft: boolean;
   activePublished?: boolean;
+  /** Lot R5 : section de l'horaire ; absent = horaire de toute l'école. */
+  sectionId?: SchoolSection;
   persistenceState?: "PENDING" | "COMPLETE";
   createdBy: string;
   createdAt: string;
