@@ -201,6 +201,18 @@ service cloud.firestore {
               && section == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section));
     }
 
+    // Lot R3 : un Directeur de discipline rattaché à des sections n'écrit plus directement
+    // les réglages de présence : il passe par le serveur (api/manage-teacher-grading.js), qui
+    // vérifie si ses sections couvrent toutes les sections de l'école.
+    // Sans section : écriture directe, inchangée.
+    function disciplineDirectorHasSections() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && ((("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds.size() > 0)
+          || (("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section != null));
+    }
+
     function studyDirectorHasNoSectionScope() {
       return studyDirector()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -1799,8 +1811,8 @@ service cloud.firestore {
         || (schoolAdmin() && sameTenantResource())
         || disciplineTenantResource()
         || studyTenantResource();
-      allow create: if activeDisciplineYearCreate();
-      allow update: if activeDisciplineYearUpdate();
+      allow create: if activeDisciplineYearCreate() && !disciplineDirectorHasSections();
+      allow update: if activeDisciplineYearUpdate() && !disciplineDirectorHasSections();
       allow delete: if false;
     }
 

@@ -1,5 +1,5 @@
 import { GradingApiError } from "./teacherGrading.js";
-import { resolveAttendanceSchoolDays, studyClassSection, userSectionIds } from "./timetableValidationBundle.js";
+import { studyClassSchoolDays, studyClassSection, userSectionIds } from "./timetableValidationBundle.js";
 
 const fail = (status, code, message) => { throw new GradingApiError(status, code, message); };
 const validId = (value) => typeof value === "string" && value.length > 0 && value.length <= 300 && !value.includes("/");
@@ -38,7 +38,8 @@ export async function executeStudyPeriodMutation({ db, caller, body }) {
       const allowedSections = userSectionIds(actor);
       const allowedClass = (item) => item && item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false
         && (!allowedSections.length || allowedSections.includes(studyClassSection(item)));
-      const schoolDays = new Set(resolveAttendanceSchoolDays(settings[0]));
+      // Jours de cours de la section de la classe (sinon ceux de l'école, comme avant).
+      const classHasSchoolDay = (schoolClass, day) => Boolean(schoolClass) && studyClassSchoolDays(schoolClass, settings[0]).includes(day);
       const established = schedules.filter((item) => item.status === "VALID" || item.status === "PUBLISHED");
       const entrySnaps = await Promise.all(established.map((item) => tx.get(db.collection("timetableEntries").where("scheduleId", "==", item.id))));
       const entries = entrySnaps.flatMap(scopedRows);
@@ -51,7 +52,7 @@ export async function executeStudyPeriodMutation({ db, caller, body }) {
           const item = classes.find((row) => row.id === update.id);
           if (!allowedClass(item) || !update.dayVacations || typeof update.dayVacations !== "object" || Array.isArray(update.dayVacations)
             || Object.keys(update.dayVacations).some((day) => !DAYS.has(day) || !VACATIONS.has(update.dayVacations[day])
-              || !schoolDays.has(day) && update.dayVacations[day] !== item.dayVacations?.[day])) fail(403, "permission-denied", "Classe ou vacation hors périmètre.");
+              || !classHasSchoolDay(item, day) && update.dayVacations[day] !== item.dayVacations?.[day])) fail(403, "permission-denied", "Classe ou vacation hors périmètre.");
           if (item.updatedAt !== update.expectedUpdatedAt) fail(409, "schedule-conflict", "La classe a changé. Rechargez et réessayez.");
           if (entries.some((entry) => entry.active !== false && entry.classId === item.id)) fail(409, "established-schedule", "Un horaire validé ou publié utilise cette classe. Aucune vacation modifiée.");
         }
@@ -83,7 +84,7 @@ export async function executeStudyPeriodMutation({ db, caller, body }) {
         const [classId, day] = pair.split("|");
         const schoolClass = classes.find((row) => row.id === classId);
         const classVacation = schoolClass?.dayVacations?.[day] ?? (day === "saturday" && schoolClass?.saturdayEnabled === false ? "none" : day === "saturday" ? schoolClass?.saturdayVacation ?? schoolClass?.vacation ?? "morning" : schoolClass?.vacation ?? "morning");
-        if (!DAYS.has(day) || !schoolDays.has(day) || !allowedClass(schoolClass) || (classVacation !== item.vacation && classVacation !== "full")) fail(403, "permission-denied", "Classe, jour ou vacation hors périmètre.");
+        if (!DAYS.has(day) || !classHasSchoolDay(schoolClass, day) || !allowedClass(schoolClass) || (classVacation !== item.vacation && classVacation !== "full")) fail(403, "permission-denied", "Classe, jour ou vacation hors périmètre.");
       }
       if (previous && (previous.createdBy !== item.createdBy || previous.createdAt !== item.createdAt || previous.schoolId !== schoolId || previous.schoolYearId !== schoolYearId)) fail(403, "permission-denied", "Identité de période modifiée.");
       if (!previous && (item.createdBy !== caller.uid || !item.id.startsWith(`${schoolId}__${schoolYearId}__`))) fail(403, "permission-denied", "Création de période non autorisée.");

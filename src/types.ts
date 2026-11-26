@@ -664,6 +664,8 @@ export interface AttendanceSettings {
   schoolId: string;
   schoolYearId: string;
   schoolDays?: AttendanceSchoolDay[];
+  /** Jours de cours propres à une section. Absent pour une section : les jours de l'école s'appliquent. */
+  sectionSchoolDays?: Partial<Record<SchoolSection, AttendanceSchoolDay[]>>;
   defaultSchedule?: Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>;
   sectionSchedule?: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>;
   classSchedule?: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>;

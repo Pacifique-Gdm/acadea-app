@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { schoolCountLabel, SLOW_SCHOOL_SEARCH_MS } from "./schoolSearchStatus";
 
 // Version 1.16.5 : « 29 écoles » sans « recherche… » collé, et aucune relance de la recherche à l'ouverture d'une école.
-const platform = readFileSync(new URL("./PlatformModule.tsx", import.meta.url), "utf8");
+const platform = readFileSync(new URL("./PlatformModule.tsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const hook = readFileSync(new URL("./useSchoolSearch.ts", import.meta.url), "utf8");
 const body = (name: string) => {
   const start = platform.indexOf(`function ${name}(`);

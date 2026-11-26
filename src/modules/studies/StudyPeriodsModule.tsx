@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import type { AppUser, School, SchoolYear } from "../../types";
-import { resolveAttendanceSchoolDays } from "../../utils/attendance";
+import { hasSectionSchoolDays, resolveAllAttendanceSchoolDays, resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { saveSchedulePeriod, saveStudyClassDayVacations, setSchedulePeriodActive } from "./studyService";
-import { operationalClassLabel, periodTargetPairs, studyDayVacation, studyVacationLabels } from "./studyScope";
+import { operationalClassLabel, periodTargetPairs, studyClassSchoolDays, studyDayVacation, studyVacationLabels } from "./studyScope";
 import { DAY_LABELS } from "./studySchedule";
-import type { SchedulePeriod, StudyDay, StudyDayVacation, StudyVacation } from "./studyTypes";
+import type { SchedulePeriod, StudyClass, StudyDay, StudyDayVacation, StudyVacation } from "./studyTypes";
 import type { useStudyData } from "./useStudyData";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
@@ -30,10 +30,16 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
   const [dayDraft, setDayDraft] = useState<Record<string, Partial<Record<StudyDay, StudyDayVacation>>>>({});
   const [vacationConfirmation, setVacationConfirmation] = useState("");
   const schoolDays = resolveAttendanceSchoolDays(data.attendanceSettings);
-  const sixDays = schoolDays.includes("saturday");
+  // Lot R3 : une section peut avoir ses propres jours de cours. Sans cela, ces
+  // valeurs sont exactement les jours de l'école (comportement inchangé).
+  const allSchoolDays = resolveAllAttendanceSchoolDays(data.attendanceSettings);
+  const classDays = (item: StudyClass) => studyClassSchoolDays(item, data.attendanceSettings);
+  const sectionTargetPairs = (classes: StudyClass[], groupVacation: StudyVacation) => periodTargetPairs(classes, allSchoolDays, groupVacation)
+    .filter((pair) => { const [classId, day] = pair.split("|"); const item = classes.find((row) => row.id === classId); return Boolean(item && classDays(item).includes(day as StudyDay)); });
+  const sixDays = allSchoolDays.includes("saturday");
   const periodClasses = useMemo(() => data.classes, [data.classes]);
   const selectedClasses = periodClasses.filter((item) => selectedIds.includes(item.id));
-  const selectedPairs = periodTargetPairs(selectedClasses, schoolDays, vacation);
+  const selectedPairs = sectionTargetPairs(selectedClasses, vacation);
   const establishedScheduleIds = new Set(data.timetables.filter((item) => item.status === "VALID" || item.status === "PUBLISHED").map((item) => item.id));
   const establishedEntries = data.timetableEntries.filter((item) => establishedScheduleIds.has(item.scheduleId));
   const classHasEstablishedEntries = (id: string) => establishedEntries.some((item) => item.classId === id);
@@ -81,8 +87,8 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
     if (selectedClasses.some((item) => classHasEstablishedEntries(item.id))) return setVacationError("Un horaire validé ou publié utilise une classe sélectionnée. Ses vacations ne peuvent pas être modifiées ici.");
     setBusy(true); setVacationError(""); setSuccess("");
     try {
-      const values = Object.fromEntries(selectedClasses.map((item) => [item.id, Object.fromEntries(schoolDays.map((day) => [day, dayDraft[item.id]?.[day] ?? studyDayVacation(item, day)]))])) as Record<string, Partial<Record<StudyDay, StudyDayVacation>>>;
-      await saveStudyClassDayVacations({ user, classes: selectedClasses, sourceClasses: data.sourceClasses, days: schoolDays, values });
+      const values = Object.fromEntries(selectedClasses.map((item) => [item.id, Object.fromEntries(classDays(item).map((day) => [day, dayDraft[item.id]?.[day] ?? studyDayVacation(item, day)]))])) as Record<string, Partial<Record<StudyDay, StudyDayVacation>>>;
+      await saveStudyClassDayVacations({ user, classes: selectedClasses, sourceClasses: data.sourceClasses, days: schoolDays, classDays: Object.fromEntries(selectedClasses.map((item) => [item.id, classDays(item)])), values });
       setVacationConfirmation(""); setDayDraft({}); setSuccess("Vacations journalières enregistrées pour les classes sélectionnées.");
     } catch (cause) { setVacationError(userFacingError(cause, "Enregistrement impossible.")); }
     finally { setBusy(false); }
@@ -101,20 +107,20 @@ export function StudyPeriodsModule({ user, school, year, data }: { user: AppUser
   </div>;
 
   return <section className="grid gap-5">
-    <p className="text-sm text-slate-600">Configuration Discipline : {schoolDays.map((day) => DAY_LABELS[day]).join(", ")}. Les périodes historiques restent partagées ; les nouvelles périodes ciblent les classes et jours sélectionnés.</p>
+    <p className="text-sm text-slate-600">Configuration Discipline : {schoolDays.map((day) => DAY_LABELS[day]).join(", ")}{hasSectionSchoolDays(data.attendanceSettings) ? " (certaines sections ont leurs propres jours de cours)" : ""}. Les périodes historiques restent partagées ; les nouvelles périodes ciblent les classes et jours sélectionnés.</p>
     {success && <p role="status" className="rounded border border-green-200 bg-green-50 p-2 text-sm text-green-800">{success}</p>}
     <div className="grid gap-3 rounded border bg-white p-3">
       <h3 className="font-bold">Classe opérationnelle et vacations par jour</h3>
       <div className="flex flex-wrap gap-2"><button type="button" className="secondary-button" onClick={() => setSelectedIds(periodClasses.map((item) => item.id))}>Toutes les classes</button><button type="button" className="secondary-button" onClick={() => setSelectedIds([])}>Aucune classe</button></div>
       <div className="grid gap-2 sm:grid-cols-2">{periodClasses.map((item) => <label key={item.id} className="flex items-center gap-2 rounded border p-2 text-sm"><input type="checkbox" checked={selectedIds.includes(item.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, item.id] : current.filter((id) => id !== item.id))} />{operationalClassLabel(item)}</label>)}</div>
-      {selectedClasses.map((item) => <div key={item.id} className="grid gap-2 rounded border border-slate-200 p-3"><p className="font-semibold">{operationalClassLabel(item)}</p><div className="grid gap-2 sm:grid-cols-2">{schoolDays.map((day) => <label key={day} className="grid gap-1 text-sm">{DAY_LABELS[day]}<select className="input" aria-label={`${operationalClassLabel(item)} — ${DAY_LABELS[day]}`} value={dayDraft[item.id]?.[day] ?? studyDayVacation(item, day)} onChange={(event) => setDayDraft((current) => ({ ...current, [item.id]: { ...current[item.id], [day]: event.target.value as StudyDayVacation } }))}><option value="morning">Avant-midi</option><option value="afternoon">Après-midi</option><option value="full">Journée complète</option><option value="none">Pas de cours</option></select></label>)}</div>{classHasEstablishedEntries(item.id) && <p role="alert" className="text-sm text-amber-800">Horaire validé ou publié : modification de cette classe bloquée.</p>}</div>)}
+      {selectedClasses.map((item) => <div key={item.id} className="grid gap-2 rounded border border-slate-200 p-3"><p className="font-semibold">{operationalClassLabel(item)}</p><div className="grid gap-2 sm:grid-cols-2">{classDays(item).map((day) => <label key={day} className="grid gap-1 text-sm">{DAY_LABELS[day]}<select className="input" aria-label={`${operationalClassLabel(item)} — ${DAY_LABELS[day]}`} value={dayDraft[item.id]?.[day] ?? studyDayVacation(item, day)} onChange={(event) => setDayDraft((current) => ({ ...current, [item.id]: { ...current[item.id], [day]: event.target.value as StudyDayVacation } }))}><option value="morning">Avant-midi</option><option value="afternoon">Après-midi</option><option value="full">Journée complète</option><option value="none">Pas de cours</option></select></label>)}</div>{classHasEstablishedEntries(item.id) && <p role="alert" className="text-sm text-amber-800">Horaire validé ou publié : modification de cette classe bloquée.</p>}</div>)}
       {selectedClasses.some((item) => item.vacation || item.saturdayVacation || item.dayVacations && Object.keys(item.dayVacations).length > 0) && <label className="grid gap-1 text-sm">Remplacement d’une configuration particulière : saisissez « REMPLACER LES VACATIONS »<input className="input" value={vacationConfirmation} onChange={(event) => setVacationConfirmation(event.target.value)} /></label>}
       <ErrorNotice error={vacationError} onRetry={() => void saveClassVacations()} />
       <button type="button" className="primary-button w-full justify-center" disabled={busy || !selectedClasses.length} onClick={() => void saveClassVacations()}>{busy ? "Enregistrement…" : "Enregistrer les vacations sélectionnées"}</button>
     </div>
     {selectedClasses.length > 0 && <div className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm">
       <p className="font-semibold">Groupes de périodes pour les classes sélectionnées</p>
-      {(["morning", "afternoon"] as const).map((groupVacation) => <p key={groupVacation}><strong>{studyVacationLabels[groupVacation]} :</strong> {periodTargetPairs(selectedClasses, schoolDays, groupVacation).map((pair) => {
+      {(["morning", "afternoon"] as const).map((groupVacation) => <p key={groupVacation}><strong>{studyVacationLabels[groupVacation]} :</strong> {sectionTargetPairs(selectedClasses, groupVacation).map((pair) => {
         const [classId, day] = pair.split("|");
         return `${operationalClassLabel(selectedClasses.find((item) => item.id === classId)!)} · ${DAY_LABELS[day as StudyDay]}`;
       }).join(" ; ") || "Aucun couple classe/jour"}</p>)}

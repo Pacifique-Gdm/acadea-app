@@ -1,4 +1,5 @@
-import type { SchoolClass, SchoolSection } from "../../types";
+import type { AttendanceSettings, SchoolClass, SchoolSection } from "../../types";
+import { hasSectionSchoolDays, resolveAllAttendanceSchoolDays, resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { getClassSection } from "../../utils/studentClasses";
 import { normalizeSchoolSection } from "../../utils/schoolSections";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudyDayVacation, StudySubject, StudyVacation, TimetableEntry } from "./studyTypes";
@@ -82,4 +83,25 @@ export function assignmentVacationClasses(assignment: PedagogicalAssignment, cla
 export function periodAppliesToAssignment(period: SchedulePeriod, assignment: PedagogicalAssignment, classes: readonly StudyClass[], day: StudyDay) {
   const targetClasses = assignmentVacationClasses(assignment, classes);
   return targetClasses.length > 0 && targetClasses.every((item) => periodAppliesToClass(period, item, day));
+}
+
+/** Jours de cours d'une classe : ceux de sa section, sinon ceux de l'école. */
+export function studyClassSchoolDays(schoolClass: StudyClass, settings?: AttendanceSettings): StudyDay[] {
+  return resolveAttendanceSchoolDays(settings, studyClassSection(schoolClass));
+}
+
+/**
+ * Classes vues par l'horaire : un jour où la section de la classe n'a pas cours
+ * devient « Pas de cours ». Sans jours par section, les classes sont rendues
+ * telles quelles (même tableau), donc l'horaire reste identique.
+ */
+export function classesWithSectionSchoolDays<T extends StudyClass>(classes: T[], settings?: AttendanceSettings): T[] {
+  if (!hasSectionSchoolDays(settings)) return classes;
+  const allDays = resolveAllAttendanceSchoolDays(settings);
+  return classes.map((schoolClass) => {
+    const ownDays = studyClassSchoolDays(schoolClass, settings);
+    const closedDays = allDays.filter((day) => !ownDays.includes(day));
+    if (closedDays.length === 0) return schoolClass;
+    return { ...schoolClass, dayVacations: { ...schoolClass.dayVacations, ...Object.fromEntries(closedDays.map((day) => [day, "none"])) } };
+  });
 }

@@ -592,6 +592,12 @@ export function DisciplinePortal({
     throw new Error("Enregistrement serveur indisponible. Les paramètres n’ont pas été enregistrés.");
   }
 
+  // Lot R3 : réglages déjà écrits par le serveur (compte avec sections) ; seul l'écran est mis à jour.
+  function showServerAttendanceSettings(settings: AttendanceSettings) {
+    const sameScope = (item: AttendanceSettings) => item.schoolId === settings.schoolId && item.schoolYearId === settings.schoolYearId;
+    updateData({ attendanceSettings: [settings, ...data.attendanceSettings.filter((item) => !sameScope(item))] }, { persist: false });
+  }
+
   async function exportDisciplinePdf(filteredSanctions: DisciplineSanction[]) {
     const studentsById = new Map(yearData.students.map((student) => [student.id, student]));
     const sortedSanctions = [...filteredSanctions].sort(
@@ -853,6 +859,7 @@ export function DisciplinePortal({
             students={yearData.students}
             settings={attendanceSettings}
             onSave={saveAttendanceSettings}
+            onServerSaved={showServerAttendanceSettings}
           />
         </AdminDrawer>
       )}

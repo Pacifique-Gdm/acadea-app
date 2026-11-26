@@ -1,4 +1,4 @@
-import type { AttendanceDaySchedule, AttendanceSchoolDay, AttendanceSettings, AttendanceStatus, Student } from "../types";
+import type { AttendanceDaySchedule, AttendanceSchoolDay, AttendanceSettings, AttendanceStatus, SchoolSection, Student } from "../types";
 import { getClassSection } from "./studentClasses";
 
 export const attendanceSchoolDays: AttendanceSchoolDay[] = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -51,9 +51,31 @@ export function attendanceSchoolDayFromDate(date: Date) {
   return dateDayToAttendanceDay[date.getDay()];
 }
 
-export function resolveAttendanceSchoolDays(settings?: AttendanceSettings): AttendanceSchoolDay[] {
-  const configuredDays = settings?.schoolDays?.filter((day): day is AttendanceSchoolDay => attendanceSchoolDays.includes(day)) ?? [];
-  return configuredDays.length > 0 ? attendanceSchoolDays.filter((day) => configuredDays.includes(day)) : defaultSixSchoolDays;
+function orderedSchoolDays(days?: readonly AttendanceSchoolDay[]) {
+  const configuredDays = days?.filter((day): day is AttendanceSchoolDay => attendanceSchoolDays.includes(day)) ?? [];
+  return attendanceSchoolDays.filter((day) => configuredDays.includes(day));
+}
+
+/** Jours de cours de l'école, ou ceux de la section quand elle en a de propres. */
+export function resolveAttendanceSchoolDays(settings?: AttendanceSettings, section?: SchoolSection | null): AttendanceSchoolDay[] {
+  const sectionDays = section ? orderedSchoolDays(settings?.sectionSchoolDays?.[section]) : [];
+  if (sectionDays.length > 0) return sectionDays;
+  const configuredDays = orderedSchoolDays(settings?.schoolDays);
+  return configuredDays.length > 0 ? configuredDays : defaultSixSchoolDays;
+}
+
+/** Vrai seulement si au moins une section a ses propres jours de cours. */
+export function hasSectionSchoolDays(settings?: AttendanceSettings) {
+  return Object.values(settings?.sectionSchoolDays ?? {}).some((days) => orderedSchoolDays(days).length > 0);
+}
+
+/** Tous les jours où au moins une section a cours. Sans jours par section : exactement les jours de l'école. */
+export function resolveAllAttendanceSchoolDays(settings?: AttendanceSettings): AttendanceSchoolDay[] {
+  const schoolDays = resolveAttendanceSchoolDays(settings);
+  if (!hasSectionSchoolDays(settings)) return schoolDays;
+  const used = new Set<AttendanceSchoolDay>(schoolDays);
+  Object.values(settings?.sectionSchoolDays ?? {}).forEach((days) => orderedSchoolDays(days).forEach((day) => used.add(day)));
+  return attendanceSchoolDays.filter((day) => used.has(day));
 }
 
 export function resolveAttendanceDaySchedule(student: Student, settings: AttendanceSettings | undefined, date?: Date): AttendanceDaySchedule | undefined {
@@ -63,7 +85,7 @@ export function resolveAttendanceDaySchedule(student: Student, settings: Attenda
   const classKey = attendanceClassRuleKey(student.className, student.option);
 
   if (schoolDay) {
-    if (!resolveAttendanceSchoolDays(settings).includes(schoolDay)) return undefined;
+    if (!resolveAttendanceSchoolDays(settings, section).includes(schoolDay)) return undefined;
     const classSchedule = settings.classSchedule?.[classKey]?.[schoolDay];
     if (classSchedule?.lateAfter || classSchedule?.normalArrival) return classSchedule;
     const sectionSchedule = settings.sectionSchedule?.[section]?.[schoolDay];
