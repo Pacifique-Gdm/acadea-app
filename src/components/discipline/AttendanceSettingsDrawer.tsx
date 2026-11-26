@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { CheckCircle2, RotateCcw } from "lucide-react";
 import type { AppUser, AttendanceDaySchedule, AttendanceSchoolDay, AttendanceSettings, School, SchoolClass, SchoolSection, SchoolYear, Student } from "../../types";
 import { CLASSES } from "../../types";
@@ -6,7 +6,10 @@ import { attendanceClassRuleKey, attendanceSchoolDayLabels, attendanceSchoolDays
 import { getSchoolSections, schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { getClassSection } from "../../utils/studentClasses";
 import { userSectionIds } from "../../utils/userSections";
+import { userFacingError } from "../../utils/userFacingError";
 import { ModifiedBy } from "../ui/ModifiedBy";
+import { readStaffChildrenRefresh, subscribeStaffChildrenRefresh } from "../../services/staffChildren";
+import { attendanceSettingsScopeNeedsLoad, cachedAttendanceSettingsScope, loadAttendanceSettingsScope, saveAttendanceSettingsOnServer, type AttendanceSettingsScope } from "../../services/attendanceSettingsScope";
 
 const resetConfirmationPhrase = "REINITIALISER LES HORAIRES";
 const schoolDaysConfirmationPhrase = "MODIFIER LES JOURS SCOLAIRES";
@@ -33,6 +36,7 @@ export function AttendanceSettingsDrawer({
   students,
   settings,
   onSave,
+  onServerSaved,
 }: {
   school: School;
   year: SchoolYear;
@@ -40,6 +44,8 @@ export function AttendanceSettingsDrawer({
   students: Student[];
   settings?: AttendanceSettings;
   onSave: (settings: AttendanceSettings) => Promise<void>;
+  /** Réglages enregistrés par le serveur (compte avec sections) : mise à jour de l'écran sans réécriture. */
+  onServerSaved?: (settings: AttendanceSettings) => void;
 }) {
   const [schoolDays, setSchoolDays] = useState<AttendanceSchoolDay[]>(() => resolveAttendanceSchoolDays(settings));
   const [defaultSchedule, setDefaultSchedule] = useState<Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>(() => buildDefaultSchedule(settings));
@@ -69,11 +75,35 @@ export function AttendanceSettingsDrawer({
     return () => window.clearTimeout(timer);
   }, [feedback]);
 
-  // Un Directeur de discipline rattaché à des sections ne modifie que celles-ci ;
-  // sans section, il modifie toute l'école comme avant.
+  // Lot R3 : un Directeur sans section enregistre directement, comme avant. Un Directeur avec
+  // sections passe par le serveur, qui dit s'il est « limité » à ses sections (il ne couvre pas
+  // toute l'école et un autre Directeur de discipline est actif) ou non (droits d'aujourd'hui).
   const ownSections = useMemo(() => userSectionIds(user), [user]);
-  const sectionLimited = ownSections.length > 0;
-  const canEditSection = (section: SchoolSection) => !sectionLimited || ownSections.includes(section);
+  const usesServer = ownSections.length > 0;
+  const headerRefresh = useSyncExternalStore(subscribeStaffChildrenRefresh, readStaffChildrenRefresh);
+  const [scope, setScope] = useState<AttendanceSettingsScope | undefined>(() => (usesServer ? cachedAttendanceSettingsScope(user.id, school.id) : undefined));
+  const [scopeError, setScopeError] = useState("");
+
+  useEffect(() => {
+    if (!usesServer) return undefined;
+    const cached = cachedAttendanceSettingsScope(user.id, school.id);
+    if (cached && !attendanceSettingsScopeNeedsLoad(user.id, school.id, headerRefresh)) {
+      setScope(cached);
+      return undefined;
+    }
+    let active = true;
+    setScopeError("");
+    loadAttendanceSettingsScope(user.id, school.id, { headerRefresh })
+      .then((value) => { if (active) setScope(value); })
+      .catch((error: unknown) => { if (active) setScopeError(userFacingError(error, "Droits sur les réglages indisponibles.")); });
+    return () => { active = false; };
+  }, [usesServer, user.id, school.id, headerRefresh]);
+
+  const scopeReady = !usesServer || Boolean(scope);
+  // Tant que le serveur n'a pas répondu, tout reste en lecture seule.
+  const sectionLimited = usesServer && (!scope || scope.limited);
+  const editableSections = scope?.sections ?? [];
+  const canEditSection = (section: SchoolSection) => scopeReady && (!sectionLimited || editableSections.includes(section));
 
   function composeSettings(
     nextSchoolDays: AttendanceSchoolDay[],
@@ -82,16 +112,19 @@ export function AttendanceSettingsDrawer({
     nextClassSchedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>,
     nextSectionSchoolDays: SectionSchoolDays,
   ) {
-    if (sectionLimited) {
-      return buildSectionLimitedSettings(settings, ownSections, nextSectionSchedule, nextClassSchedule, nextSectionSchoolDays, school.id, year.id, user.id);
-    }
     return buildSettings(nextSchoolDays, nextDefaultSchedule, nextSectionSchedule, nextClassSchedule, nextSectionSchoolDays, school.id, year.id, user.id);
   }
 
-  function saveErrorMessage(base: string) {
-    return sectionLimited
-      ? `${base} Les réglages ont peut-être été modifiés entre-temps par un autre Directeur de discipline : rechargez avec la flèche ronde de l'en-tête, puis recommencez.`
-      : base;
+  /** Sans section : écriture directe d'aujourd'hui. Avec sections : le serveur ne garde que ce que le compte peut modifier. */
+  async function persist(next: AttendanceSettings) {
+    if (!usesServer) return onSave(next);
+    if (!scope) throw new Error("Vos droits sur les réglages sont en cours de vérification.");
+    const saved = await saveAttendanceSettingsOnServer({ schoolId: school.id, schoolYearId: year.id, settings: next, expectedUpdatedAt: settings?.updatedAt ?? null });
+    onServerSaved?.(saved);
+  }
+
+  function saveErrorMessage(base: string, error: unknown) {
+    return usesServer ? `${base} ${userFacingError(error, "")}`.trim() : base;
   }
 
   const sections = useMemo(() => {
@@ -132,11 +165,11 @@ export function AttendanceSettingsDrawer({
     setSaving(true);
     setFeedback("");
     try {
-      await onSave(composeSettings(schoolDays, defaultSchedule, sectionSchedule, classSchedule, sectionSchoolDays));
+      await persist(composeSettings(schoolDays, defaultSchedule, sectionSchedule, classSchedule, sectionSchoolDays));
       setFeedback("Paramètres de présence enregistrés.");
     } catch (error) {
       console.warn("Enregistrement des paramètres de présence impossible.", error);
-      setFeedback(saveErrorMessage("Impossible d'enregistrer les paramètres de présence."));
+      setFeedback(saveErrorMessage("Impossible d'enregistrer les paramètres de présence.", error));
     } finally {
       setSaving(false);
     }
@@ -148,14 +181,14 @@ export function AttendanceSettingsDrawer({
     setSaving(true);
     setFeedback("");
     try {
-      await onSave(composeSettings(schoolDaysChangeTarget, defaultSchedule, sectionSchedule, classSchedule, sectionSchoolDays));
+      await persist(composeSettings(schoolDaysChangeTarget, defaultSchedule, sectionSchedule, classSchedule, sectionSchoolDays));
       setSchoolDays(schoolDaysChangeTarget);
       setSchoolDaysChangeTarget(null);
       setSchoolDaysConfirmation("");
       setFeedback("Jours scolaires modifiés.");
     } catch (error) {
       console.warn("Modification des jours scolaires impossible.", error);
-      setFeedback("Impossible de modifier les jours scolaires.");
+      setFeedback(saveErrorMessage("Impossible de modifier les jours scolaires.", error));
     } finally {
       setSaving(false);
     }
@@ -170,7 +203,7 @@ export function AttendanceSettingsDrawer({
       const nextDefaultSchedule = resetTarget.scope === "default" ? removeScheduleDay(defaultSchedule, resetTarget.day) : defaultSchedule;
       const nextSectionSchedule = resetTarget.scope === "section" ? removeSectionScheduleDay(sectionSchedule, resetTarget.section, resetTarget.day) : sectionSchedule;
       const nextClassSchedule = resetTarget.scope === "class" ? removeClassScheduleDay(classSchedule, resetTarget.classKey, resetTarget.day) : classSchedule;
-      await onSave(composeSettings(schoolDays, nextDefaultSchedule, nextSectionSchedule, nextClassSchedule, sectionSchoolDays));
+      await persist(composeSettings(schoolDays, nextDefaultSchedule, nextSectionSchedule, nextClassSchedule, sectionSchoolDays));
       setDefaultSchedule(nextDefaultSchedule);
       setSectionSchedule(nextSectionSchedule);
       setClassSchedule(nextClassSchedule);
@@ -181,7 +214,7 @@ export function AttendanceSettingsDrawer({
       setFeedback(`Horaires du ${dayLabel} réinitialisés dans ${scopeLabel}.`);
     } catch (error) {
       console.warn("Réinitialisation des horaires de présence impossible.", error);
-      setFeedback(saveErrorMessage("Impossible de réinitialiser les horaires de présence."));
+      setFeedback(saveErrorMessage("Impossible de réinitialiser les horaires de présence.", error));
     } finally {
       setSaving(false);
     }
@@ -247,11 +280,15 @@ export function AttendanceSettingsDrawer({
           {feedback}
         </p>
       )}
+      {usesServer && !scope && !scopeError && <p className="rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-600">Vérification de vos droits sur les réglages…</p>}
+      {usesServer && !scope && scopeError && (
+        <p className="rounded border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">Impossible de vérifier vos droits sur les réglages : {scopeError} Rechargez avec la flèche ronde de l'en-tête.</p>
+      )}
       <section className="grid min-w-0 gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
         <div>
           <h2 className="font-bold text-ink">Jours scolaires</h2>
           <p className="mt-1 text-sm text-slate-500">Cette configuration pilote la fiche hebdomadaire et l'export PDF. Elle vaut pour les sections qui n'ont pas leurs propres jours de cours.</p>
-          {sectionLimited && <p className="mt-1 text-sm font-semibold text-slate-600">Lecture seule : les jours de l'école se règlent par un Directeur de discipline sans section. Vous réglez les jours de vos sections plus bas.</p>}
+          {sectionLimited && scopeReady && <p className="mt-1 text-sm font-semibold text-slate-600">Lecture seule : les jours de l'école se règlent par un Directeur de discipline sans section. Vous réglez les jours de vos sections plus bas.</p>}
           {settings?.updatedBy && <ModifiedBy userId={settings.updatedBy} schoolId={school.id} at={settings.updatedAt} />}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -305,7 +342,7 @@ export function AttendanceSettingsDrawer({
         <div>
           <h2 className="font-bold text-ink">Règle générale</h2>
           <p className="mt-1 text-sm text-slate-500">Utilisée quand aucune règle de classe ou de section ne s'applique.</p>
-          {sectionLimited && <p className="mt-1 text-sm font-semibold text-slate-600">Lecture seule : réglée par un Directeur de discipline sans section.</p>}
+          {sectionLimited && scopeReady && <p className="mt-1 text-sm font-semibold text-slate-600">Lecture seule : réglée par un Directeur de discipline sans section.</p>}
         </div>
         <ScheduleGrid
           days={displayedSchoolDays}
@@ -334,7 +371,7 @@ export function AttendanceSettingsDrawer({
           {sections.map((section) => (
             <div key={section} className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3">
               <p className="text-sm font-bold text-ink">{schoolSectionLabels[section]}</p>
-              {!canEditSection(section) && <p className="text-xs font-semibold text-slate-500">Lecture seule : section réglée par son Directeur de discipline.</p>}
+              {scopeReady && !canEditSection(section) && <p className="text-xs font-semibold text-slate-500">Lecture seule : section réglée par son Directeur de discipline.</p>}
               <label className="grid gap-1 text-xs font-semibold text-slate-500">
                 Jours de cours de la section
                 <select
@@ -384,7 +421,7 @@ export function AttendanceSettingsDrawer({
             {classRules.map((rule) => (
               <div key={rule.key} className="grid gap-2 rounded border border-slate-200 bg-slate-50 p-3 text-sm font-semibold text-slate-600">
                 <span className="min-w-0 break-words font-bold text-ink">{rule.option ? `${rule.className} - ${rule.option}` : rule.className}</span>
-                {!canEditSection(rule.section) && <span className="text-xs font-semibold text-slate-500">Lecture seule : section réglée par son Directeur de discipline.</span>}
+                {scopeReady && !canEditSection(rule.section) && <span className="text-xs font-semibold text-slate-500">Lecture seule : section réglée par son Directeur de discipline.</span>}
                 <ScheduleGrid
                   days={sectionDays(rule.section)}
                   readOnly={!canEditSection(rule.section)}
@@ -408,7 +445,7 @@ export function AttendanceSettingsDrawer({
       </section>
 
 
-      <button onClick={saveSettings} disabled={saving} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
+      <button onClick={saveSettings} disabled={saving || !scopeReady} className="primary-button justify-center disabled:cursor-not-allowed disabled:opacity-50" type="button">
         <CheckCircle2 className="h-4 w-4" /> {saving ? "Enregistrement..." : "Enregistrer les paramètres"}
       </button>
     </div>
@@ -582,53 +619,6 @@ function buildSettings(
     defaultSchedule: cleanSchedule(defaultSchedule),
     sectionSchedule: cleanSectionSchedule(sectionSchedule),
     classSchedule: cleanClassSchedule(classSchedule),
-    updatedAt: new Date().toISOString(),
-    updatedBy: userId,
-  };
-}
-
-/**
- * Enregistrement d'un Directeur de discipline rattaché à des sections : on repart
- * du document tel qu'il est, et seules SES sections (heures de section, jours de
- * section, règles des classes de ses sections) sont remplacées. Les autres
- * sections et les réglages de l'école restent strictement identiques.
- */
-export function buildSectionLimitedSettings(
-  settings: AttendanceSettings | undefined,
-  ownSections: SchoolSection[],
-  sectionSchedule: Partial<Record<SchoolSection, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>>,
-  classSchedule: Record<string, Partial<Record<AttendanceSchoolDay, AttendanceDaySchedule>>>,
-  sectionSchoolDays: SectionSchoolDays,
-  schoolId: string,
-  schoolYearId: string,
-  userId: string,
-): AttendanceSettings {
-  const nextSectionSchedule = { ...(settings?.sectionSchedule ?? {}) };
-  const nextSectionSchoolDays = { ...(settings?.sectionSchoolDays ?? {}) };
-  ownSections.forEach((section) => {
-    const cleaned = cleanSchedule(sectionSchedule[section] ?? {});
-    if (Object.keys(cleaned).length > 0) nextSectionSchedule[section] = cleaned;
-    else delete nextSectionSchedule[section];
-    const days = attendanceSchoolDays.filter((day) => sectionSchoolDays[section]?.includes(day));
-    if (days.length > 0) nextSectionSchoolDays[section] = days;
-    else delete nextSectionSchoolDays[section];
-  });
-  const nextClassSchedule = { ...(settings?.classSchedule ?? {}) };
-  const ownClassKey = (key: string) => ownSections.includes(getClassSection(key.split("__")[0] as SchoolClass));
-  new Set([...Object.keys(nextClassSchedule), ...Object.keys(classSchedule)]).forEach((key) => {
-    if (!ownClassKey(key)) return;
-    const cleaned = cleanSchedule(classSchedule[key] ?? {});
-    if (Object.keys(cleaned).length > 0) nextClassSchedule[key] = cleaned;
-    else delete nextClassSchedule[key];
-  });
-  return {
-    ...(settings ?? {}),
-    id: settings?.id ?? attendanceSettingsId(schoolId, schoolYearId),
-    schoolId: settings?.schoolId ?? schoolId,
-    schoolYearId: settings?.schoolYearId ?? schoolYearId,
-    sectionSchedule: nextSectionSchedule,
-    sectionSchoolDays: nextSectionSchoolDays,
-    classSchedule: nextClassSchedule,
     updatedAt: new Date().toISOString(),
     updatedBy: userId,
   };

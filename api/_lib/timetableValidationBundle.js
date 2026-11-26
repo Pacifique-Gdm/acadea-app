@@ -182,6 +182,9 @@ function normalizeSchoolSections(values) {
 // src/utils/attendance.ts
 var attendanceSchoolDays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 var defaultSixSchoolDays = [...attendanceSchoolDays];
+function attendanceSettingsId(schoolId, schoolYearId) {
+  return `attendance-settings__${[schoolId, schoolYearId].map((part) => part.replace(/[^a-zA-Z0-9_-]/g, "_")).join("__")}`;
+}
 function orderedSchoolDays(days) {
   const configuredDays = days?.filter((day) => attendanceSchoolDays.includes(day)) ?? [];
   return attendanceSchoolDays.filter((day) => configuredDays.includes(day));
@@ -321,7 +324,50 @@ function validateTimetable(problem, entries) {
 }
 
 // src/utils/schoolConfig.ts
+var schoolEducationLevelChoices = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
 var schoolSectionOrder = [...SCHOOL_SECTIONS];
+function normalizeEducationLevel(level) {
+  const normalized = level.trim().toLowerCase();
+  if (normalized === "maternelle") return "Maternelle";
+  if (normalized === "primaire") return "Primaire";
+  if (normalized === "cteb" || normalized === "cetb") return "CTEB";
+  if (normalized === "secondaire") return "Secondaire";
+  if (normalized === "primaire uniquement") return "Primaire uniquement";
+  if (normalized === "cteb uniquement" || normalized === "cetb uniquement") return "CTEB uniquement";
+  if (normalized === "secondaire uniquement") return "Secondaire uniquement";
+  if (normalized === "cteb et secondaire") return "CTEB et Secondaire";
+  if (normalized === "mixte") return "Mixte";
+  return level.trim();
+}
+function getSchoolEducationLevels(school) {
+  if (school.schoolType === "Primaire uniquement") return ["Primaire"];
+  if (school.schoolType === "CTEB uniquement") return ["CTEB"];
+  if (school.schoolType === "Secondaire uniquement") return ["Secondaire"];
+  if (school.schoolType === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
+  const levels = (school.educationLevels ?? []).map(normalizeEducationLevel).flatMap((level) => {
+    if (level === "Primaire uniquement") return ["Primaire"];
+    if (level === "CTEB uniquement") return ["CTEB"];
+    if (level === "Secondaire uniquement") return ["Secondaire"];
+    if (level === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
+    if (level === "Mixte") return schoolEducationLevelChoices;
+    return [level];
+  }).filter(Boolean);
+  if (levels.length > 0) {
+    const uniqueLevels = Array.from(new Set(levels));
+    return schoolEducationLevelChoices.filter((level) => uniqueLevels.includes(level));
+  }
+  if (school.schoolType === "Mixte") return schoolEducationLevelChoices;
+  if (school.schoolType === "CTEB") return ["Maternelle", "Primaire", "CTEB"];
+  if (school.schoolType === "Secondaire") return ["Maternelle", "Primaire", "CTEB", "Secondaire"];
+  return school.schoolType ? [school.schoolType] : schoolEducationLevelChoices;
+}
+function schoolSectionFromEducationLevel(level) {
+  return normalizeSchoolSection(level) ?? "";
+}
+function getSchoolSections(school) {
+  const sections = getSchoolEducationLevels(school).map(schoolSectionFromEducationLevel).filter((section) => Boolean(section));
+  return schoolSectionOrder.filter((section) => sections.includes(section));
+}
 
 // src/utils/userSections.ts
 function normalizeSectionIds(values) {
@@ -332,10 +378,14 @@ function userSectionIds(user) {
   return sections.length ? sections : normalizeSectionIds(user.section ? [user.section] : []);
 }
 export {
+  attendanceSettingsId,
   classesWithSectionSchoolDays,
+  getClassSection,
+  getSchoolSections,
   logicalStudyClasses,
   resolveAllAttendanceSchoolDays,
   resolveAttendanceSchoolDays,
+  schoolSectionOrder,
   studyClassSchoolDays,
   studyClassSection,
   userSectionIds,

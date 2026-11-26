@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AttendanceSettings, Student } from "../../types";
 import { hasSectionSchoolDays, resolveAllAttendanceSchoolDays, resolveAttendanceDaySchedule, resolveAttendanceSchoolDays } from "../../utils/attendance";
-import { buildSectionLimitedSettings } from "../../components/discipline/AttendanceSettingsDrawer";
 import { classesWithSectionSchoolDays, studyClassSchoolDays } from "./studyScope";
 import { timetableSourceFingerprint } from "./scheduleSource";
 import { validateTimetable, type ScheduleProblem } from "./scheduleValidation";
@@ -10,6 +9,12 @@ import { DeterministicTimetableSolver } from "./timetableSolver";
 import type { PedagogicalAssignment, SchedulePeriod, StudyClass, TimetableEntry } from "./studyTypes";
 // @ts-expect-error Paquet serveur généré en JavaScript, sans fichier de types.
 import * as serverBundle from "../../../api/_lib/timetableValidationBundle.js";
+
+vi.mock("../../services/auth", () => ({ getCurrentFirebaseIdToken: async () => "jeton" }));
+vi.mock("../../config/apiUrl", () => ({ resolveApiUrl: (path: string) => path }));
+
+import { userFacingError } from "../../utils/userFacingError";
+import { attendanceSettingsScopeNeedsLoad, cachedAttendanceSettingsScope, clearAttendanceSettingsScopeCache, loadAttendanceSettingsScope, saveAttendanceSettingsOnServer } from "../../services/attendanceSettingsScope";
 
 // Lot R3 : jours de cours par section (réglés par le Directeur de discipline et repris par l'horaire).
 const five = ["monday", "tuesday", "wednesday", "thursday", "friday"] as const;
@@ -85,50 +90,45 @@ describe("jours de cours par section", () => {
   });
 });
 
-describe("enregistrement d'un Directeur de discipline rattaché à une section", () => {
-  const existing: AttendanceSettings = settings({
-    defaultSchedule: { monday: { lateAfter: "07:30" } },
-    sectionSchedule: { Primaire: { monday: { lateAfter: "07:15" } }, Secondaire: { monday: { lateAfter: "07:45" } } },
-    classSchedule: { "1ère Primaire": { monday: { lateAfter: "07:10" } }, "1ère Humanité__Latin": { monday: { lateAfter: "07:50" } } },
-    sectionSchoolDays: { Secondaire: [...six] },
-    updatedBy: "other",
+describe("réglages d'un Directeur de discipline avec sections (écran)", () => {
+  beforeEach(() => clearAttendanceSettingsScopeCache());
+  const reply = (body: unknown, ok = true) => vi.fn(async () => ({ ok, json: async () => body }) as unknown as Response);
+
+  it("demande le périmètre une fois, puis seulement après la flèche de l'en-tête", async () => {
+    const fetcher = reply({ limited: true, sections: ["Primaire"] });
+    await expect(loadAttendanceSettingsScope("u", "s", { headerRefresh: 0, fetcher })).resolves.toEqual({ limited: true, sections: ["Primaire"] });
+    expect(JSON.parse(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({ action: "attendance-settings-scope", schoolId: "s" });
+    expect(cachedAttendanceSettingsScope("u", "s")).toEqual({ limited: true, sections: ["Primaire"] });
+    expect(attendanceSettingsScopeNeedsLoad("u", "s", 0)).toBe(false);
+    expect(attendanceSettingsScopeNeedsLoad("u", "s", 1)).toBe(true);
   });
 
-  it("ne remplace que ses sections et garde tout le reste à l'identique", () => {
-    const next = buildSectionLimitedSettings(
-      existing,
-      ["Primaire"],
-      { Primaire: { monday: { lateAfter: "07:20" } }, Secondaire: { monday: { lateAfter: "09:00" } } },
-      { "1ère Primaire": { monday: { lateAfter: "07:05" } }, "1ère Humanité__Latin": { monday: { lateAfter: "09:00" } } },
-      { Primaire: [...five], Secondaire: ["monday"] },
-      "s", "y", "primary",
-    );
-    expect(next.schoolDays).toEqual(existing.schoolDays);
-    expect(next.defaultSchedule).toEqual(existing.defaultSchedule);
-    expect(next.sectionSchedule).toEqual({ Primaire: { monday: { lateAfter: "07:20" } }, Secondaire: { monday: { lateAfter: "07:45" } } });
-    expect(next.classSchedule).toEqual({ "1ère Primaire": { monday: { lateAfter: "07:05" } }, "1ère Humanité__Latin": { monday: { lateAfter: "07:50" } } });
-    expect(next.sectionSchoolDays).toEqual({ Secondaire: [...six], Primaire: [...five] });
-    expect(next.updatedBy).toBe("primary");
+  it("envoie au serveur tous les réglages proposés et rend le message du serveur", async () => {
+    const proposal: AttendanceSettings = settings({ sectionSchoolDays: { Primaire: [...six] }, sectionSchedule: { Primaire: { monday: { lateAfter: "07:20" } } }, classSchedule: {}, defaultSchedule: {}, updatedBy: "u" });
+    const fetcher = reply({ settings: { ...proposal, updatedBy: "u" } });
+    await saveAttendanceSettingsOnServer({ schoolId: "s", schoolYearId: "y", settings: proposal, expectedUpdatedAt: "avant" }, fetcher);
+    expect(JSON.parse(String((fetcher.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({
+      action: "attendance-settings-save", schoolId: "s", schoolYearId: "y", expectedUpdatedAt: "avant",
+      settings: { schoolDays: [...five], sectionSchoolDays: { Primaire: [...six] }, defaultSchedule: {}, sectionSchedule: { Primaire: { monday: { lateAfter: "07:20" } } }, classSchedule: {} },
+    });
+    await expect(saveAttendanceSettingsOnServer({ schoolId: "s", schoolYearId: "y", settings: proposal, expectedUpdatedAt: null }, reply({ error: "Déjà modifié par Marie Ilunga, Directeur de discipline, rechargez avec la flèche ronde de l'en-tête." }, false)))
+      .rejects.toThrow("Déjà modifié par Marie Ilunga");
+    const conflict = "Déjà modifié par Marie Ilunga, Directeur de discipline, rechargez avec la flèche ronde de l'en-tête.";
+    expect(userFacingError(new Error(conflict), "secours")).toBe(conflict);
   });
 
-  it("revenir à « comme l'école » retire seulement les jours de sa section", () => {
-    const next = buildSectionLimitedSettings(existing, ["Secondaire"], existing.sectionSchedule!, existing.classSchedule!, {}, "s", "y", "secondary");
-    expect(next.sectionSchoolDays).toEqual({});
-    expect(next.sectionSchedule).toEqual(existing.sectionSchedule);
-  });
-
-  it("à la création, n'écrit aucun réglage de l'école", () => {
-    const next = buildSectionLimitedSettings(undefined, ["Primaire"], { Primaire: { monday: { lateAfter: "07:20" } } }, {}, {}, "s", "y", "primary");
-    expect(Object.keys(next).sort()).toEqual(["classSchedule", "id", "schoolId", "schoolYearId", "sectionSchedule", "sectionSchoolDays", "updatedAt", "updatedBy"]);
-  });
-
-  it("le tiroir met les autres sections en lecture seule et ne propose pas de bouton Actualiser", () => {
+  it("le tiroir : sans section écriture directe ; avec sections, périmètre du serveur, lecture seule et aucun bouton Actualiser", () => {
     const source = readFileSync("src/components/discipline/AttendanceSettingsDrawer.tsx", "utf8");
-    expect(source).toContain("userSectionIds(user)");
+    expect(source).toContain("const usesServer = ownSections.length > 0;");
+    expect(source).toContain("if (!usesServer) return onSave(next);");
+    expect(source).toContain("saveAttendanceSettingsOnServer(");
+    expect(source).toContain("loadAttendanceSettingsScope(user.id, school.id, { headerRefresh })");
+    expect(source).toContain("const sectionLimited = usesServer && (!scope || scope.limited);");
     expect(source).toContain("readOnly={!canEditSection(section)}");
     expect(source).toContain("readOnly={!canEditSection(rule.section)}");
-    expect(source).toContain("disabled={!canEditSection(section)}");
-    expect(source).toContain("Lecture seule : section réglée par son Directeur de discipline.");
+    expect(source).toContain("disabled={saving || !scopeReady}");
     expect(source).not.toMatch(/Actualiser/);
+    const portal = readFileSync("src/modules/discipline/DisciplinePortal.tsx", "utf8");
+    expect(portal).toContain("onServerSaved={showServerAttendanceSettings}");
   });
 });
