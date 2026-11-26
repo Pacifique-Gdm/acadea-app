@@ -49,7 +49,7 @@ export function TeacherPortal({ user, school, year, appData, refreshToken = 0, r
   const displayedYearId = activeTab === "dashboard" ? dashboardYear?.id ?? "" : year.id;
   const data = useTeacherPortalData(user, school.id, displayedYearId, refreshToken);
   const calendarState = useSchoolCalendar(user, school.id, dashboardYear?.id);
-  const calendar = !calendarState.loading && !calendarState.error && calendarState.calendar?.status === "validated" ? calendarState.calendar : undefined;
+  const calendar = !calendarState.loading && !calendarState.error && (calendarState.calendar?.status === "validated" || calendarState.calendar?.sectionStatus) ? calendarState.calendar : undefined;
   const dashboardMessage = schoolYears.loading ? "Chargement de l’année scolaire active…"
     : schoolYears.error ? "Impossible de charger l’année scolaire active."
     : resolvedYear?.status === "missing" ? "Aucune année scolaire active n'est définie pour cet établissement."
