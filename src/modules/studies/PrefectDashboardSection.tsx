@@ -1,37 +1,35 @@
-import { useEffect, useState } from "react";
-import { CalendarX2, RefreshCw, TrendingDown, UserCheck, UsersRound } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { CalendarX2, TrendingDown, UserCheck, UsersRound } from "lucide-react";
 import { DashboardCard, ErrorNotice } from "../../components/ui";
-import { cachedPrefectDashboard, loadPrefectDashboard, type PrefectDashboard } from "./prefectDashboard";
+import { readStaffChildrenRefresh, subscribeStaffChildrenRefresh } from "../../services/staffChildren";
+import { cachedPrefectDashboard, loadPrefectDashboard, prefectDashboardNeedsLoad, type PrefectDashboard } from "./prefectDashboard";
 
 // Lot P1 : « Pilotage de mes sections », affiché seulement pour le Préfet d'études.
+// Pas de bouton « Actualiser » : la flèche ronde de l'en-tête recharge (même signal que « Enfants »).
 export function PrefectDashboardSection({ uid, schoolId, schoolYearId }: { uid: string; schoolId: string; schoolYearId: string }) {
+  const headerRefresh = useSyncExternalStore(subscribeStaffChildrenRefresh, readStaffChildrenRefresh);
   const [dashboard, setDashboard] = useState<PrefectDashboard | undefined>(() => cachedPrefectDashboard(uid, schoolId, schoolYearId));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<unknown>(null);
-
-  const refresh = (force: boolean) => {
-    setLoading(true);
-    setError(null);
-    loadPrefectDashboard(uid, schoolId, schoolYearId, { force })
-      .then(setDashboard)
-      .catch((reason: unknown) => setError(reason))
-      .finally(() => setLoading(false));
-  };
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
-    if (!cachedPrefectDashboard(uid, schoolId, schoolYearId)) refresh(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uid, schoolId, schoolYearId]);
+    const cached = cachedPrefectDashboard(uid, schoolId, schoolYearId);
+    if (cached && !prefectDashboardNeedsLoad(uid, schoolId, schoolYearId, headerRefresh)) { setDashboard(cached); return undefined; }
+    let active = true;
+    setLoading(true);
+    setError(null);
+    loadPrefectDashboard(uid, schoolId, schoolYearId, { force: true, headerRefresh })
+      .then((value) => { if (active) setDashboard(value); })
+      .catch((reason: unknown) => { if (active) setError(reason); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [uid, schoolId, schoolYearId, headerRefresh, retry]);
 
   const presence = dashboard?.presence, difficulty = dashboard?.difficulty, absences = dashboard?.approvedAbsences;
   return <section aria-label="Pilotage de mes sections" className="grid gap-3 rounded border border-slate-200 bg-white p-4 shadow-sm">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <h2 className="text-base font-bold text-ink">Pilotage de mes sections</h2>
-      <button type="button" onClick={() => refresh(true)} disabled={loading} className="inline-flex items-center gap-2 rounded border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-blue-600">
-        <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden="true" /> Actualiser
-      </button>
-    </div>
-    <ErrorNotice error={error} fallback="Tableau de pilotage indisponible." onRetry={() => refresh(true)} />
+    <h2 className="text-base font-bold text-ink">Pilotage de mes sections</h2>
+    <ErrorNotice error={error} fallback="Tableau de pilotage indisponible." onRetry={() => setRetry((value) => value + 1)} />
     {!dashboard && loading && <p className="text-sm text-slate-500">Chargement du tableau de pilotage…</p>}
     {dashboard && <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
       <DashboardCard title="Effectifs" value={dashboard.enrollment.students} icon={UsersRound}>

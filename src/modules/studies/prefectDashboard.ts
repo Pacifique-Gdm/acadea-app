@@ -1,6 +1,6 @@
 // Lot P1 (Préfet d'études) : tableau de pilotage calculé par le serveur.
 // Les données restent en mémoire pendant la session : réouverture immédiate, sans nouvel appel,
-// sauf demande explicite (bouton « Actualiser »).
+// sauf appui sur la flèche ronde de l'en-tête (même signal que « Enfants »).
 import { getCurrentFirebaseIdToken } from "../../services/auth";
 import { resolveApiUrl } from "../../config/apiUrl";
 import type { AppUser } from "../../types";
@@ -24,17 +24,25 @@ export function localDateKey(now = new Date()) {
 }
 
 const cache = new Map<string, PrefectDashboard>();
+const refreshSeen = new Map<string, number>();
 const cacheKey = (uid: string, schoolId: string, schoolYearId: string, today: string) => [uid, schoolId, schoolYearId, today].join("|");
 
 export function cachedPrefectDashboard(uid: string, schoolId: string, schoolYearId: string, today = localDateKey()) {
   return cache.get(cacheKey(uid, schoolId, schoolYearId, today));
 }
 
-export function clearPrefectDashboardCache() {
-  cache.clear();
+/** Vrai si la flèche de l'en-tête a été touchée depuis la dernière lecture gardée (ou si rien n'est gardé). */
+export function prefectDashboardNeedsLoad(uid: string, schoolId: string, schoolYearId: string, headerRefresh: number, today = localDateKey()) {
+  const key = cacheKey(uid, schoolId, schoolYearId, today);
+  return !cache.has(key) || refreshSeen.get(key) !== headerRefresh;
 }
 
-export async function loadPrefectDashboard(uid: string, schoolId: string, schoolYearId: string, options: { force?: boolean; today?: string; fetcher?: typeof fetch } = {}) {
+export function clearPrefectDashboardCache() {
+  cache.clear();
+  refreshSeen.clear();
+}
+
+export async function loadPrefectDashboard(uid: string, schoolId: string, schoolYearId: string, options: { force?: boolean; today?: string; fetcher?: typeof fetch; headerRefresh?: number } = {}) {
   const today = options.today ?? localDateKey();
   const key = cacheKey(uid, schoolId, schoolYearId, today);
   const cached = cache.get(key);
@@ -51,5 +59,6 @@ export async function loadPrefectDashboard(uid: string, schoolId: string, school
   }
   const dashboard = payload as PrefectDashboard;
   cache.set(key, dashboard);
+  refreshSeen.set(key, options.headerRefresh ?? 0);
   return dashboard;
 }
