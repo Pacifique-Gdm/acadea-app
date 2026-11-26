@@ -7,6 +7,7 @@ import { OfflineAttendanceError, syncOfflineAttendance } from "./_lib/offlineAtt
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { loadPrefectDashboard } from "./_lib/prefectDashboard.js";
 import { listPrefectDiscipline } from "./_lib/prefectDiscipline.js";
+import { listPrefectStaff } from "./_lib/prefectStaff.js";
 import { listStaffLabels } from "./_lib/staffLabels.js";
 import { executeAttendanceSettings } from "./_lib/attendanceSettingsScope.js";
 export default async function handler(req, res) {
@@ -34,6 +35,12 @@ export default async function handler(req, res) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-discipline", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return send(res, 200, await listPrefectDiscipline({ db, caller, body }));
+    }
+    // Lot P3 : enseignants des sections du Préfet d'études (cours, charge, absences approuvées).
+    if (action === "prefect-staff") {
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-staff", ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return send(res, 200, await listPrefectStaff({ db, caller, body }));
     }
     // Lot R1 : nom et fonction des auteurs des réglages (« Modifié par … »).
     if (action === "staff-labels") {

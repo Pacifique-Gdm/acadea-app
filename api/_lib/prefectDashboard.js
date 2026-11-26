@@ -1,6 +1,7 @@
 import { GradingApiError, studentMatchesAssignment } from "./teacherGrading.js";
 import { calculateConsolidatedReport, GRADE_SLOTS } from "./consolidatedGrading.js";
 import { operationalBaseClassId } from "../../src/utils/studentYearTransition.js";
+import { teacherSections } from "./studySectionScope.js";
 
 // Lot P1 (Préfet d'études) : tableau de pilotage de SES sections.
 // Le serveur lit les présences, les cotes et les indisponibilités, puis renvoie SEULEMENT des nombres
@@ -40,7 +41,7 @@ export async function requirePrefect(db, caller, schoolId, schoolYearId) {
 }
 
 /** Calcul pur (testable) : effectifs, présence du jour, élèves en difficulté, absences approuvées. */
-export function computePrefectDashboard({ sections, today, students, attendance, classes, subjects, assignments, configs, entries, teachers, requests }) {
+export function computePrefectDashboard({ sections, today, students, attendance, classes, subjects, assignments, configs, entries, teachers, requests, teacherUsers = [] }) {
   const allowed = new Set(sections);
   const scopedStudents = students.filter((student) => allowed.has(student.section) && (student.status ?? "ACTIVE") === "ACTIVE" && !student.deletedAt);
   const studentIds = new Set(scopedStudents.map((student) => student.id));
@@ -74,9 +75,10 @@ export function computePrefectDashboard({ sections, today, students, attendance,
     if (evaluation.percentage < DIFFICULTY_THRESHOLD) struggling.add(row.student.id);
   }
 
+  // Section d'un enseignant : celle de son COMPTE `users` (là où l'application l'enregistre), sinon sa fiche.
+  const userById = new Map(teacherUsers.map((item) => [item.id, item]));
   const sectionTeacherIds = new Set(teachers.filter((teacher) => {
-    const teacherSections = Array.isArray(teacher.sectionIds) && teacher.sectionIds.length ? teacher.sectionIds : teacher.section ? [teacher.section] : [];
-    if (teacherSections.some((section) => allowed.has(section))) return true;
+    if (teacherSections(teacher, userById.get(teacher.userId)).some((section) => allowed.has(section))) return true;
     return assignments.some((assignment) => assignment.teacherId === teacher.id && scopedClasses.some((item) => item.id === assignment.classId));
   }).map((teacher) => teacher.id));
   const teacherName = new Map(teachers.map((teacher) => [teacher.id, String(teacher.fullName ?? `${teacher.lastName ?? ""} ${teacher.firstName ?? ""}`).trim()]));
@@ -101,7 +103,7 @@ export async function loadPrefectDashboard({ db, caller, body }) {
   const { sections } = await requirePrefect(db, caller, schoolId, schoolYearId);
   if (!sections.length) return computePrefectDashboard({ sections, today, students: [], attendance: [], classes: [], subjects: [], assignments: [], configs: [], entries: [], teachers: [], requests: [] });
   const scoped = (name) => db.collection(name).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId);
-  const [students, attendance, classes, subjects, assignments, teachers, requests] = await Promise.all([
+  const [students, attendance, classes, subjects, assignments, teachers, requests, teacherUsers] = await Promise.all([
     Promise.all(chunks(sections).map((part) => scoped("students").where("section", "in", part).get())).then((list) => list.flatMap(serialize)),
     scoped("attendance").where("attendanceDate", "==", today).get().then(serialize),
     scoped("classes").get().then(serialize),
@@ -109,10 +111,11 @@ export async function loadPrefectDashboard({ db, caller, body }) {
     scoped("pedagogicalAssignments").where("active", "==", true).get().then(serialize),
     scoped("teachers").get().then(serialize),
     scoped("teacherAvailabilityRequests").where("requestedDate", "==", today).get().then(serialize),
+    db.collection("users").where("schoolId", "==", schoolId).where("role", "==", "teacher").get().then(serialize),
   ]);
   const classIds = [...new Set(classes.filter((item) => sections.includes(item.section)).map((item) => item.id)
     .concat(assignments.filter((item) => classes.some((schoolClass) => schoolClass.id === item.classId && sections.includes(schoolClass.section))).map((item) => item.classId)))];
   const byClass = async (name) => (await Promise.all(chunks(classIds).map((part) => scoped(name).where("classId", "in", part).get()))).flatMap(serialize);
   const [configs, entries] = classIds.length ? await Promise.all([byClass("courseGradingConfigs"), byClass("gradeEntries")]) : [[], []];
-  return computePrefectDashboard({ sections, today, students, attendance, classes, subjects, assignments, configs, entries, teachers, requests });
+  return computePrefectDashboard({ sections, today, students, attendance, classes, subjects, assignments, configs, entries, teachers, requests, teacherUsers });
 }
