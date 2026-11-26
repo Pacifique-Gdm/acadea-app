@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.33.0] — 2026-11-26 — Fonctionnalité
+- Réglages R4 : calendrier scolaire par section (un compte d'une partie des sections ne modifie que les événements et le statut de ses sections)
+
 ## [1.32.0] — 2026-11-26 — Fonctionnalité
 - Réglages R3 : jours de cours et heures du Directeur de discipline par section ; test schoolSearchStatus corrigé sous Windows
 
