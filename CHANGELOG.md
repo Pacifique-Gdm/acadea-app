@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.28.0] — 2026-11-25 — Fonctionnalité
+- Préfet d'études : tableau « Pilotage de mes sections » (effectifs, présence du jour, élèves en difficulté, absences approuvées aujourd'hui)
+
 ## [1.27.3] — 2026-11-25 — Correction
 - Alertes téléphone et notification « Prise en charge enregistrée » pour le personnel ; « Enfants » sans bande du haut, toujours 3e du Menu
 

@@ -5,6 +5,7 @@ import { executeStudyPeriodMutation } from "./_lib/studyPeriodMutations.js";
 import { listPedagogicalActivity, PedagogicalHistoryError } from "./_lib/pedagogicalActivity.js";
 import { OfflineAttendanceError, syncOfflineAttendance } from "./_lib/offlineAttendance.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
+import { loadPrefectDashboard } from "./_lib/prefectDashboard.js";
 export default async function handler(req, res) {
   if (req.method !== "POST") return send(res, 405, { code: "invalid-argument", error: "Méthode non autorisée." });
   try {
@@ -18,6 +19,12 @@ export default async function handler(req, res) {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""),
         action: "offline.attendance", idempotencyKey: body.operationId, ...API_RATE_LIMITS.FINANCE_CREATE });
       return send(res, 200, await syncOfflineAttendance({ db, caller, body }));
+    }
+    // Lot P1 : tableau de pilotage du Préfet d'études (nombres et pourcentages seulement).
+    if (action === "prefect-dashboard") {
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-dashboard", ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return send(res, 200, await loadPrefectDashboard({ db, caller, body }));
     }
     const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("study-period-") || action === "study-class-vacations" ? executeStudyPeriodMutation : action.startsWith("timetable-") ? executeTimetableWorkflow
       : action.startsWith("archive-") ? executeSchoolYearArchive
