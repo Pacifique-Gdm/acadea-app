@@ -790,8 +790,11 @@ service cloud.firestore {
 
     match /schoolCalendars/{yearId} {
       function validCalendarMetadata() {
-        return request.resource.data.keys().hasOnly(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy", "sourcePdf"])
+        return request.resource.data.keys().hasOnly(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy", "sourcePdf", "sectionStatus", "updatedScope"])
           && request.resource.data.keys().hasAll(["schoolId", "schoolYearId", "status", "updatedAt", "updatedBy"])
+          && validCalendarSectionStatus()
+          && (!request.resource.data.keys().hasAny(["updatedScope"])
+            || (request.resource.data.updatedScope == "school" && calendarWholeSchool()))
           && request.resource.data.schoolId == tenantSchoolId()
           && request.resource.data.schoolYearId == yearId
           && request.resource.data.status in ["draft", "validated"]
@@ -824,6 +827,79 @@ service cloud.firestore {
                   : (request.resource.data.sourcePdf.uploadedBy == request.auth.uid
                     && get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data.activeSchoolYearId == yearId)))));
       }
+      // Lot R4 : calendrier par section (règle unique des sections, même calcul que
+      // src/utils/sectionAuthority.ts). Un compte sans section, ou dont les sections
+      // couvrent toutes celles de l'école, règle toute l'école ; sinon seulement ses sections.
+      function calendarUserSections() {
+        let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+        let ids = user.get("sectionIds", []);
+        return (ids is list && ids.size() > 0) ? ids
+          : (user.get("section", null) is string ? [user.section] : []);
+      }
+      function calendarSchoolSections() {
+        let school = get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data;
+        let type = school.get("schoolType", "");
+        let levels = school.get("educationLevels", []);
+        return type == "Primaire uniquement" ? ["Primaire"]
+          : type == "CTEB uniquement" ? ["CTEB"]
+          : type == "Secondaire uniquement" ? ["Secondaire"]
+          : type == "CTEB et Secondaire" ? ["CTEB", "Secondaire"]
+          : (levels is list && levels.size() > 0)
+            ? (levels.hasAny(["Maternelle", "maternelle", "Mixte", "mixte"]) ? ["Maternelle"] : [])
+              .concat(levels.hasAny(["Primaire", "primaire", "Primaire uniquement", "primaire uniquement", "Mixte", "mixte"]) ? ["Primaire"] : [])
+              .concat(levels.hasAny(["CTEB", "cteb", "CETB", "cetb", "CTEB uniquement", "cteb uniquement", "CETB uniquement", "cetb uniquement", "CTEB et Secondaire", "cteb et secondaire", "Mixte", "mixte"]) ? ["CTEB"] : [])
+              .concat(levels.hasAny(["Secondaire", "secondaire", "Secondaire uniquement", "secondaire uniquement", "CTEB et Secondaire", "cteb et secondaire", "Mixte", "mixte"]) ? ["Secondaire"] : [])
+          : (type == null || type == "" || type == "Mixte" || type == "Secondaire") ? ["Maternelle", "Primaire", "CTEB", "Secondaire"]
+          : type == "CTEB" ? ["Maternelle", "Primaire", "CTEB"]
+          : type in ["Maternelle", "maternelle"] ? ["Maternelle"]
+          : type in ["Primaire", "primaire"] ? ["Primaire"]
+          : type in ["cteb", "CETB", "cetb"] ? ["CTEB"]
+          : type == "secondaire" ? ["Secondaire"]
+          : [];
+      }
+      // Calcul complet (coûteux) : fait une seule fois par enregistrement, quand le compte
+      // a des sections et déclare agir pour toute l'école (`updatedScope: "school"`).
+      function calendarSectionsCoverSchool(mine) {
+        let schoolSections = calendarSchoolSections();
+        return schoolSections.size() > 0 && mine.hasAll(schoolSections);
+      }
+      function calendarWholeSchool() {
+        return calendarUserSections().size() == 0 || calendarSectionsCoverSchool(calendarUserSections());
+      }
+      // Version rapide : compte sans section, ou enregistrement « toute l'école » déjà vérifié sur le calendrier.
+      function calendarWholeSchoolWrite(metadata) {
+        return calendarUserSections().size() == 0 || metadata.get("updatedScope", "") == "school";
+      }
+      function validCalendarSectionStatus() {
+        return !request.resource.data.keys().hasAny(["sectionStatus"])
+          || (request.resource.data.sectionStatus is map
+            && request.resource.data.sectionStatus.keys().hasOnly(["Maternelle", "Primaire", "CTEB", "Secondaire"])
+            && request.resource.data.sectionStatus.get("Maternelle", "draft") in ["draft", "validated"]
+            && request.resource.data.sectionStatus.get("Primaire", "draft") in ["draft", "validated"]
+            && request.resource.data.sectionStatus.get("CTEB", "draft") in ["draft", "validated"]
+            && request.resource.data.sectionStatus.get("Secondaire", "draft") in ["draft", "validated"]);
+      }
+      // Compte d'une partie des sections : seulement l'heure, l'auteur et le statut de SES sections.
+      // Le cas « mes sections » est vérifié d'abord (peu coûteux), puis le calcul complet.
+      function calendarMetadataCreateScopeAllowed() {
+        return (request.resource.data.status == "draft"
+            && !request.resource.data.keys().hasAny(["sourcePdf"])
+            && request.resource.data.get("sectionStatus", {}).keys().hasOnly(calendarUserSections()))
+          || calendarWholeSchoolWrite(request.resource.data);
+      }
+      function calendarMetadataUpdateScopeAllowed() {
+        return (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["updatedAt", "updatedBy", "sectionStatus", "updatedScope"])
+            && request.resource.data.get("sectionStatus", {}).diff(resource.data.get("sectionStatus", {})).affectedKeys().hasOnly(calendarUserSections()))
+          || calendarWholeSchoolWrite(request.resource.data);
+      }
+      // Événement sans sections = toute l'école : réservé à un compte qui règle toute l'école.
+      function calendarEventInScope(data) {
+        return (data.get("sectionIds", []) is list
+            && data.get("sectionIds", []).size() > 0
+            && data.get("sectionIds", []).hasOnly(calendarUserSections()))
+          || calendarWholeSchoolWrite(getAfter(/databases/$(database)/documents/schoolCalendars/$(yearId)).data);
+      }
+
       allow get: if (studyDirector() || activeTeacher())
         && schoolYearBelongsToSchool(yearId, tenantSchoolId())
         && (!exists(/databases/$(database)/documents/schoolCalendars/$(yearId))
@@ -834,6 +910,7 @@ service cloud.firestore {
         && tenantSchoolNotDeleting()
         && schoolYearBelongsToSchool(yearId, tenantSchoolId())
           && validCalendarMetadata()
+          && calendarMetadataCreateScopeAllowed()
           && (!request.resource.data.keys().hasAny(["sourcePdf"])
             || get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data.activeSchoolYearId == yearId);
       allow update: if studyDirector()
@@ -842,6 +919,7 @@ service cloud.firestore {
         && resource.data.schoolId == tenantSchoolId()
         && resource.data.schoolYearId == yearId
         && validCalendarMetadata()
+        && calendarMetadataUpdateScopeAllowed()
         && request.resource.data.updatedAt != resource.data.updatedAt;
       allow delete: if false;
 
@@ -857,7 +935,12 @@ service cloud.firestore {
               || getAfter(calendarParentPath()).data.updatedAt != get(calendarParentPath()).data.updatedAt);
         }
         function validCalendarEvent() {
-          return request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin", "sourceUrl", "publishedAt", "educationLevel", "suspendsCourses", "startTime", "endTime", "sourcePdfPath", "sourcePage"])
+          return request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin", "sourceUrl", "publishedAt", "educationLevel", "suspendsCourses", "startTime", "endTime", "sourcePdfPath", "sourcePage", "sectionIds"])
+            && (!request.resource.data.keys().hasAny(["sectionIds"])
+              || (request.resource.data.sectionIds is list
+                && request.resource.data.sectionIds.size() > 0
+                && request.resource.data.sectionIds.size() <= 4
+                && request.resource.data.sectionIds.hasOnly(["Maternelle", "Primaire", "CTEB", "Secondaire"])))
             && request.resource.data.keys().hasAll(["id", "schoolId", "schoolYearId", "title", "kind", "startsAt", "endsAt", "origin"])
             && request.resource.data.id == eventId
             && eventId.size() <= 120
@@ -921,14 +1004,17 @@ service cloud.firestore {
           && schoolYearBelongsToSchool(yearId, tenantSchoolId())
           && validCalendarEvent()
           && calendarParentWritten()
+          && calendarEventInScope(request.resource.data)
           && (!exists(/databases/$(database)/documents/schoolCalendars/$(yearId)/events/$(eventId))
             || (resource.data.schoolId == tenantSchoolId()
-              && resource.data.schoolYearId == yearId));
+              && resource.data.schoolYearId == yearId
+              && calendarEventInScope(resource.data)));
         allow delete: if studyDirector()
           && tenantSchoolNotDeleting()
           && schoolYearBelongsToSchool(yearId, tenantSchoolId())
           && resource.data.schoolId == tenantSchoolId()
           && resource.data.schoolYearId == yearId
+          && calendarEventInScope(resource.data)
           && calendarParentWritten();
       }
     }

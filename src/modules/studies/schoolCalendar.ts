@@ -17,6 +17,8 @@ export type SchoolCalendarEvent = {
   endTime?: string;
   sourcePdfPath?: string;
   sourcePage?: number;
+  /** Lot R4 : sections concernées. Absent ou vide = toute l'école (événements déjà enregistrés). */
+  sectionIds?: SchoolSection[];
 };
 export type CalendarPdfSource = { path: string; name: string; size: number; pageCount: number; sha256: string; uploadedAt: string; uploadedBy: string };
 export type SchoolCalendar = {
@@ -27,7 +29,26 @@ export type SchoolCalendar = {
   updatedAt: string;
   updatedBy: string;
   sourcePdf?: CalendarPdfSource;
+  /**
+   * Lot R4 : statut propre à une section, posé par un compte qui ne règle que ses sections.
+   * Absent = la section suit `status` (calendriers déjà enregistrés).
+   */
+  sectionStatus?: Partial<Record<SchoolSection, "draft" | "validated">>;
+  /** Lot R4 : posé par un compte avec sections qui agit pour toute l'école (vérifié par la règle de sécurité). */
+  updatedScope?: "school";
 };
+
+const calendarSections: readonly SchoolSection[] = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
+
+/** Sections d'un événement ; liste vide = événement « toute l'école ». */
+export function calendarEventSections(event: Pick<SchoolCalendarEvent, "sectionIds">): SchoolSection[] {
+  return Array.isArray(event.sectionIds) ? calendarSections.filter((section) => event.sectionIds!.includes(section)) : [];
+}
+
+/** Statut du calendrier pour une section : le sien s'il existe, sinon celui du calendrier. */
+export function calendarStatusForSection(calendar: Pick<SchoolCalendar, "status" | "sectionStatus">, section: SchoolSection | undefined): "draft" | "validated" {
+  return (section && calendar.sectionStatus?.[section]) || calendar.status;
+}
 
 const isoDay = /^\d{4}-\d{2}-\d{2}$/;
 export function validCalendarDate(value: string): boolean {
@@ -90,6 +111,8 @@ export function validateCalendarEvent(event: SchoolCalendarEvent, year: SchoolYe
     if (!event.sourcePdfPath?.startsWith(prefix) || !/^[0-9a-f-]{36}\.pdf$/i.test(event.sourcePdfPath.slice(prefix.length)) || !Number.isInteger(event.sourcePage) || (event.sourcePage ?? 0) < 1 || (event.sourcePage ?? 0) > 30 || !event.educationLevel?.trim()) return "Document PDF, page source et niveau requis.";
   }
   if (event.origin !== "local" && event.origin !== "official-proposal" && event.origin !== "pdf-import") return "Origine de l’événement invalide.";
+  if (event.sectionIds !== undefined && (!Array.isArray(event.sectionIds) || event.sectionIds.length > calendarSections.length
+    || event.sectionIds.some((section) => !calendarSections.includes(section)) || new Set(event.sectionIds).size !== event.sectionIds.length)) return "Sections de l’événement invalides.";
   if (existing.some((item) => item.id !== event.id && event.startsAt <= item.endsAt && item.startsAt <= event.endsAt && (item.kind === "resumption") !== (event.kind === "resumption"))) return "Chevauchement contradictoire avec une reprise des cours.";
   return undefined;
 }
@@ -141,9 +164,17 @@ function pdfEventAppliesToSection(event: SchoolCalendarEvent, section: SchoolSec
   return pattern[section].test(level);
 }
 
+function eventEffectiveForSection(calendar: SchoolCalendar, event: SchoolCalendarEvent, section: SchoolSection | undefined): boolean {
+  const sections = calendarEventSections(event);
+  // Événement « toute l'école » (cas de tous les calendriers déjà enregistrés) : statut du calendrier, comme avant.
+  if (!sections.length) return calendar.status === "validated";
+  return Boolean(section && sections.includes(section) && calendarStatusForSection(calendar, section) === "validated");
+}
+
 export function schoolCourseSuspended(calendar: SchoolCalendar | undefined, date: string, startTime: string, endTime: string, section?: SchoolSection): boolean {
-  if (calendar?.status !== "validated") return false;
+  if (!calendar || (calendar.status !== "validated" && !calendar.sectionStatus)) return false;
   return calendar.events.some((event) => event.suspendsCourses === true && event.kind !== "resumption"
+    && eventEffectiveForSection(calendar, event, section)
     && pdfEventAppliesToSection(event, section)
     && event.startsAt <= date && date <= event.endsAt
     && (event.startTime === undefined || event.endTime === undefined || (startTime < event.endTime && endTime > event.startTime)));
