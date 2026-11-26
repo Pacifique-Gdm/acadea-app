@@ -12,6 +12,7 @@ import { saveManualStudent } from "./_lib/manualStudentSave.js";
 import { saveStudyAssignments, setStudyAssignmentActive } from "./_lib/studyAssignmentGrants.js";
 import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
 import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
+import { prepareManagerCleanup, setSectionSettingsManager } from "./_lib/sectionSettingsManagers.js";
 
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
@@ -760,12 +761,15 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
         const profileSnapshot = await transaction.get(profileRef);
         const existing = profileSnapshot.data();
         let matricule = existing?.matricule;
+        const counterSnapshot = matricule ? null : await transaction.get(counterRef);
+        // Lot R6 : une désignation « responsable des réglages » devenue invalide est retirée.
+        const managerCleanup = target.role === "study_director" ? await prepareManagerCleanup({ reader: transaction, db, schoolId, changedUser: { ...target, id: personnelId, section: sectionIds[0] ?? null, sectionIds } }) : null;
         if (!matricule) {
-          const counterSnapshot = await transaction.get(counterRef);
           const next = Number(counterSnapshot.data()?.lastNumber ?? 0) + 1;
           matricule = `PER-${String(next).padStart(6, "0")}`;
           transaction.set(counterRef, { lastNumber: next, updatedAt: now, updatedBy: caller.uid }, { merge: true });
         }
+        managerCleanup?.(transaction, now, caller.uid);
         const administrativeProfile = { id: personnelId, schoolId, personnelId, matricule, ...profile, createdAt: existing?.createdAt ?? now, createdBy: existing?.createdBy ?? caller.uid, updatedAt: now, updatedBy: caller.uid };
         transaction.update(targetRef, { name, phone, email, section: sectionIds[0] ?? null, sectionIds, updatedAt: now, updatedBy: caller.uid });
         transaction.set(profileRef, administrativeProfile);
@@ -833,6 +837,10 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (resetWriteCount > 500) {
     throw Object.assign(new Error("Le contexte pédagogique est trop volumineux pour une réactivation atomique."), { statusCode: 409, code: "failed-precondition" });
   }
+  // Lot R6 : lu avant tout changement du compte ; une désignation « responsable des réglages » devenue invalide est retirée.
+  const managerCleanup = target.role === "study_director"
+    ? await prepareManagerCleanup({ reader: { get: (ref) => ref.get() }, db, schoolId, changedUser: { ...target, id: personnelId, status: archive ? "inactive" : "active", active: !archive } })
+    : null;
   const desiredAuthDisabled = archive && target.role !== "teacher";
   if (archive && userAlreadyInactive && authTarget.disabled === desiredAuthDisabled && teacherProfilesNeedingArchive.length === 0 && !teacherGrantNeedsClear && teacherContextRefs.length === 0 && assignmentLockRefs.length === 0) {
     return { user: { ...target, id: personnelId }, authStatus: target.role === "teacher" ? "suspended" : "disabled" };
@@ -846,6 +854,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
   if (target.role === "teacher") patch.storageAssignmentKeys = [];
   const batch = db.batch();
   if (!archive || !userAlreadyInactive || teacherGrantNeedsClear) batch.update(targetRef, patch);
+  managerCleanup?.(batch, now, caller.uid);
   if (!archive && claimsNeedRestore) await auth.setCustomUserClaims(personnelId, { role: target.role, schoolId });
   if (teacherReset) {
     teacherProfiles.forEach(({ snapshot }) => batch.update(snapshot.ref, { status: snapshot.id === activeTeacherProfile?.snapshot.id ? "active" : "inactive", active: snapshot.id === activeTeacherProfile?.snapshot.id, storageAssignmentIds: [], updatedAt: now, updatedBy: caller.uid }));
@@ -985,6 +994,11 @@ export default async function handler(req, res) {
     if (["update-personnel", "archive-personnel", "reactivate-personnel"].includes(action)) {
       const result = await managePersonnel({ auth, db, caller, body, action });
       sendJson(res, 200, result);
+      return;
+    }
+
+    if (action === "set-section-settings-manager") {
+      sendJson(res, 200, await setSectionSettingsManager({ db, caller, body }));
       return;
     }
 
