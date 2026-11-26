@@ -1,3 +1,5 @@
+import { profileSections, teacherInSectionsWithReads } from "./studySectionScope.js";
+
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
 export class AvailabilityRequestApiError extends Error { constructor(status, code, message) { super(message); this.status = status; this.code = code; } }
@@ -37,6 +39,19 @@ export async function createAvailabilityRequest({ db, caller, request }) {
     if (!yearSnapshot.exists || year?.schoolId !== caller.schoolId || year?.status !== "active" || year.id !== request.schoolYearId) fail(403, "permission-denied", "Année scolaire invalide.");
     if (!teacherSnapshot.exists || teacher?.schoolId !== caller.schoolId || teacher?.schoolYearId !== request.schoolYearId || teacher?.userId !== caller.uid || teacher?.status === "inactive") fail(403, "permission-denied", "Profil Enseignant invalide.");
     if (!userSnapshot.exists || !activeUser(user) || user?.schoolId !== caller.schoolId || user?.role !== "teacher") fail(403, "permission-denied", "Compte Enseignant inactif ou incohérent.");
+    const activeDirectors = (directorsSnapshot.docs ?? []).filter(item => {
+      const director = item.data();
+      return activeUser(director) && director.schoolId === caller.schoolId;
+    });
+    // Lot R2 : seuls les comptes dont les sections couvrent l'enseignant sont prévenus (sans section : toujours).
+    // Si aucun compte ne couvre l'enseignant, tous sont prévenus, comme avant.
+    const coveringDirectors = [];
+    for (const directorSnapshot of activeDirectors) {
+      const sections = profileSections(directorSnapshot.data());
+      if (!sections.length || await teacherInSectionsWithReads({ db, read: (target) => transaction.get(target), sections,
+        schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher })) coveringDirectors.push(directorSnapshot);
+    }
+    const directors = coveringDirectors.length ? coveringDirectors : activeDirectors;
     transaction.create(requestRef, request);
     const activityId = `availability_submitted_${request.id}`;
     transaction.create(db.collection("pedagogicalActivityLogs").doc(activityId), activity({
@@ -45,10 +60,6 @@ export async function createAvailabilityRequest({ db, caller, request }) {
       details: `Date : ${request.requestedDate}${request.requestType === "TIME_RANGE" ? ` · ${request.startTime}–${request.endTime}` : " · journée entière"}`,
       resourceId: request.id, createdAt: request.createdAt,
     }));
-    const directors = (directorsSnapshot.docs ?? []).filter(item => {
-      const director = item.data();
-      return activeUser(director) && director.schoolId === caller.schoolId;
-    });
     for (const directorSnapshot of directors) {
       const notificationId = `availability_request_${request.id}_${directorSnapshot.id}`;
       transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({
@@ -82,6 +93,12 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     if (!yearSnapshot.exists || year?.schoolId !== caller.schoolId || year?.status !== "active") fail(403, "permission-denied", "Année scolaire inactive ou hors établissement.");
     if (!teacherSnapshot.exists || teacher?.schoolId !== caller.schoolId || teacher?.schoolYearId !== request.schoolYearId || teacher?.userId !== request.userId) fail(409, "failed-precondition", "Profil Enseignant incohérent.");
     if (!userSnapshot.exists || teacherUser?.schoolId !== caller.schoolId || teacherUser?.role !== "teacher" || teacherUser?.status === "inactive" || teacherUser?.active === false || teacher?.status === "inactive") fail(409, "failed-precondition", "Un enseignant archivé ne peut recevoir une nouvelle disponibilité.");
+    // Lot R2 : un compte avec sections ne traite que les enseignants de ses sections (sans section : toute l'école).
+    const directorSections = profileSections(director);
+    if (directorSections.length && !(await teacherInSectionsWithReads({ db, read: (target) => transaction.get(target), sections: directorSections,
+      schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher }))) {
+      fail(403, "permission-denied", "Cette demande concerne un enseignant hors de vos sections.");
+    }
     const now = new Date().toISOString();
     const nextStatus = action === "REJECT" ? "REJECTED" : "APPROVED";
     const nextComment = action === "REJECT" ? reviewComment.trim() : undefined;

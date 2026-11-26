@@ -1,3 +1,5 @@
+import { profileSections, teacherUserIdsInSections } from "./studySectionScope.js";
+
 export class PedagogicalHistoryError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
 }
@@ -25,9 +27,41 @@ export async function listPedagogicalActivity({ db, caller, body }) {
     }
     query = query.startAfter(cursor.createdAt, cursor.id);
   }
+  // Lot R2 : un compte Direction des études AVEC sections ne voit que l'activité des enseignants de ses sections.
+  // Sans section (ou autre rôle) : rien ne change.
+  const sections = role === "study_director" ? profileSections(user.data()) : [];
+  if (sections.length) return listScopedActivity({ db, query, schoolId: caller.schoolId, schoolYearId, sections });
   const snapshot = await query.limit(51).get();
   const page = snapshot.docs.slice(0, 50);
   const items = page.map((doc) => ({ id: doc.id, ...doc.data() })).filter((item) => item.schoolId === caller.schoolId && item.schoolYearId === schoolYearId && (role !== "teacher" || item.subjectUserId === caller.uid));
   const last = page.at(-1);
   return { ok: true, items, nextCursor: snapshot.docs.length > 50 && last ? { createdAt: last.data().createdAt, id: last.id } : null };
+}
+
+const PAGE_SIZE = 50;
+const SCAN_SIZE = 100;
+const MAX_SCANS = 10;
+
+async function listScopedActivity({ db, query, schoolId, schoolYearId, sections }) {
+  const allowedUserIds = await teacherUserIdsInSections({ db, sections, schoolId, schoolYearId });
+  const items = [];
+  let scanQuery = query;
+  for (let scan = 0; scan < MAX_SCANS; scan += 1) {
+    const snapshot = await scanQuery.limit(SCAN_SIZE).get();
+    const docs = snapshot.docs;
+    for (let index = 0; index < docs.length; index += 1) {
+      const doc = docs[index], item = { id: doc.id, ...doc.data() };
+      if (item.schoolId !== schoolId || item.schoolYearId !== schoolYearId || !allowedUserIds.has(item.subjectUserId)) continue;
+      items.push(item);
+      if (items.length === PAGE_SIZE) {
+        const more = index < docs.length - 1 || docs.length === SCAN_SIZE;
+        return { ok: true, items, nextCursor: more ? { createdAt: doc.data().createdAt, id: doc.id } : null };
+      }
+    }
+    if (docs.length < SCAN_SIZE) return { ok: true, items, nextCursor: null };
+    const last = docs.at(-1);
+    scanQuery = query.startAfter(last.data().createdAt, last.id);
+    if (scan === MAX_SCANS - 1) return { ok: true, items, nextCursor: { createdAt: last.data().createdAt, id: last.id } };
+  }
+  return { ok: true, items, nextCursor: null };
 }
