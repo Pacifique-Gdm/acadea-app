@@ -6,12 +6,48 @@
 //  - ou l'une de ses sections est une section du compte ;
 //  - ou il a une affectation active dans une classe d'une section du compte.
 
+import { normalizeSchoolSection, resolveSectionAuthority, userSectionIds } from "./sectionAuthority.js";
+
 const clean = (values) => [...new Set(values.filter((value) => typeof value === "string" && value))];
 
 /** Sections d'un profil (compte ou enseignant) : `sectionIds`, sinon l'ancienne `section`. */
 export function profileSections(profile) {
   const values = Array.isArray(profile?.sectionIds) && profile.sectionIds.length ? profile.sectionIds : profile?.section ? [profile.section] : [];
   return clean(values);
+}
+
+/**
+ * Lot B (règle unique des sections) : sections à appliquer pour un compte.
+ * Liste vide = toute l'école (compte sans section, ou dont les sections couvrent toutes celles de l'école).
+ * Sinon ses sections présentes dans l'école ; à défaut (sections absentes de l'école) ses propres sections,
+ * pour ne jamais élargir un compte limité à toute l'école.
+ */
+export const NO_VALID_SECTION = "__aucune-section-valide__";
+
+export function authoritySections(user, school) {
+  // Sections renseignées mais toutes invalides : le compte reste limité (il ne voit que ce qui n'a pas de section).
+  if (!userSectionIds(user ?? {}).length && profileSections(user).length) return [NO_VALID_SECTION];
+  const authority = resolveSectionAuthority(user ?? {}, school ?? {});
+  if (authority.wholeSchool) return [];
+  return authority.sections.length ? authority.sections : userSectionIds(user ?? {});
+}
+
+/** Même calcul en lisant l'école seulement si le compte a des sections (sinon : toute l'école, sans lecture). */
+export async function authoritySectionsFor(db, user, schoolId) {
+  if (!profileSections(user).length) return [];
+  let school = {};
+  try {
+    const snapshot = await db.doc(`schools/${schoolId}`).get();
+    school = snapshot?.exists ? snapshot.data() ?? {} : {};
+  } catch {
+    // École illisible : on prend les 4 sections possibles, ce qui ne peut jamais élargir un compte limité.
+  }
+  return authoritySections(user, school);
+}
+
+/** Section d'un élément (classe, élève) comparable aux sections d'un compte. */
+export function comparableSection(value) {
+  return normalizeSchoolSection(value) ?? value;
 }
 
 /**
