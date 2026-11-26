@@ -697,6 +697,13 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Lot R6 : responsable des réglages de chaque section (CTEB, Secondaire). Lu par les comptes de l'école ;
+    // écrit uniquement par le serveur, à la demande de l'administrateur de l'école (un seul par section).
+    match /sectionSettingsManagers/{schoolId} {
+      allow read: if schoolReadable(schoolId);
+      allow write: if false;
+    }
+
     match /schoolLogos/{schoolId} {
       allow read: if schoolReadable(schoolId);
       allow create, update: if (superAdmin() || (schoolAdmin() && schoolId == tenantSchoolId()))

@@ -75,23 +75,26 @@ export function userSectionIds(user = {}) {
 
 /**
  * Dit si le compte agit pour toute l'école et sur quelles sections.
- * `options.sectionSettingsManagers` (section → identifiant du compte désigné) est
- * le point d'extension du lot R6 : NON UTILISÉ pour l'instant.
+ * Lot R6 : `options.sectionSettingsManagers` (section → identifiant du compte désigné) :
+ * dans une section qui a un responsable désigné, seul lui la règle. Sans désignation : résultat inchangé.
+ * L'identifiant du compte est lu dans `user.id` (sinon `user.uid`).
  */
 export function resolveSectionAuthority(user, school, options = {}) {
   const schoolSections = getSchoolSections(school);
   const assigned = userSectionIds(user);
   const wholeSchool = assigned.length === 0
     || (schoolSections.length > 0 && schoolSections.every((section) => assigned.includes(section)));
-  return {
-    wholeSchool,
-    sections: wholeSchool ? [...schoolSections] : schoolSections.filter((section) => assigned.includes(section)),
-    schoolSections,
-  };
+  const sections = wholeSchool ? [...schoolSections] : schoolSections.filter((section) => assigned.includes(section));
+  const managers = options?.sectionSettingsManagers ?? {};
+  const userId = user?.id ?? user?.uid;
+  const managedByOthers = schoolSections.filter((section) => Boolean(managers[section]) && managers[section] !== userId);
+  if (!managedByOthers.length) return { wholeSchool, sections, schoolSections };
+  return { wholeSchool, sections: sections.filter((section) => !managedByOthers.includes(section)), schoolSections, managedByOthers };
 }
 
 /** Section(s) vides = « toute l'école » : réservé à un compte qui agit pour toute l'école. */
 export function canManageSections(authority, sections) {
+  if (Array.isArray(sections) && sections.some((section) => authority.managedByOthers?.includes(section))) return false;
   if (authority.wholeSchool) return true;
   if (!Array.isArray(sections) || sections.length === 0) return false;
   return sections.every((section) => authority.sections.includes(section));
