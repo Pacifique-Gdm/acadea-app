@@ -8,6 +8,7 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { loadPrefectDashboard } from "./_lib/prefectDashboard.js";
 import { listPrefectDiscipline } from "./_lib/prefectDiscipline.js";
 import { listStaffLabels } from "./_lib/staffLabels.js";
+import { executeAttendanceSettings } from "./_lib/attendanceSettingsScope.js";
 export default async function handler(req, res) {
   if (req.method !== "POST") return send(res, 405, { code: "invalid-argument", error: "Méthode non autorisée." });
   try {
@@ -39,6 +40,13 @@ export default async function handler(req, res) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.staff-labels", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
       return send(res, 200, await listStaffLabels({ db, caller, body }));
+    }
+    // Lot R3 : périmètre et enregistrement des réglages de présence d'un Directeur de discipline avec sections.
+    if (action === "attendance-settings-scope" || action === "attendance-settings-save") {
+      if (Buffer.byteLength(JSON.stringify(body), "utf8") > 256 * 1024) throw new GradingApiError(400, "invalid-argument", "Requête trop volumineuse.");
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: action === "attendance-settings-save" ? "discipline.attendance-settings-save" : "discipline.attendance-settings-scope", ...(action === "attendance-settings-save" ? API_RATE_LIMITS.FINANCE_MUTATE : API_RATE_LIMITS.MESSAGE_RECIPIENTS) });
+      return send(res, 200, await executeAttendanceSettings({ db, caller, body }));
     }
     const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("study-period-") || action === "study-class-vacations" ? executeStudyPeriodMutation : action.startsWith("timetable-") ? executeTimetableWorkflow
       : action.startsWith("archive-") ? executeSchoolYearArchive

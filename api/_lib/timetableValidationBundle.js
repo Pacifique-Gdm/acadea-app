@@ -179,6 +179,33 @@ function normalizeSchoolSections(values) {
   );
 }
 
+// src/utils/attendance.ts
+var attendanceSchoolDays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+var defaultSixSchoolDays = [...attendanceSchoolDays];
+function attendanceSettingsId(schoolId, schoolYearId) {
+  return `attendance-settings__${[schoolId, schoolYearId].map((part) => part.replace(/[^a-zA-Z0-9_-]/g, "_")).join("__")}`;
+}
+function orderedSchoolDays(days) {
+  const configuredDays = days?.filter((day) => attendanceSchoolDays.includes(day)) ?? [];
+  return attendanceSchoolDays.filter((day) => configuredDays.includes(day));
+}
+function resolveAttendanceSchoolDays(settings, section) {
+  const sectionDays = section ? orderedSchoolDays(settings?.sectionSchoolDays?.[section]) : [];
+  if (sectionDays.length > 0) return sectionDays;
+  const configuredDays = orderedSchoolDays(settings?.schoolDays);
+  return configuredDays.length > 0 ? configuredDays : defaultSixSchoolDays;
+}
+function hasSectionSchoolDays(settings) {
+  return Object.values(settings?.sectionSchoolDays ?? {}).some((days) => orderedSchoolDays(days).length > 0);
+}
+function resolveAllAttendanceSchoolDays(settings) {
+  const schoolDays = resolveAttendanceSchoolDays(settings);
+  if (!hasSectionSchoolDays(settings)) return schoolDays;
+  const used = new Set(schoolDays);
+  Object.values(settings?.sectionSchoolDays ?? {}).forEach((days) => orderedSchoolDays(days).forEach((day) => used.add(day)));
+  return attendanceSchoolDays.filter((day) => used.has(day));
+}
+
 // src/modules/studies/studyScope.ts
 function studyClassSection(item) {
   return normalizeSchoolSection(item.section) ?? getClassSection(item.name);
@@ -209,6 +236,19 @@ function assignmentVacationClasses(assignment, classes) {
 function periodAppliesToAssignment(period, assignment, classes, day) {
   const targetClasses = assignmentVacationClasses(assignment, classes);
   return targetClasses.length > 0 && targetClasses.every((item) => periodAppliesToClass(period, item, day));
+}
+function studyClassSchoolDays(schoolClass, settings) {
+  return resolveAttendanceSchoolDays(settings, studyClassSection(schoolClass));
+}
+function classesWithSectionSchoolDays(classes, settings) {
+  if (!hasSectionSchoolDays(settings)) return classes;
+  const allDays = resolveAllAttendanceSchoolDays(settings);
+  return classes.map((schoolClass) => {
+    const ownDays = studyClassSchoolDays(schoolClass, settings);
+    const closedDays = allDays.filter((day) => !ownDays.includes(day));
+    if (closedDays.length === 0) return schoolClass;
+    return { ...schoolClass, dayVacations: { ...schoolClass.dayVacations, ...Object.fromEntries(closedDays.map((day) => [day, "none"])) } };
+  });
 }
 
 // src/modules/studies/scheduleValidation.ts
@@ -284,7 +324,50 @@ function validateTimetable(problem, entries) {
 }
 
 // src/utils/schoolConfig.ts
+var schoolEducationLevelChoices = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
 var schoolSectionOrder = [...SCHOOL_SECTIONS];
+function normalizeEducationLevel(level) {
+  const normalized = level.trim().toLowerCase();
+  if (normalized === "maternelle") return "Maternelle";
+  if (normalized === "primaire") return "Primaire";
+  if (normalized === "cteb" || normalized === "cetb") return "CTEB";
+  if (normalized === "secondaire") return "Secondaire";
+  if (normalized === "primaire uniquement") return "Primaire uniquement";
+  if (normalized === "cteb uniquement" || normalized === "cetb uniquement") return "CTEB uniquement";
+  if (normalized === "secondaire uniquement") return "Secondaire uniquement";
+  if (normalized === "cteb et secondaire") return "CTEB et Secondaire";
+  if (normalized === "mixte") return "Mixte";
+  return level.trim();
+}
+function getSchoolEducationLevels(school) {
+  if (school.schoolType === "Primaire uniquement") return ["Primaire"];
+  if (school.schoolType === "CTEB uniquement") return ["CTEB"];
+  if (school.schoolType === "Secondaire uniquement") return ["Secondaire"];
+  if (school.schoolType === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
+  const levels = (school.educationLevels ?? []).map(normalizeEducationLevel).flatMap((level) => {
+    if (level === "Primaire uniquement") return ["Primaire"];
+    if (level === "CTEB uniquement") return ["CTEB"];
+    if (level === "Secondaire uniquement") return ["Secondaire"];
+    if (level === "CTEB et Secondaire") return ["CTEB", "Secondaire"];
+    if (level === "Mixte") return schoolEducationLevelChoices;
+    return [level];
+  }).filter(Boolean);
+  if (levels.length > 0) {
+    const uniqueLevels = Array.from(new Set(levels));
+    return schoolEducationLevelChoices.filter((level) => uniqueLevels.includes(level));
+  }
+  if (school.schoolType === "Mixte") return schoolEducationLevelChoices;
+  if (school.schoolType === "CTEB") return ["Maternelle", "Primaire", "CTEB"];
+  if (school.schoolType === "Secondaire") return ["Maternelle", "Primaire", "CTEB", "Secondaire"];
+  return school.schoolType ? [school.schoolType] : schoolEducationLevelChoices;
+}
+function schoolSectionFromEducationLevel(level) {
+  return normalizeSchoolSection(level) ?? "";
+}
+function getSchoolSections(school) {
+  const sections = getSchoolEducationLevels(school).map(schoolSectionFromEducationLevel).filter((section) => Boolean(section));
+  return schoolSectionOrder.filter((section) => sections.includes(section));
+}
 
 // src/utils/userSections.ts
 function normalizeSectionIds(values) {
@@ -294,17 +377,16 @@ function userSectionIds(user) {
   const sections = normalizeSectionIds(user.sectionIds ?? []);
   return sections.length ? sections : normalizeSectionIds(user.section ? [user.section] : []);
 }
-
-// src/utils/attendance.ts
-var attendanceSchoolDays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
-var defaultSixSchoolDays = [...attendanceSchoolDays];
-function resolveAttendanceSchoolDays(settings) {
-  const configuredDays = settings?.schoolDays?.filter((day) => attendanceSchoolDays.includes(day)) ?? [];
-  return configuredDays.length > 0 ? attendanceSchoolDays.filter((day) => configuredDays.includes(day)) : defaultSixSchoolDays;
-}
 export {
+  attendanceSettingsId,
+  classesWithSectionSchoolDays,
+  getClassSection,
+  getSchoolSections,
   logicalStudyClasses,
+  resolveAllAttendanceSchoolDays,
   resolveAttendanceSchoolDays,
+  schoolSectionOrder,
+  studyClassSchoolDays,
   studyClassSection,
   userSectionIds,
   validateTimetable

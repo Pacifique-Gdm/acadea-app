@@ -193,7 +193,7 @@ export async function setStudyClassVacation(input:{user:AppUser;item:StudyClass;
   await setDoc(doc(database,"classes",input.item.id),{id:input.item.id,schoolId:input.item.schoolId,schoolYearId:input.item.schoolYearId,name:input.item.name.trim(),active:true,createdBy:input.user.id,createdAt:now,...vacationFields});
 }
 
-export async function saveStudyClassDayVacations(input: { user: AppUser; classes: StudyClass[]; sourceClasses: StudyClass[]; days: readonly StudyDay[]; values: Record<string, Partial<Record<StudyDay, StudyDayVacation>>> }) {
+export async function saveStudyClassDayVacations(input: { user: AppUser; classes: StudyClass[]; sourceClasses: StudyClass[]; days: readonly StudyDay[]; classDays?: Record<string, readonly StudyDay[]>; values: Record<string, Partial<Record<StudyDay, StudyDayVacation>>> }) {
   if (!input.classes.length || input.classes.length > 400 || !input.days.length) throw new Error("Sélection de classes invalide.");
   const first = input.classes[0];
   requireScope(input.user, first.schoolId, first.schoolYearId);
@@ -203,7 +203,8 @@ export async function saveStudyClassDayVacations(input: { user: AppUser; classes
   for (const item of input.classes) {
     if (item.schoolId !== first.schoolId || item.schoolYearId !== first.schoolYearId || item.active === false) throw new Error("Classe hors périmètre.");
     const next = { ...(item.dayVacations ?? {}) };
-    for (const day of input.days) {
+    // Jours de cours de la section de la classe quand ils sont fournis (lot R3), sinon ceux de l'école.
+    for (const day of input.classDays?.[item.id] ?? input.days) {
       const value = input.values[item.id]?.[day];
       if (!value || !["morning", "afternoon", "full", "none"].includes(value)) throw new Error("Vacation journalière invalide.");
       next[day] = value;

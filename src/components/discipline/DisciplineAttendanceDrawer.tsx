@@ -3,7 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Sea
 import type { AttendanceRecord, AttendanceSettings, AttendanceStatus, School, SchoolClassRecord, SchoolSection, SchoolYear, Student } from "../../types";
 import { canonicalOperationalClasses, studentBelongsToOperationalClass } from "../../services/schoolSubclasses";
 import { pdfInfoGrid, pdfSection, pdfTable, renderAcadPdfPreview } from "../../utils/pdf";
-import { attendanceSchoolDayFromDate, attendanceSchoolDayLabels, resolveAttendanceSchoolDays } from "../../utils/attendance";
+import { attendanceSchoolDayFromDate, attendanceSchoolDayLabels, resolveAllAttendanceSchoolDays, resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { getSchoolSections, schoolSectionLabels } from "../../utils/schoolConfig";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../ui/ErrorNotice";
@@ -212,7 +212,13 @@ function DisciplineAttendanceView({ students, attendance, classRecords = noClass
     }
   }, [selectedClass, students]);
 
-  const activeSchoolDays = useMemo(() => resolveAttendanceSchoolDays(settings), [settings]);
+  // Jours de la section choisie (ou de la seule section du compte) ; sinon tous les
+  // jours où une section a cours. Sans jours par section : les jours de l'école.
+  const activeSchoolDays = useMemo(() => {
+    if (selectedSection !== "all") return resolveAttendanceSchoolDays(settings, selectedSection);
+    if (allowedSections?.length === 1) return resolveAttendanceSchoolDays(settings, allowedSections[0]);
+    return resolveAllAttendanceSchoolDays(settings);
+  }, [allowedSections, selectedSection, settings]);
   const weekDates = useMemo(() => {
     const start = parseLocalDate(weekStart);
     return Array.from({ length: 6 }, (_, index) => addDays(start, index)).filter((date) => {
