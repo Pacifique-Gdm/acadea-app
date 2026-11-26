@@ -11,6 +11,7 @@ const source = [
   'export { resolveAttendanceSchoolDays, resolveAllAttendanceSchoolDays, attendanceSettingsId } from "./src/utils/attendance.ts";',
   'export { getSchoolSections, schoolSectionOrder } from "./src/utils/schoolConfig.ts";',
   'export { getClassSection } from "./src/utils/studentClasses.ts";',
+  'export { timetableSection, activePublishedTimetables, composePublishedEntries, sectionTimetableProblem, validateSectionTimetable } from "./src/modules/studies/sectionTimetable.ts";',
 ].join("\n");
 
 const result = buildSync({

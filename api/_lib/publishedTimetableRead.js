@@ -1,3 +1,6 @@
+import { composePublishedEntries, timetableSection } from "./timetableValidationBundle.js";
+
+const MAX_ACTIVE_PUBLICATIONS = 5;
 const READER_ROLES = new Set(["school_admin", "secretary", "discipline_director", "study_director", "teacher"]);
 const DAY_ORDER = new Map(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].map((day, index) => [day, index]));
 
@@ -44,15 +47,26 @@ export async function readPublishedTimetable({ db, caller, schoolYearId }) {
     teacherId = teachers.docs[0].id;
   }
 
-  const published = await db.collection("timetables").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("status", "==", "PUBLISHED").where("activePublished", "==", true).limit(2).get();
+  // Lot R5 : une publication active pour toute l'école et au plus une par section.
+  const published = await db.collection("timetables").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("status", "==", "PUBLISHED").where("activePublished", "==", true).limit(MAX_ACTIVE_PUBLICATIONS + 1).get();
   if (!published.docs.length) return null;
-  if (published.docs.length !== 1) fail(409, "failed-precondition", "Plusieurs horaires publiés actifs existent.");
-  const timetable = published.docs[0];
-  if (!scoped(timetable.data(), schoolId, schoolYearId) || timetable.data()?.status !== "PUBLISHED" || timetable.data()?.activePublished !== true) fail(409, "failed-precondition", "Horaire publié incohérent.");
-  const entriesSnapshot = await db.collection("timetableEntries").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("scheduleId", "==", timetable.id).limit(1001).get();
-  if (entriesSnapshot.docs.length > 1000) fail(409, "failed-precondition", "Horaire trop volumineux pour la consultation.");
-  const entries = entriesSnapshot.docs.map((snapshot) => snapshot.data()).filter((entry) => entry?.active !== false && (!teacherId || entry.teacherId === teacherId));
-  if (entries.some((entry) => !scoped(entry, schoolId, schoolYearId) || entry.scheduleId !== timetable.id)) fail(409, "failed-precondition", "Entrée d’horaire hors périmètre.");
+  const scopes = published.docs.map((snapshot) => timetableSection(snapshot.data()) ?? "");
+  if (published.docs.length > MAX_ACTIVE_PUBLICATIONS || new Set(scopes).size !== scopes.length) fail(409, "failed-precondition", "Plusieurs horaires publiés actifs existent.");
+  if (published.docs.some((snapshot) => !scoped(snapshot.data(), schoolId, schoolYearId) || snapshot.data()?.status !== "PUBLISHED" || snapshot.data()?.activePublished !== true
+    || (snapshot.data()?.sectionId !== undefined && !timetableSection(snapshot.data())))) fail(409, "failed-precondition", "Horaire publié incohérent.");
+  const timetableIds = new Set(published.docs.map((snapshot) => snapshot.id));
+  const snapshots = await Promise.all(published.docs.map((timetable) => db.collection("timetableEntries").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("scheduleId", "==", timetable.id).limit(1001).get()));
+  if (snapshots.reduce((total, snapshot) => total + snapshot.docs.length, 0) > 1000) fail(409, "failed-precondition", "Horaire trop volumineux pour la consultation.");
+  const allEntries = snapshots.flatMap((snapshot) => snapshot.docs.map((item) => item.data())).filter((entry) => entry?.active !== false && (!teacherId || entry.teacherId === teacherId));
+  if (allEntries.some((entry) => !scoped(entry, schoolId, schoolYearId) || !timetableIds.has(entry.scheduleId))) fail(409, "failed-precondition", "Entrée d’horaire hors périmètre.");
+  // Sans publication de section : exactement les créneaux de l'horaire de l'école.
+  const sectionPublished = scopes.some(Boolean);
+  const entries = sectionPublished ? composePublishedEntries({
+    published: published.docs.map((snapshot) => ({ id: snapshot.id, sectionId: snapshot.data()?.sectionId })), entries: allEntries,
+    classes: (await db.collection("classes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get()).docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id })),
+  }) : allEntries;
+  const wholeSchool = published.docs.find((snapshot) => !timetableSection(snapshot.data()));
+  const timetable = wholeSchool ?? [...published.docs].sort((left, right) => (right.data()?.version ?? 0) - (left.data()?.version ?? 0))[0];
 
   const references = new Map();
   const reference = (collection, id) => {
