@@ -132,3 +132,28 @@ describe("publication serveur des cotes", () => {
     await expect(executeGradePublication({ db, caller: parent, body: { ...base, action: "grades-parent-read", studentId: "historical-child", slot: "period_1" } })).rejects.toMatchObject({ status: 403 });
   });
 });
+
+describe("lot R1 : le premier qui publie gagne", () => {
+  it("le second reçoit « Déjà modifié par [nom, fonction] » et rien n'est écrit", async () => {
+    const { db, records } = fixture();
+    records.users.push({ id: "prefect", role: "study_director", studyFunction: "prefect_of_studies", name: "Jean Kasa", schoolId: "s", active: true });
+    records.users[0].name = "Marie Lunda";
+    const options = await executeGradePublication({ db, caller: director, body: { ...base, action: "grades-options", classId: "class" } });
+    expect(options.publications).toEqual({});
+    const first = await executeGradePublication({ db, caller: { uid: "prefect", role: "study_director", schoolId: "s" }, body: { ...publish, requestId: "request_prefect_123456", expectedPublicationId: null } });
+    const before = records.gradePublicationRuns.length;
+    await expect(executeGradePublication({ db, caller: director, body: { ...publish, expectedPublicationId: null } }))
+      .rejects.toMatchObject({ status: 409, code: "already-modified", message: expect.stringContaining("Déjà modifié par Jean Kasa, Préfet d'études le ") });
+    expect(records.gradePublicationRuns).toHaveLength(before);
+    const reloaded = await executeGradePublication({ db, caller: director, body: { ...base, action: "grades-options", classId: "class" } });
+    expect(reloaded.publications.period_1).toMatchObject({ publicationId: first.publicationId, publishedByName: "Jean Kasa", publishedByFunction: "Préfet d'études" });
+    await expect(executeGradePublication({ db, caller: director, body: { ...publish, expectedPublicationId: first.publicationId } })).resolves.toMatchObject({ ok: true, repeated: false });
+  });
+
+  it("sans expectedPublicationId (ancien écran), la publication se fait comme avant", async () => {
+    const { db, records } = fixture();
+    records.users.push({ id: "prefect", role: "study_director", schoolId: "s", active: true });
+    await executeGradePublication({ db, caller: { uid: "prefect", role: "study_director", schoolId: "s" }, body: { ...publish, requestId: "request_prefect_123456" } });
+    await expect(executeGradePublication({ db, caller: director, body: publish })).resolves.toMatchObject({ ok: true });
+  });
+});

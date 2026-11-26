@@ -5,6 +5,7 @@ import { CLASSES } from "../../types";
 import { attendanceClassRuleKey, attendanceSchoolDayLabels, attendanceSchoolDays, attendanceSettingsId, defaultFiveSchoolDays, defaultSixSchoolDays, resolveAttendanceSchoolDays } from "../../utils/attendance";
 import { getSchoolSections, schoolSectionLabels, schoolSectionOrder } from "../../utils/schoolConfig";
 import { getClassSection } from "../../utils/studentClasses";
+import { ModifiedBy } from "../ui/ModifiedBy";
 
 const resetConfirmationPhrase = "REINITIALISER LES HORAIRES";
 const schoolDaysConfirmationPhrase = "MODIFIER LES JOURS SCOLAIRES";
@@ -207,6 +208,7 @@ export function AttendanceSettingsDrawer({
         <div>
           <h2 className="font-bold text-ink">Jours scolaires</h2>
           <p className="mt-1 text-sm text-slate-500">Cette configuration pilote la fiche hebdomadaire et l'export PDF.</p>
+          {settings?.updatedBy && <ModifiedBy userId={settings.updatedBy} schoolId={school.id} at={settings.updatedAt} />}
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           <button onClick={() => applyWeekMode("5")} type="button" className={`rounded border px-3 py-2 text-sm font-bold transition ${displayedWeekMode === "5" ? "border-mint bg-mint/10 text-mint" : "border-slate-200 bg-white text-slate-600 hover:border-mint"}`}>

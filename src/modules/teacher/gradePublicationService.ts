@@ -37,10 +37,12 @@ async function request<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 export const loadGradePublicationOptions = (schoolId: string, schoolYearId: string, classId: string) =>
-  request<{ currency: "USD" | "CDF"; feeTypes: Array<{ id: string; name: string }> }>({ action: "grades-options", schoolId, schoolYearId, classId });
+  request<{ currency: "USD" | "CDF"; feeTypes: Array<{ id: string; name: string }>; publications?: Partial<Record<string, LatestGradePublication>> }>({ action: "grades-options", schoolId, schoolYearId, classId });
+/** Lot R1 : dernière publication encore en place pour une période (auteur : nom, fonction, date). */
+export type LatestGradePublication = { publicationId: string; publishedAt: string; publishedByName?: string; publishedByFunction?: string };
 export const loadDirectorConsolidatedReport = (schoolId: string, schoolYearId: string, classId: string) =>
   request<{ report: ConsolidatedClassReport }>({ action: "grades-report", schoolId, schoolYearId, classId });
-export const publishGrades = (input: { schoolId: string; schoolYearId: string; classId: string; requestId: string } & PublicationCriteria) =>
+export const publishGrades = (input: { schoolId: string; schoolYearId: string; classId: string; requestId: string; expectedPublicationId?: string | null } & PublicationCriteria) =>
   request<{ ok: true; publicationId: string; publishedCount: number; notificationCount: number; repeated: boolean }>({ action: "grades-publish", ...input });
 export const withdrawGradePublication = (schoolId: string, schoolYearId: string, publicationId: string) =>
   request<{ ok: true; withdrawn?: true }>({ action: "grades-withdraw", schoolId, schoolYearId, publicationId });

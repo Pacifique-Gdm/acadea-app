@@ -8,6 +8,25 @@ import { DAY_LABELS, detectAvailabilityConflicts, validTimeRange, validateAvaila
 import { persistGeneratedTimetable } from "./timetablePersistence";
 import { normalizeSectionIds, userSectionIds } from "../../utils/userSections";
 import { normalizeSectionField } from "../../utils/schoolSections";
+import { alreadyModifiedMessage } from "../../services/staffLabels";
+
+// Lot R1 : même affectation, deux personnes : le premier gagne. Si une AUTRE personne l'a modifiée
+// depuis son affichage, rien n'est écrit et le second reçoit « Déjà modifié par [nom, fonction], rechargez ».
+export class AssignmentAlreadyModified extends Error {
+  constructor(readonly updatedBy?: string) { super("Déjà modifié par une autre personne, rechargez."); }
+}
+export function assertAssignmentUnchanged(current: { exists(): boolean; data(): Record<string, unknown> | undefined } | undefined, expected: Pick<PedagogicalAssignment, "updatedAt"> | undefined, userId: string) {
+  const data = current?.exists() ? current.data() : undefined;
+  if (!expected?.updatedAt || !data || typeof data.updatedAt !== "string" || typeof data.updatedBy !== "string" || data.updatedAt === expected.updatedAt || data.updatedBy === userId) return;
+  throw new AssignmentAlreadyModified(typeof data.updatedBy === "string" ? data.updatedBy : undefined);
+}
+async function withAlreadyModifiedMessage<T>(schoolId: string, work: () => Promise<T>): Promise<T> {
+  try { return await work(); }
+  catch (error) {
+    if (error instanceof AssignmentAlreadyModified) throw new Error(await alreadyModifiedMessage(schoolId, error.updatedBy));
+    throw error;
+  }
+}
 import { assignmentStudentGroupKey, baseStudyClassId, classOptionId, operationalTitularClasses, validateAssignmentClassSelection, type AssignmentClassSelection } from "./studyCourseScope";
 import { normalizedSessionPattern, validateAssignmentSessionPattern } from "./assignmentSessionPattern";
 import { requestTimetableTransition } from "./timetableWorkflowClient";
@@ -232,7 +251,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
   if (patternError) throw new Error(patternError);
   const targetId = pedagogicalAssignmentId(input);
   const now = new Date().toISOString();
-  await runTransaction(database, async (transaction) => {
+  await withAlreadyModifiedMessage(input.schoolId, () => runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", input.teacherId);
     const oldTeacherRef = input.current && input.current.teacherId !== input.teacherId ? doc(database, "teachers", input.current.teacherId) : undefined;
     const subjectRef = doc(database, "subjects", input.subjectId);
@@ -248,6 +267,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     // authorize a missing resource. The deterministic write remains validated
     // by the assignment create/update rules and the references read below.
     const [teacher, subject, schoolClass, room, titularClass, lock, titular, previousTitular, oldTeacher] = await Promise.all([transaction.get(teacherRef), transaction.get(subjectRef), transaction.get(classRef), roomRef ? transaction.get(roomRef) : Promise.resolve(undefined), titularClassRef ? transaction.get(titularClassRef) : Promise.resolve(undefined), transaction.get(lockRef), titularRef ? transaction.get(titularRef) : Promise.resolve(undefined), previousTitularRef ? transaction.get(previousTitularRef) : Promise.resolve(undefined), oldTeacherRef ? transaction.get(oldTeacherRef) : Promise.resolve(undefined)]);
+    if (input.current) assertAssignmentUnchanged(await transaction.get(doc(database, "pedagogicalAssignments", input.current.id)), input.current, input.user.id);
     const teacherData = teacher.data();
     if (teacherData?.status === "inactive") throw new Error("Cet enseignant est archivé et ne peut plus recevoir de nouvelle affectation.");
     if (typeof teacherData?.userId === "string") {
@@ -279,7 +299,7 @@ export async function savePedagogicalAssignment(input: { user: AppUser; schoolId
     if (input.active) transaction.set(lockRef, { id: lockId, schoolId: input.schoolId, schoolYearId: input.schoolYearId, subjectId: input.subjectId, classId: input.classId, teacherId: input.teacherId, assignmentId: targetId, updatedAt: now, updatedBy: input.user.id });
     if (previousTitularRef && previousTitular?.exists()) transaction.delete(previousTitularRef);
     if (titularRef) transaction.set(titularRef, { id: `${input.schoolId}__${input.schoolYearId}__${input.titularClassId}`, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId: input.titularClassId, teacherId: input.teacherId, assignmentId: targetId, active: input.active, updatedAt: now, updatedBy: input.user.id });
-  });
+  }));
 }
 
 export async function renameStudySubject(input: { user: AppUser; schoolId: string; schoolYearId: string; subjectId: string; name: string }) {
@@ -347,7 +367,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
       && (target.classId === titularClassId || target.classId === baseClassId)
       && (!target.targetOptionIds?.length || Boolean(optionId && target.targetOptionIds.includes(optionId))));
   };
-  await runTransaction(database, async (transaction) => {
+  await withAlreadyModifiedMessage(input.schoolId, () => runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", input.teacherId);
     const oldTeacherRef = input.current && input.current.teacherId !== input.teacherId ? doc(database, "teachers", input.current.teacherId) : undefined;
     const subjectRefs = subjectIds.map((id) => doc(database, "subjects", id));
@@ -358,6 +378,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
     const removedTitularRefs = removedTitulars.map((item) => doc(database, "classTitulars", item.id));
     const lockRefs = targets.map((target) => doc(database, "pedagogicalAssignmentLocks", target.lockId));
     const [teacher, ...references] = await Promise.all([transaction.get(teacherRef), ...subjectRefs.map((ref) => transaction.get(ref)), ...modernClassRefs.map((ref) => transaction.get(ref)), ...selectedTitularRefs.map((ref) => transaction.get(ref)), ...removedTitularRefs.map((ref) => transaction.get(ref)), ...lockRefs.map((ref) => transaction.get(ref)), ...(oldTeacherRef ? [transaction.get(oldTeacherRef)] : [])]);
+    if (input.current) assertAssignmentUnchanged(await transaction.get(doc(database, "pedagogicalAssignments", input.current.id)), input.current, input.user.id);
     const oldTeacher = oldTeacherRef ? references.at(-1) : undefined;
     const validReference = (snapshot: typeof teacher) => snapshot.exists() && snapshot.data()?.schoolId === input.schoolId && snapshot.data()?.schoolYearId === input.schoolYearId;
     if (!validReference(teacher) || teacher.data()?.status === "inactive" || references.slice(0, subjectRefs.length + modernClassRefs.length).some((snapshot) => !validReference(snapshot))) throw new Error("Une référence pédagogique est inconnue, inactive ou hors périmètre.");
@@ -426,7 +447,7 @@ export async function savePedagogicalAssignments(input: { user: AppUser; schoolI
       if (!assignmentId) throw new Error("L’affectation titulaire est introuvable.");
       transaction.set(selectedTitularRefs[index], { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, classId, teacherId: input.teacherId, assignmentId, active: true, updatedAt: now, updatedBy: input.user.id });
     });
-  });
+  }));
   return combinations.length;
 }
 
@@ -446,10 +467,11 @@ export async function setPedagogicalAssignmentActive(user: AppUser, assignment: 
   const assignmentRef = doc(database, "pedagogicalAssignments", assignment.id);
   const lockRef = doc(database, "pedagogicalAssignmentLocks", lockId);
   const now = new Date().toISOString();
-  await runTransaction(database, async (transaction) => {
+  await withAlreadyModifiedMessage(assignment.schoolId, () => runTransaction(database, async (transaction) => {
     const teacherRef = doc(database, "teachers", assignment.teacherId);
     const [current, lock, teacher] = await Promise.all([transaction.get(assignmentRef), transaction.get(lockRef), transaction.get(teacherRef)]);
     if (!current.exists() || current.data()?.schoolId !== assignment.schoolId || current.data()?.schoolYearId !== assignment.schoolYearId) throw new Error("Cette affectation n’existe plus.");
+    assertAssignmentUnchanged(current, assignment, user.id);
     if (!teacher.exists() || teacher.data()?.schoolId !== assignment.schoolId || teacher.data()?.schoolYearId !== assignment.schoolYearId) throw new Error("Profil enseignant invalide.");
     if (active && lock.exists() && lock.data()?.assignmentId !== assignment.id) {
       const lockedAssignment = await transaction.get(doc(database, "pedagogicalAssignments", String(lock.data()?.assignmentId ?? "")));
@@ -459,7 +481,7 @@ export async function setPedagogicalAssignmentActive(user: AppUser, assignment: 
     const storageAssignmentIds = updatedStorageAssignmentIds(teacher.data()?.storageAssignmentIds, active ? [assignment.id] : [], active ? [] : [assignment.id]);
     if (storageAssignmentIds) transaction.update(teacherRef, { storageAssignmentIds });
     if (active) transaction.set(lockRef, { id: lockId, schoolId: assignment.schoolId, schoolYearId: assignment.schoolYearId, subjectId: assignment.subjectId, classId: assignment.classId, ...(assignment.studentGroupKey ? { courseScope: assignment.courseScope, targetOptionIds: assignment.targetOptionIds, studentGroupKey: assignment.studentGroupKey } : {}), teacherId: assignment.teacherId, assignmentId: assignment.id, updatedAt: now, updatedBy: user.id });
-  });
+  }));
 }
 
 export async function setPedagogicalAssignmentBlockSize(user:AppUser,assignment:PedagogicalAssignment,blockSize:1|2){const database=requireScope(user,assignment.schoolId,assignment.schoolYearId);if(blockSize===2&&assignment.weeklyPeriods%2!==0)throw new Error("Le volume hebdomadaire doit être pair pour un cours double.");await setDoc(doc(database,"pedagogicalAssignments",assignment.id),{blockSize,updatedAt:new Date().toISOString(),updatedBy:user.id},{merge:true});}
