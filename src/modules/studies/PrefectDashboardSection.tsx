@@ -31,7 +31,7 @@ export function PrefectDashboardSection({ uid, schoolId, schoolYearId }: { uid: 
     <h2 className="text-base font-bold text-ink">Pilotage de mes sections</h2>
     <ErrorNotice error={error} fallback="Tableau de pilotage indisponible." onRetry={() => setRetry((value) => value + 1)} />
     {!dashboard && loading && <p className="text-sm text-slate-500">Chargement du tableau de pilotage…</p>}
-    {dashboard && <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    {dashboard && <div className="grid min-w-0 grid-cols-2 gap-3 lg:grid-cols-4">
       <DashboardCard title="Effectifs" value={dashboard.enrollment.students} icon={UsersRound}>
         <p className="text-xs text-slate-500">élèves · {dashboard.enrollment.classes} classe{dashboard.enrollment.classes > 1 ? "s" : ""}</p>
       </DashboardCard>
