@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.31.0] — 2026-11-26 — Fonctionnalité
+- Réglages R2 : demandes d'indisponibilité et Historique pédagogique limités aux sections du compte d'études
+
 ## [1.30.0] — 2026-11-26 — Fonctionnalité
 - Réglages R1 : qui a modifié quoi (nom, fonction, date) et « Déjà modifié par… » pour les cotes et les affectations
 
