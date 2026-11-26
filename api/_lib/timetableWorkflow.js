@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { GradingApiError } from "./teacherGrading.js";
 import { publicationReader, runPublicationTransaction } from "./publicationTransaction.js";
 import { canManageSections, resolveSectionAuthority } from "./sectionAuthority.js";
+import { SECTION_MANAGERS_COLLECTION, toAuthorityManagers } from "./sectionSettingsManagers.js";
 import { validateTimetable, logicalStudyClasses, studyClassSection, userSectionIds, resolveAllAttendanceSchoolDays, classesWithSectionSchoolDays, timetableSection, activePublishedTimetables, sectionTimetableProblem, validateSectionTimetable } from "./timetableValidationBundle.js";
 
 const fail = (status, code, message) => { throw new GradingApiError(status, code, message); };
@@ -12,10 +13,10 @@ const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value
 const digest = (value) => createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
 
 /** Lot R5 : celui qui agit sur la section (règle unique des sections, fonction
- * commune de R4). Point d'extension R6 : responsable désigné de la section, à
- * passer dans les options de resolveSectionAuthority. */
-function timetableAuthority(actor, uid, school) {
-  return resolveSectionAuthority({ ...actor, id: uid, uid }, school);
+ * commune de R4). Lot R6 : une section confiée à un responsable désigné n'est
+ * réglée que par lui (`managers` : document sectionSettingsManagers de l'école). */
+function timetableAuthority(actor, uid, school, managers) {
+  return resolveSectionAuthority({ ...actor, id: uid, uid }, school, { sectionSettingsManagers: toAuthorityManagers(managers) });
 }
 
 /** Lot R5 : horaire publié des autres sections, lu dans la même transaction. */
@@ -44,9 +45,10 @@ export async function executeTimetableWorkflow({ db, caller, body }) {
   const publishing = action === "timetable-publish";
   return runPublicationTransaction(db, async (transaction) => {
     const reader = publicationReader(db, transaction);
-    const [actorSnapshot, schoolSnapshot, yearSnapshot, scheduleSnapshot, stateSnapshot] = await Promise.all([
+    const [actorSnapshot, schoolSnapshot, yearSnapshot, scheduleSnapshot, stateSnapshot, managersSnapshot] = await Promise.all([
       reader.doc(`users/${caller.uid}`).get(), reader.doc(`schools/${schoolId}`).get(), reader.doc(`schoolYears/${schoolYearId}`).get(),
       reader.doc(`timetables/${scheduleId}`).get(), reader.doc(`timetablePublicationStates/${digest([schoolId, schoolYearId])}`).get(),
+      reader.doc(`${SECTION_MANAGERS_COLLECTION}/${schoolId}`).get(),
     ]);
     const actor = actorSnapshot.data(), school = schoolSnapshot.data(), year = yearSnapshot.data(), schedule = scheduleSnapshot.data();
     if (!actor || actor.role !== "study_director" || actor.schoolId !== schoolId || actor.active === false || actor.status === "inactive"
@@ -66,7 +68,8 @@ export async function executeTimetableWorkflow({ db, caller, body }) {
     const sections = userSectionIds(actor);
     // Horaire de section : celui qui agit sur cette section le valide et le publie.
     // Horaire de toute l'école : réservé à un compte qui agit pour toute l'école.
-    const authority = timetableAuthority(actor, caller.uid, school);
+    const managersData = managersSnapshot?.exists ? managersSnapshot.data() : undefined;
+    const authority = timetableAuthority(actor, caller.uid, school, managersData?.schoolId === schoolId ? managersData.managers : undefined);
     if (!canManageSections(authority, section ? [section] : [])) fail(403, "permission-denied", section ? "Cet horaire concerne une section hors de votre périmètre." : "Votre périmètre ne couvre pas toutes les sections de cet horaire d’établissement.");
     // Whole-school timetable: a section-limited director may not replace the
     // other sections' active timetable (unchanged check, kept).

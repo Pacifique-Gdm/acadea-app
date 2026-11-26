@@ -12,7 +12,7 @@ const scope = { schoolId: "school", schoolYearId: "year" };
 const primary = { uid: "primary", role: "study_director", schoolId: "school" };
 const secondary = { uid: "secondary", role: "study_director", schoolId: "school" };
 const whole = { uid: "whole", role: "study_director", schoolId: "school" };
-const names = ["schools", "schoolYears", "users", "teachers", "classes", "subjects", "pedagogicalAssignments", "schedulePeriods", "teacherAvailabilities", "rooms", "attendanceSettings", "timetables", "timetableEntries", "timetablePublicationStates", "rateLimits"];
+const names = ["sectionSettingsManagers", "schools", "schoolYears", "users", "teachers", "classes", "subjects", "pedagogicalAssignments", "schedulePeriods", "teacherAvailabilities", "rooms", "attendanceSettings", "timetables", "timetableEntries", "timetablePublicationStates", "rateLimits"];
 function guard() { if (!process.env.FIRESTORE_EMULATOR_HOST?.match(/^(localhost|127\.0\.0\.1):\d+$/) || !projectId.startsWith("demo-timetable-")) throw Error("Émulateur local requis"); }
 async function cleanup() {
   guard();
@@ -105,5 +105,18 @@ describe("horaire par section (R5) sur Firestore émulé", () => {
     await db.doc("timetableEntries/all-p").set(entry("all", "p1", "ap", "p8"));
     await db.doc("timetableEntries/all-h").set(entry("all", "h1", "ah", "p9"));
     await expect(validate(primary, "all")).rejects.toMatchObject({ status: 403 });
+  });
+  it("R6 : une section confiée à un responsable désigné n'est validée que par lui", async () => {
+    await db.doc("users/secondary2").set({ uid: "secondary2", role: "study_director", schoolId: "school", active: true, sectionIds: ["Secondaire"] });
+    await db.doc("timetables/sec").set({ ...scope, id: "sec", version: 3, status: "DRAFT", activeDraft: true, sectionId: "Secondaire", updatedAt: "n" });
+    await db.doc("timetableEntries/sec-h").set(entry("sec", "h1", "ah", "p9"));
+    await db.doc("sectionSettingsManagers/school").set({ schoolId: "school", managers: { Secondaire: { userId: "secondary2" } } });
+    await expect(validate(secondary, "sec")).rejects.toMatchObject({ status: 403 });
+    await expect(validate({ uid: "secondary2", role: "study_director", schoolId: "school" }, "sec")).resolves.toBeTruthy();
+    // Une désignation d'une autre école est ignorée.
+    await db.doc("sectionSettingsManagers/school").set({ schoolId: "autre", managers: { Secondaire: { userId: "secondary2" } } });
+    await db.doc("timetables/sec2").set({ ...scope, id: "sec2", version: 4, status: "DRAFT", activeDraft: true, sectionId: "Secondaire", updatedAt: "n" });
+    await db.doc("timetableEntries/sec2-h").set(entry("sec2", "h1", "ah", "p9"));
+    await expect(validate(secondary, "sec2", "v-2")).resolves.toBeTruthy();
   });
 });

@@ -3,6 +3,7 @@ import { AdminDrawer } from "../../components/ui";
 import type { AppUser, School, SchoolSection, SchoolYear } from "../../types";
 import { calendarEventSections, calendarStatusForSection, defaultEventSuspendsCourses, validCalendarDate, validateCalendarEvent, type CalendarEventKind, type SchoolCalendarEvent } from "./schoolCalendar";
 import { canManageSections, resolveSectionAuthority } from "../../utils/sectionAuthority";
+import { useSectionSettingsManagers } from "../../hooks/useSectionSettingsManagers";
 import { schoolSectionLabels } from "../../utils/schoolConfig";
 import { analyzeCalendarPdf, isImportablePdfCandidate, type PdfAnalysis } from "./calendarPdfImport";
 import { downloadCalendarPdf, removeUnreferencedCalendarPdf, uploadCalendarPdf } from "./calendarPdfStorage";
@@ -28,7 +29,9 @@ export function SchoolCalendarDrawer({ user, school, years, selectedYear, onClos
   const year = scopedYears.find((item) => item.id === yearId) ?? selectedYear;
   const { calendar, loading, error: loadError, retry: retryCalendar } = useSchoolCalendar(user, school.id, year.id);
   // Lot R4 : règle unique des sections (toute l'école, ou seulement ses sections).
-  const authority = useMemo(() => resolveSectionAuthority(user, school), [user, school]);
+  // Lot R6 : une section confiée à un responsable désigné n'est réglée que par lui.
+  const { authorityManagers } = useSectionSettingsManagers(school.id);
+  const authority = useMemo(() => resolveSectionAuthority(user, school, { sectionSettingsManagers: authorityManagers }), [user, school, authorityManagers]);
   const defaultSections = authority.wholeSchool ? undefined : authority.sections;
   const canEdit = (event: SchoolCalendarEvent) => canManageSections(authority, calendarEventSections(event));
   const [events, setEvents] = useState<SchoolCalendarEvent[]>([]);
