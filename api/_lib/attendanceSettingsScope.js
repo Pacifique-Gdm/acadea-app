@@ -5,10 +5,11 @@ import { attendanceSettingsId, getClassSection, getSchoolSections, schoolSection
 // Lot R3 (réglages par section) : réglages de présence du Directeur de discipline.
 // - Un Directeur SANS section écrit directement dans Firestore, comme avant (il ne passe pas ici).
 // - Un Directeur AVEC sections enregistre par le serveur :
-//   * « non limité » s'il couvre toutes les sections de l'école, ou s'il est le seul Directeur de
-//     discipline actif de l'école : il garde les droits d'aujourd'hui (enregistrement complet) ;
+//   * « non limité » si ses sections couvrent TOUTES les sections de l'école : il garde les droits
+//     d'aujourd'hui (enregistrement complet) ;
 //   * « limité » sinon : le serveur repart du document actuel et ne remplace que SES sections
 //     (heures et jours de section) et les heures des classes de SES sections.
+// Les autres Directeurs de discipline ne sont pas comptés : seule la comparaison des sections compte.
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -60,14 +61,14 @@ export function classRuleSection(key) {
   return getClassSection(String(key).split("__")[0]);
 }
 
-/** Limité = sections qui ne couvrent pas toute l'école ET au moins un autre Directeur de discipline actif. */
-export function attendanceSettingsScope({ actor, school, otherActiveDirectors }) {
+/** Limité = Directeur avec sections qui ne couvrent pas toutes les sections de l'école (calcul de getSchoolSections). */
+export function attendanceSettingsScope({ actor, school }) {
   const sections = userSectionIds(actor ?? {});
   if (!sections.length) return { limited: false, sections: [] };
   const configured = getSchoolSections(school ?? {});
   const schoolSections = configured.length ? configured : [...schoolSectionOrder];
   const coversAll = schoolSections.every((section) => sections.includes(section));
-  return { limited: !coversAll && otherActiveDirectors > 0, sections };
+  return { limited: !coversAll, sections };
 }
 
 /** Document complet d'un compte non limité : mêmes champs que l'écran d'aujourd'hui. */
@@ -111,18 +112,14 @@ export function sectionLimitedAttendanceSettings(current, input, sections, { id,
 }
 
 async function readScope(reader, caller, schoolId) {
-  const [actorSnapshot, schoolSnapshot, directorsSnapshot] = await Promise.all([
+  const [actorSnapshot, schoolSnapshot] = await Promise.all([
     reader.get(`users/${caller.uid}`),
     reader.get(`schools/${schoolId}`),
-    reader.query(schoolId),
   ]);
   const actor = actorSnapshot.exists ? actorSnapshot.data() : undefined;
   if (!actor || actor.role !== "discipline_director" || actor.schoolId !== schoolId || !activeAccount(actor)) fail(403, "permission-denied", "Compte non autorisé.");
-  const otherActiveDirectors = directorsSnapshot.docs.filter((doc) => doc.id !== caller.uid && activeAccount(doc.data())).length;
-  return { actor, ...attendanceSettingsScope({ actor, school: schoolSnapshot.exists ? schoolSnapshot.data() : {}, otherActiveDirectors }) };
+  return { actor, ...attendanceSettingsScope({ actor, school: schoolSnapshot.exists ? schoolSnapshot.data() : {} }) };
 }
-
-const directorsQuery = (db, schoolId) => db.collection("users").where("schoolId", "==", schoolId).where("role", "==", "discipline_director");
 
 export async function executeAttendanceSettings({ db, caller, body }) {
   const action = body?.action;
@@ -131,7 +128,7 @@ export async function executeAttendanceSettings({ db, caller, body }) {
   if (caller?.role !== "discipline_director" || caller.schoolId !== schoolId) fail(403, "permission-denied", "Réglages de présence non autorisés.");
 
   if (action === "attendance-settings-scope") {
-    const scope = await readScope({ get: (path) => db.doc(path).get(), query: (id) => directorsQuery(db, id).get() }, caller, schoolId);
+    const scope = await readScope({ get: (path) => db.doc(path).get() }, caller, schoolId);
     return { limited: scope.limited, sections: scope.sections };
   }
 
@@ -140,7 +137,7 @@ export async function executeAttendanceSettings({ db, caller, body }) {
   const expectedUpdatedAt = typeof body.expectedUpdatedAt === "string" ? body.expectedUpdatedAt : null;
   const id = attendanceSettingsId(schoolId, schoolYearId);
   const result = await db.runTransaction(async (transaction) => {
-    const scope = await readScope({ get: (path) => transaction.get(db.doc(path)), query: (sid) => transaction.get(directorsQuery(db, sid)) }, caller, schoolId);
+    const scope = await readScope({ get: (path) => transaction.get(db.doc(path)) }, caller, schoolId);
     // Un compte sans section écrit directement (règles Firestore) : rien à faire ici.
     if (!scope.sections.length) fail(403, "permission-denied", "Ce compte enregistre directement ses réglages.");
     const [yearSnapshot, settingsSnapshot] = await Promise.all([transaction.get(db.doc(`schoolYears/${schoolYearId}`)), transaction.get(db.doc(`attendanceSettings/${id}`))]);

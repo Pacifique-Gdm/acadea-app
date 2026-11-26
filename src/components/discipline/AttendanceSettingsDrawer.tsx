@@ -76,8 +76,8 @@ export function AttendanceSettingsDrawer({
   }, [feedback]);
 
   // Lot R3 : un Directeur sans section enregistre directement, comme avant. Un Directeur avec
-  // sections passe par le serveur, qui dit s'il est « limité » à ses sections (il ne couvre pas
-  // toute l'école et un autre Directeur de discipline est actif) ou non (droits d'aujourd'hui).
+  // sections passe par le serveur, qui dit s'il est « limité » à ses sections (elles ne couvrent
+  // pas toutes les sections de l'école) ou non (droits d'aujourd'hui).
   const ownSections = useMemo(() => userSectionIds(user), [user]);
   const usesServer = ownSections.length > 0;
   const headerRefresh = useSyncExternalStore(subscribeStaffChildrenRefresh, readStaffChildrenRefresh);

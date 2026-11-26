@@ -203,7 +203,7 @@ service cloud.firestore {
 
     // Lot R3 : un Directeur de discipline rattaché à des sections n'écrit plus directement
     // les réglages de présence : il passe par le serveur (api/manage-teacher-grading.js), qui
-    // vérifie s'il couvre toute l'école ou s'il est le seul Directeur de discipline actif.
+    // vérifie si ses sections couvrent toutes les sections de l'école.
     // Sans section : écriture directe, inchangée.
     function disciplineDirectorHasSections() {
       return exists(/databases/$(database)/documents/users/$(request.auth.uid))
