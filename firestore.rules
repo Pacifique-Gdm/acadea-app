@@ -201,6 +201,40 @@ service cloud.firestore {
               && section == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section));
     }
 
+    // Lot R3 : un Directeur de discipline rattaché à des sections ne modifie,
+    // dans les réglages de présence, que ses sections. Sans section : toute l'école (inchangé).
+    function disciplineDirectorHasSections() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && ((("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds.size() > 0)
+          || (("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section != null));
+    }
+
+    function disciplineDirectorSections() {
+      return (("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds.size() > 0)
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds
+        : [get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section];
+    }
+
+    function attendanceSettingsSectionMapsAllowed(after, before) {
+      return after.get("sectionSchedule", {}).diff(before.get("sectionSchedule", {})).affectedKeys().hasOnly(disciplineDirectorSections())
+        && after.get("sectionSchoolDays", {}).diff(before.get("sectionSchoolDays", {})).affectedKeys().hasOnly(disciplineDirectorSections());
+    }
+
+    function attendanceSettingsCreateScopeAllowed() {
+      return !disciplineDirectorHasSections()
+        || (request.resource.data.keys().hasOnly(["id", "schoolId", "schoolYearId", "sectionSchedule", "sectionSchoolDays", "classSchedule", "updatedAt", "updatedBy"])
+          && attendanceSettingsSectionMapsAllowed(request.resource.data, {}));
+    }
+
+    function attendanceSettingsUpdateScopeAllowed() {
+      return !disciplineDirectorHasSections()
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["sectionSchedule", "sectionSchoolDays", "classSchedule", "updatedAt", "updatedBy"])
+          && attendanceSettingsSectionMapsAllowed(request.resource.data, resource.data));
+    }
+
     function studyDirectorHasNoSectionScope() {
       return studyDirector()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -1799,8 +1833,8 @@ service cloud.firestore {
         || (schoolAdmin() && sameTenantResource())
         || disciplineTenantResource()
         || studyTenantResource();
-      allow create: if activeDisciplineYearCreate();
-      allow update: if activeDisciplineYearUpdate();
+      allow create: if activeDisciplineYearCreate() && attendanceSettingsCreateScopeAllowed();
+      allow update: if activeDisciplineYearUpdate() && attendanceSettingsUpdateScopeAllowed();
       allow delete: if false;
     }
 

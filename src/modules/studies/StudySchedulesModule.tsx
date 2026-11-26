@@ -5,7 +5,8 @@ import type { AppUser, School, SchoolYear } from "../../types";
 import { exportFilteredStudySchedulePdf } from "./studySchedulePdf";
 import { getActiveSchedulePersonnel } from "./studyPersonnel";
 import { currentStudyTimetable, getActiveCoursePeriods, schedulePeriodLabel, sortTimetableEntriesForDisplay, studyDayLabel } from "./studySchedule";
-import { resolveAttendanceSchoolDays } from "../../utils/attendance";
+import { resolveAllAttendanceSchoolDays } from "../../utils/attendance";
+import { classesWithSectionSchoolDays } from "./studyScope";
 import { DeterministicTimetableSolver } from "./timetableSolver";
 import { publishTimetable, saveGeneratedTimetable, validateSavedTimetable } from "./studyService";
 import { scheduleEntryDescription, validateTimetable } from "./scheduleValidation";
@@ -46,7 +47,7 @@ export function StudySchedulesModule({ user, school, year, data }: { user: AppUs
   const personnel = getActiveSchedulePersonnel(data.teachers, data.assignments);
   const logicalClasses = logicalStudyClasses(data.classes, data.sourceClasses);
   const scheduleClasses = [...new Map([...data.sourceClasses, ...data.classes, ...logicalClasses].map((item) => [item.id, item])).values()];
-  const problem = { schoolId: school.id, schoolYearId: year.id, teachers: personnel.teachers, subjects: data.subjects, classes: scheduleClasses, assignments: personnel.assignments, availabilities: data.availabilities, periods: data.periods, rooms: data.rooms, days: resolveAttendanceSchoolDays(data.attendanceSettings), maxSameAssignmentPeriodsPerDay: 2 };
+  const problem = { schoolId: school.id, schoolYearId: year.id, teachers: personnel.teachers, subjects: data.subjects, classes: classesWithSectionSchoolDays(scheduleClasses, data.attendanceSettings), assignments: personnel.assignments, availabilities: data.availabilities, periods: data.periods, rooms: data.rooms, days: resolveAllAttendanceSchoolDays(data.attendanceSettings), maxSameAssignmentPeriodsPerDay: 2 };
   const sourceFingerprint = timetableSourceFingerprint(problem);
   const ready = data.generationReady && data.schedulesReady && data.workflowReady && !data.error;
   const currentStamp = JSON.stringify([current?.id, current?.updatedAt, problem, entries]);

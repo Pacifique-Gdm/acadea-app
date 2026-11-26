@@ -6,9 +6,9 @@ const output = resolve(__dirname, "../api/_lib/timetableValidationBundle.js");
 const source = [
   'export { validateTimetable } from "./src/modules/studies/scheduleValidation.ts";',
   'export { logicalStudyClasses } from "./src/modules/studies/studyCourseGroups.ts";',
-  'export { studyClassSection } from "./src/modules/studies/studyScope.ts";',
+  'export { studyClassSection, studyClassSchoolDays, classesWithSectionSchoolDays } from "./src/modules/studies/studyScope.ts";',
   'export { userSectionIds } from "./src/utils/userSections.ts";',
-  'export { resolveAttendanceSchoolDays } from "./src/utils/attendance.ts";',
+  'export { resolveAttendanceSchoolDays, resolveAllAttendanceSchoolDays } from "./src/utils/attendance.ts";',
 ].join("\n");
 
 const result = buildSync({

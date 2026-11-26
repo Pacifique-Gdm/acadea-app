@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { GradingApiError } from "./teacherGrading.js";
 import { publicationReader, runPublicationTransaction } from "./publicationTransaction.js";
-import { validateTimetable, logicalStudyClasses, studyClassSection, userSectionIds, resolveAttendanceSchoolDays } from "./timetableValidationBundle.js";
+import { validateTimetable, logicalStudyClasses, studyClassSection, userSectionIds, resolveAllAttendanceSchoolDays, classesWithSectionSchoolDays } from "./timetableValidationBundle.js";
 
 const fail = (status, code, message) => { throw new GradingApiError(status, code, message); };
 const id = (value) => typeof value === "string" && value.length > 0 && value.length <= 300 && !value.includes("/");
@@ -60,8 +60,8 @@ export async function executeTimetableWorkflow({ db, caller, body }) {
       const account = users.find((user) => user.id === teacher.userId);
       return { ...teacher, status: teacher.status !== "active" || teacher.userId && (!account || account.status === "inactive" || account.active === false) ? "inactive" : "active" };
     });
-    const problem = { schoolId, schoolYearId, teachers: effectiveTeachers, subjects, classes, assignments, availabilities, periods, rooms,
-      days: resolveAttendanceSchoolDays(settings[0]), maxSameAssignmentPeriodsPerDay: 2 };
+    const problem = { schoolId, schoolYearId, teachers: effectiveTeachers, subjects, classes: classesWithSectionSchoolDays(classes, settings[0]), assignments, availabilities, periods, rooms,
+      days: resolveAllAttendanceSchoolDays(settings[0]), maxSameAssignmentPeriodsPerDay: 2 };
     const report = validateTimetable(problem, entries);
     if (!report.valid) {
       const error = new GradingApiError(409, "invalid-timetable", "L’horaire comporte des erreurs. Consultez le rapport et régénérez le brouillon.");
