@@ -14,10 +14,19 @@ export function profileSections(profile) {
   return clean(values);
 }
 
+/**
+ * Sections d'un enseignant : celles de son COMPTE (`users`, là où l'application les enregistre et où l'écran les lit),
+ * sinon celles de sa fiche (`teachers`).
+ */
+export function teacherSections(teacher, teacherUser) {
+  const fromAccount = profileSections(teacherUser);
+  return fromAccount.length ? fromAccount : profileSections(teacher);
+}
+
 /** Calcul pur. `classSectionById` : Map identifiant de classe → section. */
-export function teacherInSections({ sections, teacherId, teacher, assignments = [], classSectionById = new Map() }) {
+export function teacherInSections({ sections, teacherId, teacher, teacherUser, assignments = [], classSectionById = new Map() }) {
   if (!sections.length) return true;
-  const own = profileSections(teacher);
+  const own = teacherSections(teacher, teacherUser);
   if (!own.length) return true;
   if (own.some((section) => sections.includes(section))) return true;
   return assignments.some((assignment) => assignment.teacherId === teacherId && assignment.active !== false
@@ -31,9 +40,9 @@ const serialize = (snapshot) => (snapshot.docs ?? []).map((item) => ({ id: item.
  * `read` lit un document ou une requête (transaction.get ou lecture simple). Aucune lecture si le compte n'a pas de section
  * ou si les sections de l'enseignant suffisent à décider.
  */
-export async function teacherInSectionsWithReads({ db, read, sections, schoolId, schoolYearId, teacherId, teacher }) {
+export async function teacherInSectionsWithReads({ db, read, sections, schoolId, schoolYearId, teacherId, teacher, teacherUser }) {
   if (!sections.length) return true;
-  const own = profileSections(teacher);
+  const own = teacherSections(teacher, teacherUser);
   if (!own.length || own.some((section) => sections.includes(section))) return true;
   const assignments = serialize(await read(db.collection("pedagogicalAssignments").where("schoolId", "==", schoolId)
     .where("schoolYearId", "==", schoolYearId).where("teacherId", "==", teacherId).where("active", "==", true)));
@@ -44,20 +53,22 @@ export async function teacherInSectionsWithReads({ db, read, sections, schoolId,
     const data = snapshot?.exists ? snapshot.data() : undefined;
     if (data?.schoolId === schoolId && data?.schoolYearId === schoolYearId) classSectionById.set(classId, data.section);
   }
-  return teacherInSections({ sections, teacherId, teacher, assignments, classSectionById });
+  return teacherInSections({ sections, teacherId, teacher, teacherUser, assignments, classSectionById });
 }
 
 /** Comptes utilisateurs (userId) des enseignants de l'année qui sont dans les sections du compte. */
 export async function teacherUserIdsInSections({ db, sections, schoolId, schoolYearId }) {
   const scoped = (name) => db.collection(name).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId);
-  const [teachers, assignments, classes] = await Promise.all([
+  const [teachers, assignments, classes, teacherUsers] = await Promise.all([
     scoped("teachers").get().then(serialize),
     scoped("pedagogicalAssignments").where("active", "==", true).get().then(serialize),
     scoped("classes").get().then(serialize),
+    db.collection("users").where("schoolId", "==", schoolId).where("role", "==", "teacher").get().then(serialize),
   ]);
+  const userById = new Map(teacherUsers.map((item) => [item.id, item]));
   const classSectionById = new Map(classes.map((item) => [item.id, item.section]));
   return new Set(teachers
-    .filter((teacher) => teacherInSections({ sections, teacherId: teacher.id, teacher, assignments, classSectionById }))
+    .filter((teacher) => teacherInSections({ sections, teacherId: teacher.id, teacher, teacherUser: userById.get(teacher.userId), assignments, classSectionById }))
     .map((teacher) => teacher.userId)
     .filter((userId) => typeof userId === "string" && userId));
 }

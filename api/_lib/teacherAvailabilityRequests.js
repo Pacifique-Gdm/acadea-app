@@ -49,7 +49,7 @@ export async function createAvailabilityRequest({ db, caller, request }) {
     for (const directorSnapshot of activeDirectors) {
       const sections = profileSections(directorSnapshot.data());
       if (!sections.length || await teacherInSectionsWithReads({ db, read: (target) => transaction.get(target), sections,
-        schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher })) coveringDirectors.push(directorSnapshot);
+        schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher, teacherUser: user })) coveringDirectors.push(directorSnapshot);
     }
     const directors = coveringDirectors.length ? coveringDirectors : activeDirectors;
     transaction.create(requestRef, request);
@@ -96,7 +96,7 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     // Lot R2 : un compte avec sections ne traite que les enseignants de ses sections (sans section : toute l'école).
     const directorSections = profileSections(director);
     if (directorSections.length && !(await teacherInSectionsWithReads({ db, read: (target) => transaction.get(target), sections: directorSections,
-      schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher }))) {
+      schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher, teacherUser }))) {
       fail(403, "permission-denied", "Cette demande concerne un enseignant hors de vos sections.");
     }
     const now = new Date().toISOString();
