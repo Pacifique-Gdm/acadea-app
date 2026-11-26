@@ -6,6 +6,7 @@ import { listPedagogicalActivity, PedagogicalHistoryError } from "./_lib/pedagog
 import { OfflineAttendanceError, syncOfflineAttendance } from "./_lib/offlineAttendance.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { loadPrefectDashboard } from "./_lib/prefectDashboard.js";
+import { listPrefectDiscipline } from "./_lib/prefectDiscipline.js";
 export default async function handler(req, res) {
   if (req.method !== "POST") return send(res, 405, { code: "invalid-argument", error: "Méthode non autorisée." });
   try {
@@ -25,6 +26,12 @@ export default async function handler(req, res) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-dashboard", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return send(res, 200, await loadPrefectDashboard({ db, caller, body }));
+    }
+    // Lot P2 : discipline des sections du Préfet d'études, en lecture seule.
+    if (action === "prefect-discipline") {
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-discipline", ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return send(res, 200, await listPrefectDiscipline({ db, caller, body }));
     }
     const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("study-period-") || action === "study-class-vacations" ? executeStudyPeriodMutation : action.startsWith("timetable-") ? executeTimetableWorkflow
       : action.startsWith("archive-") ? executeSchoolYearArchive
