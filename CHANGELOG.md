@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.29.0] — 2026-11-26 — Fonctionnalité
+- Préfet d'études : bouton « Discipline » (incidents et sanctions de ses sections, en lecture seule)
+
 ## [1.28.0] — 2026-11-25 — Fonctionnalité
 - Préfet d'études : tableau « Pilotage de mes sections » (effectifs, présence du jour, élèves en difficulté, absences approuvées aujourd'hui)
 
