@@ -9,6 +9,7 @@ const source = [
   'export { studyClassSection } from "./src/modules/studies/studyScope.ts";',
   'export { userSectionIds } from "./src/utils/userSections.ts";',
   'export { resolveAttendanceSchoolDays } from "./src/utils/attendance.ts";',
+  'export { timetableSection, activePublishedTimetables, composePublishedEntries, sectionTimetableProblem, validateSectionTimetable } from "./src/modules/studies/sectionTimetable.ts";',
 ].join("\n");
 
 const result = buildSync({

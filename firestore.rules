@@ -1654,6 +1654,13 @@ service cloud.firestore {
           && request.resource.data.createdAt is string
           && request.resource.data.updatedAt is string;
       }
+      // Lot R5 : un brouillon de section (sectionId) n'est créé ou activé que par
+      // un compte d'études de cette section (ou sans section). Sans sectionId :
+      // horaire de toute l'école, inchangé.
+      function timetableSectionAllowed(data) {
+        return !("sectionId" in data)
+          || (data.sectionId in ["Maternelle", "Primaire", "CTEB", "Secondaire"] && studyDirectorSectionAllowed(data.sectionId));
+      }
       allow read: if superAdmin() || studyTenantResource()
         || (publishedScheduleReader() && resource.data.schoolId == tenantSchoolId() && resource.data.status == "PUBLISHED" && resource.data.activePublished == true)
         || (teacherTenantResource() && resource.data.status == "PUBLISHED" && resource.data.activePublished == true);
@@ -1666,6 +1673,7 @@ service cloud.firestore {
             && request.resource.data.get("persistenceState", "COMPLETE") == "COMPLETE")
           || (request.resource.data.activeDraft == false
             && request.resource.data.persistenceState == "PENDING"))
+        && timetableSectionAllowed(request.resource.data)
         && request.resource.data.createdBy == request.auth.uid;
       allow update: if activeStudyYearUpdate()
         && validTimetableShape()
@@ -1673,6 +1681,7 @@ service cloud.firestore {
         && request.resource.data.version == resource.data.version
         && request.resource.data.createdBy == resource.data.createdBy
         && request.resource.data.createdAt == resource.data.createdAt
+        && timetableSectionAllowed(resource.data)
         && ((resource.data.status == "DRAFT" && resource.data.get("persistenceState", "COMPLETE") == "PENDING"
              && request.resource.data.status == "DRAFT"
              && request.resource.data.activeDraft == true

@@ -1,7 +1,7 @@
 import { collection, doc, onSnapshot, query, runTransaction, setDoc, where } from "@firebase/firestore";
 import type { Firestore } from "@firebase/firestore";
 import { db } from "../../firebase";
-import type { AppUser, AttendanceSettings, Student } from "../../types";
+import type { AppUser, AttendanceSettings, SchoolSection, Student } from "../../types";
 import { activeAssignmentLockId, pedagogicalAssignmentId, validateWeeklyPeriods } from "./studyAssignments";
 import type { AssignmentSessionPattern, ClassTitular, PedagogicalAssignment, SchedulePeriod, StudyClass, StudyDay, StudyDayVacation, StudyRoom, StudySubject, StudyTeacher, StudyVacation, TeacherAvailability, Timetable, TimetableEntry } from "./studyTypes";
 import { DAY_LABELS, detectAvailabilityConflicts, validTimeRange, validateAvailabilityRanges, validatePeriod } from "./studySchedule";
@@ -214,7 +214,7 @@ export async function saveStudyClassDayVacations(input: { user: AppUser; classes
   await mutateStudyPeriods({action:"study-class-vacations",schoolId:first.schoolId,schoolYearId:first.schoolYearId,updates});
 }
 
-export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"]}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}
+export async function saveGeneratedTimetable(input:{user:AppUser;schoolId:string;schoolYearId:string;version:number;entries:TimetableEntry[];existing:Timetable[];metadata:Timetable["generationMetadata"];sectionId?:SchoolSection}){const database=requireScope(input.user,input.schoolId,input.schoolYearId);return persistGeneratedTimetable(database,input);}
 
 export async function validateSavedTimetable(input:{user:AppUser;schedule:Timetable}) {
   requireScope(input.user,input.schedule.schoolId,input.schedule.schoolYearId);

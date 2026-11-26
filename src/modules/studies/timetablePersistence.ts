@@ -1,6 +1,7 @@
 import { doc, writeBatch, type Firestore } from "@firebase/firestore";
-import type { AppUser } from "../../types";
+import type { AppUser, SchoolSection } from "../../types";
 import type { Timetable, TimetableEntry } from "./studyTypes";
+import { timetableInScope } from "./sectionTimetable";
 
 export interface PersistGeneratedTimetableInput {
   user: AppUser;
@@ -10,6 +11,8 @@ export interface PersistGeneratedTimetableInput {
   entries: TimetableEntry[];
   existing: Timetable[];
   metadata: Timetable["generationMetadata"];
+  /** Lot R5 : brouillon d'une section ; absent = brouillon de toute l'école (comme avant). */
+  sectionId?: SchoolSection;
 }
 
 const MAX_ENTRY_REFERENCE_PATHS_PER_BATCH = 4;
@@ -53,10 +56,10 @@ async function cleanupPendingTimetable(database: Firestore, scheduleId: string, 
 
 export async function persistGeneratedTimetable(database: Firestore, input: PersistGeneratedTimetableInput) {
   if (input.entries.length > 498) throw new Error("L’horaire dépasse la capacité d’enregistrement (498 créneaux).");
-  const id = `${input.schoolId}__${input.schoolYearId}__v${input.version}`;
+  const id = input.sectionId ? `${input.schoolId}__${input.schoolYearId}__${input.sectionId}__v${input.version}` : `${input.schoolId}__${input.schoolYearId}__v${input.version}`;
   if (input.existing.some((item) => item.id === id)) throw new Error("Cette version d’horaire existe déjà.");
   const now = new Date().toISOString();
-  const pendingSchedule: Timetable = { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, version: input.version, status: "DRAFT", activeDraft: false, persistenceState: "PENDING", createdBy: input.user.id, createdAt: now, updatedAt: now, generationMetadata: input.metadata };
+  const pendingSchedule: Timetable = { id, schoolId: input.schoolId, schoolYearId: input.schoolYearId, version: input.version, status: "DRAFT", activeDraft: false, persistenceState: "PENDING", createdBy: input.user.id, createdAt: now, updatedAt: now, generationMetadata: input.metadata, ...(input.sectionId ? { sectionId: input.sectionId } : {}) };
   const savedEntries = input.entries.map((entry) => ({ ...entry, id: `${id}__${entry.id}`, scheduleId: id, createdAt: now, updatedAt: now }));
   const creation = writeBatch(database);
   creation.set(doc(database, "timetables", id), pendingSchedule);
@@ -70,7 +73,8 @@ export async function persistGeneratedTimetable(database: Firestore, input: Pers
       persistedEntries.push(...entries);
     }
     const finalization = writeBatch(database);
-    input.existing.filter((item) => item.status === "DRAFT" && item.activeDraft).forEach((item) => finalization.update(doc(database, "timetables", item.id), { activeDraft: false, updatedAt: now }));
+    // Un brouillon ne remplace que le brouillon actif du même périmètre (même section, ou toute l'école).
+    input.existing.filter((item) => item.status === "DRAFT" && item.activeDraft && timetableInScope(item, input.sectionId)).forEach((item) => finalization.update(doc(database, "timetables", item.id), { activeDraft: false, updatedAt: now }));
     finalization.update(doc(database, "timetables", id), { activeDraft: true, persistenceState: "COMPLETE", updatedAt: now });
     await finalization.commit();
     return { ...pendingSchedule, activeDraft: true, persistenceState: "COMPLETE" };

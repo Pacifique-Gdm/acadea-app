@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import { GradingApiError } from "./teacherGrading.js";
 import { publicationReader, runPublicationTransaction } from "./publicationTransaction.js";
-import { validateTimetable, logicalStudyClasses, studyClassSection, userSectionIds, resolveAttendanceSchoolDays } from "./timetableValidationBundle.js";
+import { canManageSections, resolveSectionAuthority } from "./sectionAuthority.js";
+import { validateTimetable, logicalStudyClasses, studyClassSection, userSectionIds, resolveAttendanceSchoolDays, timetableSection, activePublishedTimetables, sectionTimetableProblem, validateSectionTimetable } from "./timetableValidationBundle.js";
 
 const fail = (status, code, message) => { throw new GradingApiError(status, code, message); };
 const id = (value) => typeof value === "string" && value.length > 0 && value.length <= 300 && !value.includes("/");
@@ -9,6 +10,26 @@ const rows = (snapshot) => snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
   ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
 const digest = (value) => createHash("sha256").update(JSON.stringify(canonical(value))).digest("hex");
+
+/** Lot R5 : celui qui agit sur la section (règle unique des sections, fonction
+ * commune de R4). Point d'extension R6 : responsable désigné de la section, à
+ * passer dans les options de resolveSectionAuthority. */
+function timetableAuthority(actor, uid, school) {
+  return resolveSectionAuthority({ ...actor, id: uid, uid }, school);
+}
+
+/** Lot R5 : horaire publié des autres sections, lu dans la même transaction. */
+async function sectionValidationContext({ reader, schoolId, schoolYearId, section, schedules, classes, problem }) {
+  const publishedIds = activePublishedTimetables(schedules).map((item) => item.id).sort();
+  const [publishedEntries, stateSnapshot] = await Promise.all([
+    publishedIds.length ? reader.collection("timetableEntries").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId)
+      .where("scheduleId", "in", publishedIds.slice(0, 30)).get().then(rows) : [],
+    reader.doc(`timetablePublicationStates/${digest([schoolId, schoolYearId, section])}`).get(),
+  ]);
+  if (publishedIds.length > 30) fail(409, "ambiguous-publication", "Trop de publications actives existent. Aucune publication n’a été modifiée.");
+  const scoped = sectionTimetableProblem({ problem, section, timetables: schedules, entries: publishedEntries.filter((item) => item.active !== false), classes });
+  return { ...scoped, stateSnapshot };
+}
 
 /** All source queries, even empty ones, and the per-year publication lock are
  * read in the SAME serializable server transaction. No client source is trusted.
@@ -32,6 +53,9 @@ export async function executeTimetableWorkflow({ db, caller, body }) {
       || !school || ["suspended", "inactive", "deleting"].includes(school.status)) fail(403, "permission-denied", "Compte ou établissement indisponible.");
     if (!year || year.schoolId !== schoolId || year.status !== "active") fail(403, "permission-denied", "L’année scolaire doit être active dans cet établissement.");
     if (!schedule || schedule.schoolId !== schoolId || schedule.schoolYearId !== schoolYearId || schedule.persistenceState === "PENDING") fail(409, "failed-precondition", "Horaire absent ou incomplet.");
+    // Lot R5 : horaire d'une section (sectionId) ; sans sectionId, horaire de toute l'école comme avant.
+    const section = timetableSection(schedule);
+    if (schedule.sectionId !== undefined && !section) fail(409, "failed-precondition", "Section de l’horaire invalide.");
     const scoped = (collection) => reader.collection(collection).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get().then(rows);
     const [teachers, users, subjects, sourceClasses, assignments, availabilities, periods, rooms, settings, allEntries, schedules] = await Promise.all([
       scoped("teachers"), reader.collection("users").where("schoolId", "==", schoolId).where("role", "==", "teacher").get().then(rows),
@@ -40,10 +64,14 @@ export async function executeTimetableWorkflow({ db, caller, body }) {
     ]);
     const classes = [...new Map([...sourceClasses, ...logicalStudyClasses(sourceClasses)].map((item) => [item.id, item])).values()];
     const sections = userSectionIds(actor);
-    // Publication is whole-school/year in the existing model. A section-limited
-    // director may not replace the other sections' active timetable.
+    // Horaire de section : celui qui agit sur cette section le valide et le publie.
+    // Horaire de toute l'école : réservé à un compte qui agit pour toute l'école.
+    const authority = timetableAuthority(actor, caller.uid, school);
+    if (!canManageSections(authority, section ? [section] : [])) fail(403, "permission-denied", section ? "Cet horaire concerne une section hors de votre périmètre." : "Votre périmètre ne couvre pas toutes les sections de cet horaire d’établissement.");
+    // Whole-school timetable: a section-limited director may not replace the
+    // other sections' active timetable (unchanged check, kept).
     const activeAssignments = assignments.filter((item) => item.active);
-    if (sections.length && activeAssignments.some((item) => {
+    if (!section && sections.length && activeAssignments.some((item) => {
       const schoolClass = classes.find((row) => row.id === item.classId);
       return !schoolClass || !sections.includes(studyClassSection(schoolClass));
     })) fail(403, "permission-denied", "Votre périmètre ne couvre pas toutes les sections de cet horaire d’établissement.");
@@ -62,27 +90,38 @@ export async function executeTimetableWorkflow({ db, caller, body }) {
     });
     const problem = { schoolId, schoolYearId, teachers: effectiveTeachers, subjects, classes, assignments, availabilities, periods, rooms,
       days: resolveAttendanceSchoolDays(settings[0]), maxSameAssignmentPeriodsPerDay: 2 };
-    const report = validateTimetable(problem, entries);
+    // Section : ses classes seulement, en respectant l'horaire publié des autres sections.
+    const sectionContext = section ? await sectionValidationContext({ reader, schoolId, schoolYearId, section, schedules, classes: problem.classes, problem }) : undefined;
+    const scopedProblem = sectionContext?.problem ?? problem;
+    const report = sectionContext ? validateSectionTimetable(scopedProblem, entries, sectionContext.foreignEntries) : validateTimetable(problem, entries);
     if (!report.valid) {
       const error = new GradingApiError(409, "invalid-timetable", "L’horaire comporte des erreurs. Consultez le rapport et régénérez le brouillon.");
       error.report = report;
       throw error;
     }
-    const sourceDigest = digest({ problem, entries });
+    const sourceDigest = digest(sectionContext ? { problem: scopedProblem, entries, foreignEntries: sectionContext.foreignEntries } : { problem, entries });
     if (publishing && (!schedule.validationDigest || schedule.validationDigest !== sourceDigest)) fail(409, "stale-timetable", "Les sources ont changé ou cette ancienne validation n’est pas certifiée. Générez et validez un nouveau brouillon.");
-    const previous = schedules.filter((item) => item.status === "PUBLISHED" && item.activePublished === true);
+    const allActive = activePublishedTimetables(schedules);
+    // Une publication active par périmètre : toute l'école, et au plus une par section.
+    const previous = allActive.filter((item) => (timetableSection(item) ?? null) === (section ?? null));
     if (previous.length > 1) fail(409, "ambiguous-publication", "Plusieurs publications actives historiques existent. Aucune publication n’a été modifiée.");
-    if (publishing && (!Array.isArray(body.expectedPublishedIds) || JSON.stringify([...body.expectedPublishedIds].sort()) !== JSON.stringify(previous.map((item) => item.id).sort()))) {
+    if (publishing && (!Array.isArray(body.expectedPublishedIds) || JSON.stringify([...body.expectedPublishedIds].sort()) !== JSON.stringify(allActive.map((item) => item.id).sort()))) {
       fail(409, "publication-conflict", "La publication active a changé. Rechargez les horaires avant de réessayer.");
     }
     const now = new Date().toISOString();
-    if (publishing) for (const item of previous) transaction.update(db.doc(`timetables/${item.id}`), { activePublished: false, updatedAt: now });
+    // Toute l'école : remplace toutes les publications (comme avant). Section : seulement la sienne.
+    if (publishing) for (const item of section ? previous : allActive) transaction.update(db.doc(`timetables/${item.id}`), { activePublished: false, updatedAt: now });
     transaction.update(db.doc(`timetables/${scheduleId}`), {
       status: targetStatus, activeDraft: false, activePublished: publishing, updatedAt: now, workflowVersion: 1, validationDigest: sourceDigest,
       [publishing ? "publishedAt" : "validatedAt"]: now, [publishing ? "publishedBy" : "validatedBy"]: caller.uid,
       [operationField]: requestId, [`${operationField}Actor`]: caller.uid,
     });
-    transaction.set(db.doc(`timetablePublicationStates/${digest([schoolId, schoolYearId])}`), {
+    if (section) {
+      transaction.set(db.doc(`timetablePublicationStates/${digest([schoolId, schoolYearId, section])}`), {
+        schoolId, schoolYearId, sectionId: section, revision: (sectionContext.stateSnapshot.data()?.revision ?? 0) + 1,
+        activeScheduleId: publishing ? scheduleId : previous[0]?.id ?? null, updatedAt: now, updatedBy: caller.uid,
+      });
+    } else transaction.set(db.doc(`timetablePublicationStates/${digest([schoolId, schoolYearId])}`), {
       schoolId, schoolYearId, revision: (stateSnapshot.data()?.revision ?? 0) + 1,
       activeScheduleId: publishing ? scheduleId : previous[0]?.id ?? null, updatedAt: now, updatedBy: caller.uid,
     });

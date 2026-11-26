@@ -302,10 +302,98 @@ function resolveAttendanceSchoolDays(settings) {
   const configuredDays = settings?.schoolDays?.filter((day) => attendanceSchoolDays.includes(day)) ?? [];
   return configuredDays.length > 0 ? attendanceSchoolDays.filter((day) => configuredDays.includes(day)) : defaultSixSchoolDays;
 }
+
+// src/modules/studies/sectionTimetable.ts
+var TIMETABLE_SECTIONS = ["Maternelle", "Primaire", "CTEB", "Secondaire"];
+function timetableSection(timetable) {
+  const value = timetable?.sectionId;
+  return value && TIMETABLE_SECTIONS.includes(value) ? value : void 0;
+}
+function activePublishedTimetables(timetables) {
+  return timetables.filter((item) => item.status === "PUBLISHED" && item.activePublished === true);
+}
+function classSections(classes) {
+  const all = [...logicalStudyClasses(classes, classes).filter((item) => !classes.some((source) => source.id === item.id)), ...classes];
+  return new Map(all.map((item) => [item.id, studyClassSection(item)]));
+}
+function sectionScheduleProblem(problem, section) {
+  const classes = (problem.classes ?? []).filter((item) => studyClassSection(item) === section);
+  const classIds = new Set(classes.map((item) => item.id));
+  return { ...problem, classes, assignments: problem.assignments.filter((item) => classIds.has(item.classId)) };
+}
+function composePublishedEntries(input) {
+  const wholeSchoolIds = new Set(input.published.filter((item) => !timetableSection(item)).map((item) => item.id));
+  const sectionScheduleIds = new Set(input.published.filter((item) => timetableSection(item)).map((item) => item.id));
+  const ownSections = new Set(input.published.map(timetableSection).filter(Boolean));
+  if (!ownSections.size) return input.entries.filter((entry) => wholeSchoolIds.has(entry.scheduleId));
+  const sections = classSections(input.classes);
+  return input.entries.filter((entry) => {
+    if (sectionScheduleIds.has(entry.scheduleId)) return true;
+    if (!wholeSchoolIds.has(entry.scheduleId)) return false;
+    const section = sections.get(entry.classId);
+    return !section || !ownSections.has(section);
+  });
+}
+function otherSectionsPublishedEntries(input) {
+  const sections = classSections(input.classes);
+  return composePublishedEntries({ published: activePublishedTimetables(input.timetables), entries: input.entries, classes: input.classes }).filter((entry) => sections.get(entry.classId) !== input.section);
+}
+function otherSectionsOccupancy(input) {
+  const periods = new Map(input.periods.map((item) => [item.id, item]));
+  return input.entries.flatMap((entry) => {
+    const period = periods.get(entry.periodId);
+    if (!period?.startTime || !period.endTime) return [];
+    return [{
+      id: `autre-section__${entry.id}`,
+      schoolId: entry.schoolId,
+      schoolYearId: entry.schoolYearId,
+      teacherId: entry.teacherId,
+      dayOfWeek: entry.dayOfWeek,
+      status: "unavailable",
+      startTime: period.startTime,
+      endTime: period.endTime,
+      active: true,
+      createdBy: "autre-section",
+      createdAt: "",
+      updatedAt: ""
+    }];
+  }).sort((left, right) => left.id.localeCompare(right.id));
+}
+function sectionTimetableProblem(input) {
+  const foreignEntries = otherSectionsPublishedEntries({ section: input.section, timetables: input.timetables, entries: input.entries, classes: input.classes });
+  const scoped = sectionScheduleProblem(input.problem, input.section);
+  const problem = { ...scoped, availabilities: [...scoped.availabilities, ...otherSectionsOccupancy({ entries: foreignEntries, periods: input.problem.periods })] };
+  return { problem, foreignEntries };
+}
+function validateSectionTimetable(problem, entries, foreignEntries) {
+  const report = validateTimetable(problem, entries);
+  const periods = new Map(problem.periods.map((item) => [item.id, item]));
+  const roomIssues = [];
+  for (const entry of entries) {
+    const period = periods.get(entry.periodId);
+    if (!entry.roomId || !period) continue;
+    const clash = foreignEntries.find((other) => other.roomId === entry.roomId && other.dayOfWeek === entry.dayOfWeek && Boolean(periods.get(other.periodId)) && overlaps(period, periods.get(other.periodId)));
+    if (clash) roomIssues.push({
+      code: "ROOM_OVERLAP",
+      message: "Cette salle est d\xE9j\xE0 occup\xE9e par une autre section sur ce cr\xE9neau. Changez de salle ou de cr\xE9neau.",
+      entityId: entry.id,
+      day: entry.dayOfWeek,
+      periodId: entry.periodId,
+      metadata: { conflictingEntryId: clash.id }
+    });
+  }
+  if (!roomIssues.length) return report;
+  return { ...report, valid: false, errors: [...report.errors, ...roomIssues] };
+}
 export {
+  activePublishedTimetables,
+  composePublishedEntries,
   logicalStudyClasses,
   resolveAttendanceSchoolDays,
+  sectionTimetableProblem,
   studyClassSection,
+  timetableSection,
   userSectionIds,
+  validateSectionTimetable,
   validateTimetable
 };
