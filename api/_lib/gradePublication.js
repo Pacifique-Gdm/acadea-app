@@ -3,6 +3,7 @@ import { GradingApiError, loadConsolidatedSchoolClass } from "./teacherGrading.j
 import { calculateConsolidatedReport } from "./consolidatedGrading.js";
 import { PUBLICATION_SLOTS, publicationFeeGroups, qualifiesForPublication, validatedFeePaidMinor, validatePublicationCriteria } from "./gradePublicationCriteria.js";
 import { publicationReader, runPublicationTransaction, validatePublicationWrites } from "./publicationTransaction.js";
+import { staffLabels } from "./staffLabels.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const required = (value, label) => {
@@ -153,7 +154,12 @@ export async function executeGradePublication({ db, caller, body }) {
     const report = await classReport(db, schoolId, schoolYearId, classId);
     const fees = await db.collection("feeTypes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get();
     const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
-    return { currency, feeTypes: publicationFeeGroups(serialize(fees), report.students.map((row) => row.student)).map(({ id, name }) => ({ id, name })) };
+    // Lot R1 : dernière publication par période, avec son auteur (nom, fonction, date).
+    const latest = await latestPublications(db, schoolId, schoolYearId, classId);
+    const authors = await staffLabels(db, schoolId, Object.values(latest).map((run) => run.publishedBy));
+    const publications = Object.fromEntries(Object.entries(latest).map(([slot, run]) => [slot, { publicationId: run.id, publishedAt: run.publishedAt,
+      ...(authors[run.publishedBy] ? { publishedByName: authors[run.publishedBy].name, publishedByFunction: authors[run.publishedBy].functionLabel } : {}) }]));
+    return { currency, feeTypes: publicationFeeGroups(serialize(fees), report.students.map((row) => row.student)).map(({ id, name }) => ({ id, name })), publications };
   }
   if (action === "grades-report") {
     const classId = required(body.classId, "Classe");
@@ -185,6 +191,19 @@ export async function executeGradePublication({ db, caller, body }) {
   throw new GradingApiError(400, "invalid-argument", "Action inconnue.");
 }
 
+// Lot R1 : dernière publication encore en place, par période, pour une classe (le premier gagne).
+async function latestPublications(db, schoolId, schoolYearId, classId) {
+  const runs = serialize(await db.collection("gradePublicationRuns").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).where("classId", "==", classId).get())
+    .filter((run) => run.status === "published" && typeof run.slot === "string");
+  const latest = {};
+  for (const run of runs) if (!latest[run.slot] || String(run.publishedAt) > String(latest[run.slot].publishedAt)) latest[run.slot] = run;
+  return latest;
+}
+const formatWhen = (value) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : ` le ${date.toLocaleDateString("fr-FR", { timeZone: "Africa/Kinshasa" })}`;
+};
+
 async function publishGrades(writer, transaction, caller, body, schoolId, schoolYearId) {
   const db = publicationReader(writer, transaction);
   const { user, school, year } = await actorContext(db, caller, schoolId, schoolYearId, "study_director", true);
@@ -197,6 +216,17 @@ async function publishGrades(writer, transaction, caller, body, schoolId, school
   const runRef = writer.doc(`gradePublicationRuns/${runId}`);
   const classSnapshot = await authorizedDirectorClass(db, schoolId, schoolYearId, classId, user);
   const prior = await db.doc(`gradePublicationRuns/${runId}`).get();
+  // Lot R1 : même classe, même période, deux personnes : le premier gagne. Le second reçoit
+  // « Déjà modifié par [nom, fonction], rechargez » si une publication est apparue depuis son affichage.
+  if (!prior.exists && Object.prototype.hasOwnProperty.call(body, "expectedPublicationId")) {
+    const expected = typeof body.expectedPublicationId === "string" ? body.expectedPublicationId : null;
+    const current = (await latestPublications(db, schoolId, schoolYearId, classId))[criteria.slot];
+    if (current && current.id !== expected && current.publishedBy !== caller.uid) {
+      const author = (await staffLabels(db, schoolId, [current.publishedBy]))[current.publishedBy];
+      const who = author ? `${author.name}, ${author.functionLabel}` : "une autre personne";
+      throw new GradingApiError(409, "already-modified", `Déjà modifié par ${who}${formatWhen(current.publishedAt)}, rechargez.`);
+    }
+  }
   const criteriaHash = digest(JSON.stringify([criteria, caller.uid]));
   if (prior.exists) {
     if (prior.data()?.criteriaHash !== criteriaHash) throw new GradingApiError(409, "conflict", "Cette demande a déjà été utilisée avec d’autres critères.");

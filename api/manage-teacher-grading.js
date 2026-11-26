@@ -7,6 +7,7 @@ import { OfflineAttendanceError, syncOfflineAttendance } from "./_lib/offlineAtt
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { loadPrefectDashboard } from "./_lib/prefectDashboard.js";
 import { listPrefectDiscipline } from "./_lib/prefectDiscipline.js";
+import { listStaffLabels } from "./_lib/staffLabels.js";
 export default async function handler(req, res) {
   if (req.method !== "POST") return send(res, 405, { code: "invalid-argument", error: "Méthode non autorisée." });
   try {
@@ -32,6 +33,12 @@ export default async function handler(req, res) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-discipline", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return send(res, 200, await listPrefectDiscipline({ db, caller, body }));
+    }
+    // Lot R1 : nom et fonction des auteurs des réglages (« Modifié par … »).
+    if (action === "staff-labels") {
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.staff-labels", ...API_RATE_LIMITS.MESSAGE_RECIPIENTS });
+      return send(res, 200, await listStaffLabels({ db, caller, body }));
     }
     const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("study-period-") || action === "study-class-vacations" ? executeStudyPeriodMutation : action.startsWith("timetable-") ? executeTimetableWorkflow
       : action.startsWith("archive-") ? executeSchoolYearArchive

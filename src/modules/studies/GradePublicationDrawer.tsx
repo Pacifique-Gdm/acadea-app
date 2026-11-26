@@ -12,6 +12,7 @@ import type { ConsolidatedClassReport } from "../teacher/consolidatedGrades";
 import type { StudyClass } from "./studyTypes";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
+import { ModifiedBy } from "../../components/ui/ModifiedBy";
 
 type Options = Awaited<ReturnType<typeof loadGradePublicationOptions>>;
 type Screen = "classes" | "report" | "options";
@@ -81,8 +82,10 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
     }
     setPublishing(true); setError("");
     try {
-      const result = await publishGrades({ schoolId: school.id, schoolYearId: year.id, classId, slot, requestId, ...(percentage ? { percentage } : {}), ...(fee ? { fee } : {}) });
+      // Lot R1 : le premier gagne ; le serveur refuse si une autre personne a publié depuis cet affichage.
+      const result = await publishGrades({ schoolId: school.id, schoolYearId: year.id, classId, slot, requestId, expectedPublicationId: options.publications?.[slot]?.publicationId ?? null, ...(percentage ? { percentage } : {}), ...(fee ? { fee } : {}) });
       setPublished(result);
+      setOptions((current) => current ? { ...current, publications: { ...current.publications, [slot]: { publicationId: result.publicationId, publishedAt: new Date().toISOString() } } } : current);
     } catch (cause) { setError(userFacingError(cause, "Publication impossible. Réessayez sans modifier les critères.")); }
     finally { setPublishing(false); }
   }
@@ -111,6 +114,7 @@ export function GradePublicationDrawer({ school, year, classes, onClose }: { sch
     {screen === "options" && <div className="grid gap-4">
       <p className="font-bold">{selectedClass?.name ?? "Classe"} · {year.name}</p>
       <label className="grid gap-1 text-sm font-semibold">Période<select className="input" value={slot} onChange={(event) => { setSlot(event.target.value as EditableGradingSlot); changeCriteria(); }}>{editableGradingSlots.map((item) => <option key={item} value={item}>{gradingSlotLabels[item]}</option>)}</select></label>
+      {options?.publications?.[slot]?.publishedByName && <ModifiedBy name={options.publications[slot]!.publishedByName!} functionLabel={options.publications[slot]!.publishedByFunction} at={options.publications[slot]!.publishedAt} verb="Publié" />}
       <fieldset className="grid gap-1"><legend className="text-sm font-semibold">Pourcentage</legend><div className="grid grid-cols-2 gap-2"><select className="input min-w-0" aria-label="Comparaison du pourcentage" value={percentageOperator} onChange={(event) => { setPercentageOperator(event.target.value as "" | PublicationComparison); changeCriteria(); }}><option value="">Aucun critère</option><option value="gte">Pourcentage ≥</option><option value="lt">Pourcentage &lt;</option></select><input className="input min-w-0" type="number" min="0" max="100" step="any" aria-label="Valeur du pourcentage" value={percentageValue} disabled={!percentageOperator} onChange={(event) => { setPercentageValue(event.target.value); changeCriteria(); }} /></div></fieldset>
       <fieldset className="grid gap-1"><legend className="text-sm font-semibold">Type de frais</legend><div className="grid grid-cols-2 gap-2"><select className="input min-w-0" aria-label="Type de frais et comparaison" value={feeChoice} onChange={(event) => { setFeeChoice(event.target.value); changeCriteria(); }}><option value="">Aucun critère</option>{options?.feeTypes.flatMap((item) => ([<option key={`${item.id}-gte`} value={choiceValue(item.id, "gte")}>{item.name} ≥</option>, <option key={`${item.id}-lt`} value={choiceValue(item.id, "lt")}>{item.name} &lt;</option>]))}</select><div className="relative min-w-0"><input className="input w-full pr-14" inputMode="decimal" aria-label="Montant payé" value={amount} disabled={!feeChoice} onChange={(event) => { setAmount(formatMoneyInput(event.target.value)); changeCriteria(); }} /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-500">{options?.currency === "CDF" ? "CDF" : "USD"}</span></div></div></fieldset>
       {options && options.feeTypes.length === 0 && <p role="status" className="text-sm text-slate-600">Aucun type de frais applicable à cette classe n'est configuré.</p>}
