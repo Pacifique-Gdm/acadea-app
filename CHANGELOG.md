@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.32.0] — 2026-11-26 — Fonctionnalité
+- Réglages R3 : jours de cours et heures du Directeur de discipline par section ; test schoolSearchStatus corrigé sous Windows
+
 ## [1.31.0] — 2026-11-26 — Fonctionnalité
 - Réglages R2 : demandes d'indisponibilité et Historique pédagogique limités aux sections du compte d'études
 
