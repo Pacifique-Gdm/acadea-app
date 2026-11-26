@@ -1,3 +1,4 @@
+import { authoritySections, comparableSection } from "./studySectionScope.js";
 const fail = (message, statusCode = 409) => { throw Object.assign(new Error(message), { statusCode, code: statusCode === 403 ? "permission-denied" : "failed-precondition" }); };
 const unique = (values) => [...new Set(values)];
 const id = (value) => typeof value === "string" && value.length > 0 && value.length <= 500 && !value.includes("/") ? value : fail("Identifiant pédagogique invalide.", 400);
@@ -14,7 +15,7 @@ async function checkScope(transaction, db, caller, schoolId, schoolYearId) {
   const [actor, school, year] = await Promise.all([transaction.get(db.doc(`users/${caller.uid}`)), transaction.get(db.doc(`schools/${schoolId}`)), transaction.get(db.doc(`schoolYears/${schoolYearId}`))]);
   if (!actor.exists || actor.data().role !== "study_director" || actor.data().schoolId !== schoolId || !active(actor.data())) fail("Directeur des études inactif ou hors périmètre.", 403);
   if (!school.exists || school.data().status !== "active" || school.data().activeSchoolYearId !== schoolYearId || !year.exists || year.data().schoolId !== schoolId || year.data().status !== "active") fail("Année scolaire ou école inactive.", 403);
-  return { actorProfile: actor.data(), schoolOptions: Array.isArray(school.data().schoolOptions) ? school.data().schoolOptions.filter((option) => typeof option === "string") : [] };
+  return { actorProfile: actor.data(), school: school.data(), schoolOptions: Array.isArray(school.data().schoolOptions) ? school.data().schoolOptions.filter((option) => typeof option === "string") : [] };
 }
 
 function grants(value) {
@@ -61,7 +62,7 @@ export async function saveStudyAssignments({ db, caller, body }) {
   if (body.active !== true && body.active !== false) fail("Statut d'affectation invalide.", 400);
   const now = new Date().toISOString();
   return db.runTransaction(async (transaction) => {
-    const { actorProfile, schoolOptions } = await checkScope(transaction, db, caller, schoolId, schoolYearId);
+    const { actorProfile, school, schoolOptions } = await checkScope(transaction, db, caller, schoolId, schoolYearId);
     const teacherRef = db.doc(`teachers/${teacherId}`);
     const teacher = await transaction.get(teacherRef);
     if (!teacher.exists || teacher.data().schoolId !== schoolId || teacher.data().schoolYearId !== schoolYearId || !active(teacher.data())) fail("Enseignant inactif ou hors périmètre.");
@@ -87,10 +88,11 @@ export async function saveStudyAssignments({ db, caller, body }) {
       if (!value || value.schoolId !== schoolId || value.schoolYearId !== schoolYearId || value.active === false || !String(value.name || "").trim()) fail("Classe inconnue ou hors périmètre.");
       if (!classById.get(classId) && (!legacyById.has(classId) || !classId.startsWith(`${schoolId}__${schoolYearId}__`))) fail("Classe historique invalide.");
     }
-    const allowedSections = Array.isArray(actorProfile.sectionIds) && actorProfile.sectionIds.length ? actorProfile.sectionIds : actorProfile.section ? [actorProfile.section] : [];
+    // Règle unique des sections : un compte qui couvre toute l'école n'est pas limité.
+    const allowedSections = authoritySections(actorProfile, school);
     if (allowedSections.length && requiredClassIds.some((classId) => {
       const item = classById.get(classId) || legacyById.get(classId);
-      return item?.section && !allowedSections.includes(item.section);
+      return item?.section && !allowedSections.includes(comparableSection(item.section));
     })) fail("Classe hors périmètre du Directeur des études.", 403);
     const persistedOptionIds = new Set(classRefs.filter((_, index) => classes[index].exists).map((ref) => ref.id));
     const optionClassValues = [...classRefs.map((ref, index) => classes[index].exists ? { ...classes[index].data(), id: ref.id } : legacyById.get(ref.id)), ...optionChildren.flatMap((result) => result.docs.map((snapshot) => ({ ...snapshot.data(), id: snapshot.id })))].filter(Boolean);

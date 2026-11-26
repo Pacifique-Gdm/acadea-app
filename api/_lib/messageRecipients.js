@@ -1,3 +1,4 @@
+import { authoritySectionsFor, comparableSection } from "./studySectionScope.js";
 import { requireActiveApiUser, verifyActorIdToken } from "./activeUser.js";
 import { requireActiveSchoolYear } from "./schoolYear.js";
 
@@ -30,15 +31,14 @@ export function allowedRecipientRoles(role) {
   return RECIPIENTS_BY_ROLE[normalizedMessagingRole(role)] ?? new Set();
 }
 
-function callerSectionScope(caller) {
-  const profile = caller?.profile ?? {};
-  const values = Array.isArray(profile.sectionIds) ? profile.sectionIds : profile.section ? [profile.section] : [];
-  return new Set(values.filter((value) => typeof value === "string" && value.trim()).map((value) => value.trim()));
+// Règle unique des sections : vide = toute l'école (sans section, ou sections couvrant toute l'école).
+async function callerSectionScope(db, caller) {
+  return new Set(await authoritySectionsFor(db, caller?.profile ?? {}, caller.schoolId));
 }
 
 async function scopedParentIds(db, caller, schoolYearId) {
   if (!schoolYearId || !["discipline_director", "study_director"].includes(normalizedMessagingRole(caller.role))) return null;
-  const sections = callerSectionScope(caller);
+  const sections = await callerSectionScope(db, caller);
   if (!sections.size) {
     await requireActiveSchoolYear(db, caller.schoolId, schoolYearId);
     return null;
@@ -49,7 +49,7 @@ async function scopedParentIds(db, caller, schoolYearId) {
   ]);
   const scopedStudents = studentSnapshot.docs
     .map((document) => ({ id: document.id, ...document.data() }))
-    .filter((student) => sections.has(student.section));
+    .filter((student) => sections.has(comparableSection(student.section)));
   const scopedStudentIds = new Set(scopedStudents.map((student) => student.id));
   const parentIds = new Set(scopedStudents.map((student) => student.parentId).filter((value) => typeof value === "string" && value));
   parentSnapshot.docs.forEach((document) => {

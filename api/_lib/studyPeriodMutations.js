@@ -1,5 +1,6 @@
+import { authoritySections } from "./studySectionScope.js";
 import { GradingApiError } from "./teacherGrading.js";
-import { studyClassSchoolDays, studyClassSection, userSectionIds } from "./timetableValidationBundle.js";
+import { studyClassSchoolDays, studyClassSection } from "./timetableValidationBundle.js";
 
 const fail = (status, code, message) => { throw new GradingApiError(status, code, message); };
 const validId = (value) => typeof value === "string" && value.length > 0 && value.length <= 300 && !value.includes("/");
@@ -35,7 +36,8 @@ export async function executeStudyPeriodMutation({ db, caller, body }) {
         || !year || year.schoolId !== schoolId || year.status !== "active") fail(403, "permission-denied", "Compte, école ou année scolaire indisponible.");
       const classes = scopedRows(classSnap), periods = scopedRows(periodSnap), settings = scopedRows(settingsSnap), schedules = scopedRows(scheduleSnap);
       if (classes.length > 400 || periods.length > 400 || schedules.length > 100 || settings.length > 1) fail(409, "failed-precondition", "Configuration trop volumineuse ou ambiguë ; aucune donnée modifiée.");
-      const allowedSections = userSectionIds(actor);
+      // Règle unique des sections : un compte qui couvre toute l'école n'est pas limité.
+      const allowedSections = authoritySections(actor, school);
       const allowedClass = (item) => item && item.schoolId === schoolId && item.schoolYearId === schoolYearId && item.active !== false
         && (!allowedSections.length || allowedSections.includes(studyClassSection(item)));
       // Jours de cours de la section de la classe (sinon ceux de l'école, comme avant).
