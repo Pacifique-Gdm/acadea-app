@@ -6,7 +6,7 @@ const read = (path: string) => readFileSync(new URL(path, import.meta.url), "utf
 describe("couverture SEC-008 des endpoints sensibles", () => {
   it.each([
     ["finances", "../../api/manage-financial-transaction.js", "finance.${action}"],
-    ["provisioning école", "../../api/provision-school-admin.js", "provision.school"],
+    ["provisioning école", "../../api/_lib/provisionSchoolAdminHandler.js", "provision.school"],
     ["provisioning comptes", "../../api/provision-school-account.js", "provision.account"],
     ["gestion/suppression école", "../../api/manage-school.js", "school.${action"],
     ["message parent", "../../api/send-parent-message.js", "parent.message.send"],

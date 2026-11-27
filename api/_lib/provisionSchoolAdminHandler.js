@@ -1,11 +1,16 @@
-import { randomId as uid } from "./_lib/randomId.js";
-import { firebaseAdminPublicError, initAdmin } from "./_lib/firebaseAdmin.js";
-import { AUDIT_EVENT_TYPES, buildServerAudit } from "./_lib/serverAudit.js";
-import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
-import { normalizeSchoolOptions } from "./_lib/schoolOptions.js";
-import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
-import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./_lib/provisioningReceipt.js";
-import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
+import { randomId as uid } from "./randomId.js";
+import { firebaseAdminPublicError, initAdmin } from "./firebaseAdmin.js";
+import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
+import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./rateLimit.js";
+import { normalizeSchoolOptions } from "./schoolOptions.js";
+import { requireActiveApiUser, verifyActorIdToken } from "./activeUser.js";
+import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } from "./provisioningReceipt.js";
+import { createAuthUserOnce } from "./accountEmailLock.js";
+
+// Regroupement lot 3 (limite de 12 fonctions Vercel) : ancien fichier api/provision-school-admin.js.
+// L’adresse /api/provision-school-admin est gardée : vercel.json la redirige vers
+// /api/manage-school?route=provision-school-admin, qui appelle ce code sans rien changer aux réponses.
+export const PROVISION_SCHOOL_ADMIN_ROUTE = "provision-school-admin";
 
 const allowedPlans = new Set(["Starter", "Standard", "Premium"]);
 const schoolLevels = new Map([

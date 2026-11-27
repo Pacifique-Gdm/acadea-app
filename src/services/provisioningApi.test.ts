@@ -32,7 +32,7 @@ vi.mock("../../api/_lib/rateLimit.js", () => ({
 
 // @ts-expect-error The Vercel endpoint is intentionally implemented in JavaScript.
 import provisionSchoolAccount, { linkParentToStudent, unlinkParentFromStudent } from "../../api/provision-school-account.js";
-import provisionSchoolAdmin from "../../api/provision-school-admin.js";
+import provisionSchoolAdmin from "../../api/_lib/provisionSchoolAdminHandler.js";
 
 type JsonResponse = { statusCode: number; body?: Record<string, unknown>; setHeader: ReturnType<typeof vi.fn>; end: (value: string) => void };
 

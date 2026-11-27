@@ -13,7 +13,7 @@ vi.mock("../../api/_lib/firebaseAdmin.js", () => ({
 }));
 // Force collisions in the real handlers; Firestore writes and transactions remain real.
 vi.mock("../../api/_lib/randomId.js", () => ({ randomId: (prefix: string) => `${prefix}-a3f9c21b` }));
-import createSchool from "../../api/provision-school-admin.js";
+import createSchool from "../../api/_lib/provisionSchoolAdminHandler.js";
 import createAccount from "../../api/provision-school-account.js";
 import sendParentMessage from "../../api/send-parent-message.js";
 
