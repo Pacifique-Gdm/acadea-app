@@ -88,7 +88,7 @@ export function subRubricBalanceView(balance, subs, rubricName = "") {
 
 /** Encaissement : lit les sous-rubriques des rubriques touchées (lectures seulement, avant toute écriture) et renvoie
  * les parts de chaque sous-rubrique, plus la base gardée dans le cumul de l'ancre. */
-export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoolYearId, lines, priorLines, nextLines, total }) {
+export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoolYearId, lines, priorLines, nextLines, total, social = false }) {
   const byRubric = new Map();
   const subBase = { ...(total?.subBase && typeof total.subBase === "object" ? total.subBase : {}) };
   for (let index = 0; index < lines.length; index += 1) {
@@ -96,7 +96,11 @@ export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoo
     if (!isCatalogRubricId(rubricId) || lines[index].amountMinor === 0) continue;
     const entry = (await transaction.get(db.doc(`feeAllocationRubrics/${rubricId}`))).data();
     if (!entry || entry.schoolId !== schoolId || entry.schoolYearId !== schoolYearId || !Array.isArray(entry.subRubrics) || !entry.subRubrics.length) continue;
-    const subs = validateSubRubrics(entry.subRubrics, { newId: () => reconcile("Sous-rubrique enregistrée sans identifiant.") });
+    const partOneSubs = validateSubRubrics(entry.subRubrics, { newId: () => reconcile("Sous-rubrique enregistrée sans identifiant.") });
+    // F2 : un cas social qui suit une partie 2 prend les sous-rubriques des cas sociaux (partie 1 si elles dépasseraient 100 %).
+    const socialSubs = social ? effectiveSocialSubRubrics(partOneSubs, entry.socialSubRubrics) : partOneSubs;
+    const subs = socialSubs.reduce((n, sub) => n + (sub.mode === "percent" ? sub.basisPoints : 0), 0) > 10000 ? partOneSubs : socialSubs;
+    if (!subs.length) continue;
     const key = subRubricAmountsKey(subs);
     const before = priorLines[index].amountMinor, after = nextLines[index].amountMinor;
     const stored = subBase[rubricId];
@@ -117,4 +121,45 @@ export function nextSubBalances(balance, deltas, { allowBelowSpent = false } = {
     next[subRubricId] = { receivedMinor, spentMinor };
   }
   return next;
+}
+
+/** F2 (décision du 27/11/2026) — sous-rubriques des cas sociaux (partie 2), une seule répartition par rubrique pour tous
+ * les frais des cas sociaux. On ne garde que les écarts avec la partie 1 : `socialSubRubrics = { [subId]: { removed: true }
+ * | { mode: "percent", basisPoints } | { mode: "fixed", fixedMinor } }`. Une sous-rubrique sans écart suit la partie 1. */
+export function validateSocialSubOverrides(input, subs) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) invalid("Sous-rubriques des cas sociaux invalides.");
+  const known = new Map((subs ?? []).map((sub) => [sub.id, sub]));
+  const clean = {};
+  for (const [subId, value] of Object.entries(input)) {
+    if (!known.has(subId)) invalid("Sous-rubrique inconnue pour cette rubrique.");
+    if (!value || typeof value !== "object" || Array.isArray(value)) invalid("Sous-rubrique des cas sociaux invalide.");
+    const keys = Object.keys(value);
+    if (value.removed === true && keys.length === 1) { clean[subId] = { removed: true }; continue; }
+    if (value.mode === "percent" && keys.length === 2 && Number.isInteger(value.basisPoints) && value.basisPoints >= 1 && value.basisPoints <= 10000) { clean[subId] = { mode: "percent", basisPoints: value.basisPoints }; continue; }
+    if (value.mode === "fixed" && keys.length === 2 && safe(value.fixedMinor) && value.fixedMinor > 0) { clean[subId] = { mode: "fixed", fixedMinor: value.fixedMinor }; continue; }
+    invalid("Sous-rubrique des cas sociaux invalide.");
+  }
+  if (socialPercentTotal(subs, clean) > 10000) invalid("Les pourcentages des sous-rubriques des cas sociaux dépassent 100 %.");
+  return clean;
+}
+
+const socialPercentTotal = (subs, overrides) => effectiveSocialSubRubrics(subs, overrides).reduce((n, sub) => n + (sub.mode === "percent" ? sub.basisPoints : 0), 0);
+
+/** Sous-rubriques appliquées aux cas sociaux : celles de la partie 1, moins les lignes retirées, avec les valeurs modifiées. */
+export function effectiveSocialSubRubrics(subs, overrides) {
+  const own = overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {};
+  return (subs ?? []).flatMap((sub) => {
+    const change = own[sub.id];
+    if (!change) return [sub];
+    if (change.removed === true) return [];
+    return [{ id: sub.id, name: sub.name, ...(change.mode === "fixed" ? { mode: "fixed", fixedMinor: change.fixedMinor } : { mode: "percent", basisPoints: change.basisPoints }), functions: sub.functions ?? [] }];
+  });
+}
+
+/** Après un changement de la partie 1 : écarts des sous-rubriques retirées oubliés ; refus si les cas sociaux dépasseraient 100 %. */
+export function keptSocialSubOverrides(overrides, subs) {
+  if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) return null;
+  const kept = Object.fromEntries(Object.entries(overrides).filter(([subId]) => subs.some((sub) => sub.id === subId)));
+  if (socialPercentTotal(subs, kept) > 10000) invalid("Avec ces valeurs, les sous-rubriques des cas sociaux dépasseraient 100 % : corrigez-les d'abord dans la partie 2.");
+  return kept;
 }

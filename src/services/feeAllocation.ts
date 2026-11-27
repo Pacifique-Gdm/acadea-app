@@ -150,7 +150,11 @@ export async function loadSocialParts(schoolId: string) {
 }
 export type SocialPartRubricInput = { id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number };
 export type PublishSocialParts = { requestId: string; confirmation: string;
-  items: Array<{ feeTypeId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null; rubrics: SocialPartRubricInput[] }> };
+  items: Array<{ feeTypeId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null; rubrics: SocialPartRubricInput[] }>;
+  /** F2 : écarts des sous-rubriques des cas sociaux avec la partie 1, par rubrique (une répartition pour tous les frais). */
+  socialSubRubrics?: Record<string, SocialSubOverrides> };
+export type SocialSubOverride = { removed: true } | { mode: "percent"; basisPoints: number } | { mode: "fixed"; fixedMinor: number };
+export type SocialSubOverrides = Record<string, SocialSubOverride>;
 /** Tous les frais modifiés en une seule fois : tout passe ou rien ne passe. */
 export async function publishSocialParts(request: PublishSocialParts) {
   const result = await allocationRequest<{ socials: FeeAllocationSocialVersion[] }>("publish-social-parts", request);
