@@ -135,6 +135,15 @@ export function assertStudyDirectorSections(directorProfile, sectionIds, current
   }
 }
 
+/** Lot A : seul l'administrateur de l'école change les sections d'un compte existant.
+ * La Direction des études peut modifier le reste de la fiche d'un enseignant, pas ses sections. */
+export function assertSectionsUnchangedByStudyDirector(sectionIds, currentSectionIds = []) {
+  const clean = (list) => [...new Set(list.map(normalizeText).filter(Boolean).map(normalizeSchoolSection).filter(Boolean))].sort();
+  if (clean(sectionIds).join("|") !== clean(currentSectionIds).join("|")) {
+    throw Object.assign(new Error("Seul l'administrateur de l'école peut modifier les sections d'un enseignant existant."), { statusCode: 403, code: "permission-denied" });
+  }
+}
+
 function configuredSchoolSections(school = {}) {
   const canonical = (value) => {
     const normalized = normalizeText(value).toLowerCase();
@@ -751,6 +760,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
     assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
     if (caller.role === "study_director") assertStudyDirectorSections(callerProfile, sectionIds, Array.isArray(target.sectionIds) && target.sectionIds.length ? target.sectionIds : (target.section ? [target.section] : []));
+    if (caller.role === "study_director") assertSectionsUnchangedByStudyDirector(sectionIds, Array.isArray(target.sectionIds) && target.sectionIds.length ? target.sectionIds : (target.section ? [target.section] : []));
     const previousAuth = await auth.getUser(personnelId);
     await auth.updateUser(personnelId, { displayName: name, email });
     const profileRef = db.doc(`personnelProfiles/${personnelId}`);
