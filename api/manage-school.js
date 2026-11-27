@@ -10,6 +10,7 @@ import { stageSchoolLogoWrite } from "./_lib/schoolLogo.js";
 import { readPlatformStats } from "./_lib/platformStats.js";
 import { cachedSchoolSearchEntries, searchSchoolEntries } from "./_lib/schoolSearchIndex.js";
 import { isSafeSchoolScopeId, readSchoolDrawerSummary, readSchoolHistoryPage } from "./_lib/schoolDrawerSummary.js";
+import { readLoginImage, saveLoginImage, validateLoginImageRequest } from "./_lib/loginImage.js";
 
 export const maxDuration = 300;
 
@@ -123,7 +124,31 @@ export function validateSchoolInformationPatch(rawPatch) {
 }
 
 
+function requestedQueryAction(req) {
+  if (req.query && typeof req.query.action === "string") return req.query.action;
+  try { return new URL(req.url ?? "", "http://localhost").searchParams.get("action") ?? ""; }
+  catch { return ""; }
+}
+
+// Lot 9 : lecture publique de l'image de l'écran de connexion (avant toute connexion).
+async function sendPublicLoginImage(res) {
+  try {
+    const { db } = initAdmin();
+    const image = await readLoginImage(db);
+    res.setHeader("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=600");
+    sendJson(res, 200, image);
+  } catch {
+    // L'écran de connexion garde alors l'image qu'il affiche déjà.
+    res.setHeader("Cache-Control", "no-store");
+    sendJson(res, 503, { error: "Image de connexion indisponible.", code: "unavailable" });
+  }
+}
+
 export default async function handler(req, res) {
+  if (req.method === "GET" && requestedQueryAction(req) === "login-image") {
+    await sendPublicLoginImage(res);
+    return;
+  }
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "Methode non autorisee." });
     return;
@@ -152,6 +177,14 @@ export default async function handler(req, res) {
       // Lot SA-3 : chiffres du Dashboard calculés par le serveur (comptages gardés 10 minutes).
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "platform.stats", ...API_RATE_LIMITS.SCHOOL_ADMIN });
       sendJson(res, 200, { stats: await readPlatformStats(db, { force: body.force === true }) });
+      return;
+    }
+    if (requestedAction === "login-image-save") {
+      // Lot 9 : nouvelle image de l'écran de connexion, ou retour à l'image d'origine.
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "platform.login-image", ...API_RATE_LIMITS.SCHOOL_ADMIN });
+      const validation = validateLoginImageRequest(body);
+      if (validation.error) return sendJson(res, 400, { error: validation.error, code: "invalid-argument" });
+      sendJson(res, 200, { image: await saveLoginImage(db, caller, validation.imageDataUrl) });
       return;
     }
     if (requestedAction === "search-schools") {

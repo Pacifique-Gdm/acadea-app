@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.36.0] — 2026-11-27 — Fonctionnalité
+- Image de l’écran de connexion modifiable par le Super administrateur
+
 ## [1.35.1] — 2026-11-27 — Correction
 - Section obligatoire pour tout élève (serveur) ; options des Humanités rangées au Secondaire
 
