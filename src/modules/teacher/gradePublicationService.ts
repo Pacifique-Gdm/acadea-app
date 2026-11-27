@@ -37,7 +37,9 @@ async function request<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 export const loadGradePublicationOptions = (schoolId: string, schoolYearId: string, classId: string) =>
-  request<{ currency: "USD" | "CDF"; feeTypes: Array<{ id: string; name: string }>; publications?: Partial<Record<string, LatestGradePublication>> }>({ action: "grades-options", schoolId, schoolYearId, classId });
+  request<{ currency: "USD" | "CDF"; feeTypes: Array<{ id: string; name: string }>; publications?: Partial<Record<string, LatestGradePublication>>; validations?: Partial<Record<string, GradePublicationValidation>> }>({ action: "grades-options", schoolId, schoolYearId, classId });
+/** Lot P6 : présent seulement si un Préfet d'études existe pour la section de la classe. */
+export type GradePublicationValidation = { validated: boolean; stale: boolean; validatedAt?: string; validatedByName?: string; validatedByFunction?: string };
 /** Lot R1 : dernière publication encore en place pour une période (auteur : nom, fonction, date). */
 export type LatestGradePublication = { publicationId: string; publishedAt: string; publishedByName?: string; publishedByFunction?: string };
 export const loadDirectorConsolidatedReport = (schoolId: string, schoolYearId: string, classId: string) =>

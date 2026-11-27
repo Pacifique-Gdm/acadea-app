@@ -5,6 +5,8 @@ import { calculateConsolidatedReport } from "./consolidatedGrading.js";
 import { PUBLICATION_SLOTS, publicationFeeGroups, qualifiesForPublication, validatedFeePaidMinor, validatePublicationCriteria } from "./gradePublicationCriteria.js";
 import { publicationReader, runPublicationTransaction, validatePublicationWrites } from "./publicationTransaction.js";
 import { staffLabels } from "./staffLabels.js";
+import { executeGradeValidation, publicationValidations } from "./gradeValidationActions.js";
+import { assertPublicationValidated } from "./gradeValidation.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const required = (value, label) => {
@@ -148,11 +150,13 @@ export async function executeGradePublication({ db, caller, body }) {
   if (action === "grades-publish") {
     return runPublicationTransaction(db, (transaction) => publishGrades(db, transaction, caller, body, schoolId, schoolYearId));
   }
+  // Lot P6 : validation des bulletins par le Préfet d'études (actions grades-validation-*).
+  if (action.startsWith("grades-validation-")) return executeGradeValidation({ db, caller, body, action, schoolId, schoolYearId });
   const write = action === "grades-withdraw";
   const { user, school, year } = await actorContext(db, caller, schoolId, schoolYearId, "study_director", write);
   if (action === "grades-options") {
     const classId = required(body.classId, "Classe");
-    await authorizedDirectorClass(db, schoolId, schoolYearId, classId, user);
+    const classSnapshot = await authorizedDirectorClass(db, schoolId, schoolYearId, classId, user);
     const report = await classReport(db, schoolId, schoolYearId, classId);
     const fees = await db.collection("feeTypes").where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get();
     const currency = year.currency === "USD" || year.currency === "CDF" ? year.currency : school.currency === "CDF" ? "CDF" : "USD";
@@ -161,7 +165,9 @@ export async function executeGradePublication({ db, caller, body }) {
     const authors = await staffLabels(db, schoolId, Object.values(latest).map((run) => run.publishedBy));
     const publications = Object.fromEntries(Object.entries(latest).map(([slot, run]) => [slot, { publicationId: run.id, publishedAt: run.publishedAt,
       ...(authors[run.publishedBy] ? { publishedByName: authors[run.publishedBy].name, publishedByFunction: authors[run.publishedBy].functionLabel } : {}) }]));
-    return { currency, feeTypes: publicationFeeGroups(serialize(fees), report.students.map((row) => row.student)).map(({ id, name }) => ({ id, name })), publications };
+    // Lot P6 : état de la validation du Préfet par période, seulement si elle est exigée pour cette classe.
+    const validations = await publicationValidations({ db, school, schoolId, schoolYearId, classId, classSection: classSnapshot.data()?.section, report });
+    return { currency, feeTypes: publicationFeeGroups(serialize(fees), report.students.map((row) => row.student)).map(({ id, name }) => ({ id, name })), publications, ...(validations ? { validations } : {}) };
   }
   if (action === "grades-report") {
     const classId = required(body.classId, "Classe");
@@ -236,6 +242,8 @@ async function publishGrades(writer, transaction, caller, body, schoolId, school
     return { ok: true, publicationId: runId, publishedCount: prior.data()?.publishedCount ?? 0, notificationCount: prior.data()?.notificationCount ?? 0, repeated: true };
   }
   const report = await classReport(db, schoolId, schoolYearId, classId);
+  // Lot P6 : si un Préfet d'études existe pour la section de la classe, sa validation est exigée.
+  await assertPublicationValidated({ db, school, schoolId, schoolYearId, classId, classSection: classSnapshot.data()?.section, slot: criteria.slot, report });
   if (report.students.length > 150) throw new GradingApiError(409, "failed-precondition", "Classe trop volumineuse pour une publication atomique.");
   let feeTypeIds, currency;
   if (criteria.fee) {

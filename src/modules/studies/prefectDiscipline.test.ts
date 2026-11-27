@@ -32,7 +32,7 @@ describe("lot P2 : discipline du Préfet d'études (écran)", () => {
   });
 
   it("bouton « Discipline » juste après « Enfants », pour le Préfet seulement", () => {
-    expect(portal).toContain('<StaffChildrenEntry school={school} />{isPrefectOfStudies(user) && <button type="button" className={menuButton} onClick={() => setDrawer("prefect-discipline")}>');
+    expect(portal).toContain('<StaffChildrenEntry school={school} />{isPrefectOfStudies(user) && <button type="button" className={menuButton} onClick={() => setDrawer("grade-validation")}><ClipboardCheck className="h-5 w-5 shrink-0"/><strong>Validation des bulletins</strong></button>}{isPrefectOfStudies(user) && <button type="button" className={menuButton} onClick={() => setDrawer("prefect-discipline")}>');
     expect(portal).toContain('{drawer === "prefect-discipline" && isPrefectOfStudies(user) && <AdminDrawer title="Discipline"');
   });
 
