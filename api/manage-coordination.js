@@ -6,6 +6,7 @@ import { requireActiveApiUser, verifyActorIdToken } from "./_lib/activeUser.js";
 import { listScopedStudentArrears, listScopedStudentArrearsBatch } from "./_lib/financialTransactions.js";
 import { manageCoordinationAdministrator } from "./_lib/coordinationAdministrators.js";
 import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
+import coordinationSchoolYearsHandler, { COORDINATION_SCHOOL_YEARS_ROUTE } from "./_lib/coordinationSchoolYearsHandler.js";
 
 export const maxDuration = 300;
 
@@ -322,6 +323,13 @@ async function transferPersonnel({ res, auth, db, token, input }) {
 }
 
 export default async function handler(req, res) {
+  // Regroupement lot 2 : l’ancienne adresse /api/manage-coordination-school-years arrive ici (vercel.json).
+  // Le repère « route » est retiré avant l’appel : l’ancien code reçoit exactement la même demande qu’avant.
+  if (req.query?.route === COORDINATION_SCHOOL_YEARS_ROUTE) {
+    const { route: _route, ...query } = req.query;
+    Object.defineProperty(req, "query", { value: query, configurable: true, enumerable: true, writable: true });
+    return coordinationSchoolYearsHandler(req, res);
+  }
   if (req.method !== "POST") return sendJson(res, 405, { error: "Méthode non autorisée." });
   try {
     const token = bearerToken(req);

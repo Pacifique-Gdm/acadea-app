@@ -14,7 +14,7 @@ vi.mock("../../api/_lib/coordination.js", () => ({
   resolveCoordinationSchoolScope: vi.fn(async () => ["school-a"]),
 }));
 
-import handler from "../../api/manage-coordination-school-years.js";
+import handler from "../../api/_lib/coordinationSchoolYearsHandler.js";
 // @ts-expect-error The Vercel handler is implemented in JavaScript.
 import messageRecipientsHandler from "../../api/coordination-message-recipients.js";
 

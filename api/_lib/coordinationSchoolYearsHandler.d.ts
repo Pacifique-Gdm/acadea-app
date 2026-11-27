@@ -11,3 +11,4 @@ type CoordinationSchoolYearApiResponse = {
 };
 
 export default function handler(req: CoordinationSchoolYearApiRequest, res: CoordinationSchoolYearApiResponse): Promise<void>;
+export const COORDINATION_SCHOOL_YEARS_ROUTE: "coordination-school-years";

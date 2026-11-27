@@ -1,8 +1,13 @@
-import { initAdmin } from "./_lib/firebaseAdmin.js";
-import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
-import { chunks, coordinationHttpError, requireActiveCoordinationActor, resolveCoordinationSchoolScope } from "./_lib/coordination.js";
+import { initAdmin } from "./firebaseAdmin.js";
+import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./rateLimit.js";
+import { chunks, coordinationHttpError, requireActiveCoordinationActor, resolveCoordinationSchoolScope } from "./coordination.js";
 import { createHash } from "node:crypto";
-import { schoolYearOpeningDecision } from "./_lib/schoolYearOpening.js";
+import { schoolYearOpeningDecision } from "./schoolYearOpening.js";
+
+// Regroupement lot 2 (limite de 12 fonctions Vercel) : ancien fichier api/manage-coordination-school-years.js.
+// L’adresse /api/manage-coordination-school-years est gardée : vercel.json la redirige vers
+// /api/manage-coordination?route=coordination-school-years, qui appelle ce code sans rien changer aux réponses.
+export const COORDINATION_SCHOOL_YEARS_ROUTE = "coordination-school-years";
 
 const CONFIRMATIONS = { close: "CLOTURER LES ANNEES SCOLAIRES", reactivate: "REACTIVER LES ANNEES SCOLAIRES" };
 

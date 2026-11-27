@@ -58,6 +58,10 @@
       "destination": "/api/manage-teacher-grading?route=teacher-availability"
     },
     {
+      "source": "/api/manage-coordination-school-years",
+      "destination": "/api/manage-coordination?route=coordination-school-years"
+    },
+    {
       "source": "/((?!api/|src/|@vite/|@react-refresh|@fs/|node_modules/|assets/|icons/|manifest.webmanifest|sw.js|version.json|favicon.svg|favicon.png).*)",
       "destination": "/index.html"
     }
