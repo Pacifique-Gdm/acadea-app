@@ -130,7 +130,7 @@ export async function loadAllocationVersions(config: FeeAllocationConfig) {
 /** Lot 27b : catalogue des rubriques de l'école et de l'année. */
 export type AllocationCatalogRubric = { id: string; name: string; hidden: boolean; used?: boolean };
 export async function loadRubricCatalog(schoolId: string, signal?: AbortSignal) {
-  const result = await allocationRequest<{ enabled: boolean; rubrics: AllocationCatalogRubric[]; schoolYearId: string }>("list-rubrics", { schoolId }, signal);
+  const result = await allocationRequest<{ enabled: boolean; rubrics: AllocationCatalogRubric[]; schoolYearId: string; currency?: string }>("list-rubrics", { schoolId }, signal);
   if (!Array.isArray(result.rubrics)) throw new AllocationApiError("Liste des rubriques incomplète.");
   return result;
 }

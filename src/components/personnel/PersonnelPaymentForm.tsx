@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { MoneyInput } from "../ui";
-import { AllocationRubricSelect } from "../AllocationRubricSelect";
+import { AllocationRubricSelect, useAllocationSpendOptions } from "../AllocationRubricSelect";
+import { AllocationSubRubricSelect, proposedSubRubricId, subRubricBlocks, subRubricSpendCheck, subRubricSpendError, subRubricsOf } from "../AllocationSubRubricSelect";
 import { createPersonnelPayment, listPayrollAdvances, listPayrollPersonnel, loadPayrollCashBalance, PayrollCashError } from "../../services/personnelPayroll";
 import type { PayrollBeneficiary, PayrollCashBalance } from "../../services/personnelPayroll";
 import { printPersonnelPaymentPdf } from "../../utils/personnelPayrollPdf";
@@ -36,6 +37,9 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   const [tax, setTax] = useState("");
   const [description, setDescription] = useState("");
   const [allocationRubricId, setAllocationRubricId] = useState("");
+  // Lots 5 et 6 : sous-rubrique proposée selon la fonction du bénéficiaire (« Fonctions concernées »), modifiable.
+  const spend = useAllocationSpendOptions(school.id, year.id);
+  const [allocationSubRubricId, setAllocationSubRubricId] = useState("");
   const [advances, setAdvances] = useState<PersonnelPayment[]>([]);
   const [recoveries, setRecoveries] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -88,6 +92,10 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   const shortfallCents = availableCents === undefined ? 0 : Math.max(netCents - availableCents, 0);
   const cashInsufficient = availableCents !== undefined && (availableCents < 0 || shortfallCents > 0);
   const validNet = validAmounts && Number.isSafeInteger(netCents) && netCents > 0;
+  const beneficiary = personnel.find((item) => item.id === beneficiaryId) ?? null;
+  const proposedSub = proposedSubRubricId(subRubricsOf(spend, allocationRubricId), beneficiary);
+  useEffect(() => { setAllocationSubRubricId(proposedSub); }, [proposedSub, beneficiaryId, allocationRubricId]);
+  const subRubricCheck = subRubricSpendCheck(spend, allocationRubricId, allocationSubRubricId, validNet ? netCents : 0);
   const recoverable = sumMoney(advances.filter((item) => item.currency === currency).map((item) => remainingMoney(item.amount, item.recoveredAmount)));
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -97,11 +105,14 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     if (!beneficiaryId || !paidAt || !gross || !validNet || kind !== "advance" && Number(deduction || 0) > 0 && !deductionReason.trim()) { setError("Complétez le bénéficiaire, la date, le montant et le motif de toute retenue."); return; }
     if (!cashBalance || cashBalance.schoolId !== school.id || cashBalance.currency !== currency) { setError("Solde de caisse indisponible : paiement bloqué."); return; }
     if (cashInsufficient) { setError("Paiement impossible : solde de caisse insuffisant."); return; }
+    const subRubricError = subRubricSpendError(subRubricCheck, spend.options?.currency);
+    if (subRubricError) { setError(subRubricError); return; }
+    const sendSubRubric = subRubricCheck.kind === "ready" ? subRubricCheck.sub.id : "";
     const lines = kind === "advance" ? [] : Object.entries(recoveries).filter(([, amount]) => Number(amount) > 0).map(([advanceId, amount]) => ({ advanceId, amount: Number(amount) }));
     if (lines.some((line) => { const advance = advances.find((item) => item.id === line.advanceId); return !advance || advance.currency !== currency || toMoneyMinor(line.amount) > toMoneyMinor(remainingMoney(advance.amount, advance.recoveredAmount)); })) { setError("Une récupération dépasse le solde de l'avance ou utilise une autre devise."); return; }
     const draft = { schoolYearId: year.id, beneficiaryId, kind, ...(kind === "advance" ? {} : { periodMonth: month, periodYear }), paidAt, amount: Number(gross), recoveries: lines,
       deduction: kind === "advance" ? 0 : Number(deduction || 0), deductionReason: kind === "advance" ? "" : deductionReason.trim(), cnss: kind === "advance" ? 0 : Number(cnss || 0), tax: kind === "advance" ? 0 : Number(tax || 0), description: description.trim() };
-    const signature = JSON.stringify({ ...draft, allocationRubricId });
+    const signature = JSON.stringify({ ...draft, allocationRubricId, ...(sendSubRubric ? { allocationSubRubricId: sendSubRubric } : {}) });
     const clientRequestId = attempt.current?.signature === signature ? attempt.current.id : crypto.randomUUID();
     attempt.current = { signature, id: clientRequestId };
     busyRef.current = true; setBusy(true);
@@ -113,7 +124,8 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
         setError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
         return;
       }
-      const payment = await createPersonnelPayment({ ...draft, clientRequestId, ...(allocationRubricId ? { allocationRubricId } : {}) });
+      const payment = await createPersonnelPayment({ ...draft, clientRequestId, ...(allocationRubricId ? { allocationRubricId } : {}), ...(sendSubRubric ? { allocationSubRubricId: sendSubRubric } : {}) });
+      spend.reload();
       attempt.current = null;
       setCashLoading(true);
       void loadPayrollCashBalance(year.id).then((updated) => { setCashBalance(updated); setCashError(""); })
@@ -138,9 +150,10 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
   }
 
   return <form className="grid min-w-0 gap-3 text-sm" onSubmit={(event) => void submit(event)}>
-    <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId}/>
+    <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId} spend={spend}/>
     {loading && <p role="status">Chargement du personnel…</p>}
     <label className="grid gap-1 font-semibold">Bénéficiaire<select className="input min-w-0" value={beneficiaryId} onChange={(event) => setBeneficiaryId(event.target.value)}><option value="">Choisir un personnel</option>{personnel.map((item) => <option key={item.id} value={item.id}>{item.name} — {personnelJobTitleLabel(item.jobTitle, item.hasAccount)}</option>)}</select></label>
+    <AllocationSubRubricSelect spend={spend} rubricId={allocationRubricId} value={allocationSubRubricId} onChange={setAllocationSubRubricId} debitMinor={validNet ? netCents : 0} proposedFor={beneficiary}/>
     <label className="grid gap-1 font-semibold">Nature<select className="input" value={kind} onChange={(event) => { setKind(event.target.value as PersonnelPayment["kind"]); setRecoveries({}); }}><option value="salary">Salaire</option><option value="bonus">Prime</option><option value="advance">Versement d'une avance</option></select></label>
     {kind !== "advance" && <div className="grid grid-cols-2 gap-2"><label className="grid gap-1 font-semibold">Mois concerné<select className="input min-w-0" value={month} onChange={(event) => setMonth(Number(event.target.value))}>{months.map((label, index) => <option key={label} value={index + 1}>{label}</option>)}</select></label><label className="grid gap-1 font-semibold">Année concernée<input className="input min-w-0" type="number" min="2000" max="2200" value={periodYear} onChange={(event) => setPeriodYear(Number(event.target.value))}/></label></div>}
     <label className="grid gap-1 font-semibold">Date réelle du paiement<input className="input" type="date" value={paidAt} onChange={(event) => setPaidAt(event.target.value)}/></label>
@@ -166,6 +179,6 @@ export function PersonnelPaymentForm({ school, year, onRecorded }: { school: Sch
     </section>
     <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} /><ErrorNotice error={error} />
     {lastPayment && <div role="status" className="grid gap-2 rounded bg-green-50 p-3 text-green-800"><span>Paiement enregistré : {lastPayment.reference}</span><button className="secondary-button justify-center" type="button" onClick={() => void printPersonnelPaymentPdf(lastPayment, school)}>{lastPayment.kind === "advance" ? "Télécharger le justificatif" : "Télécharger le bulletin de paie"}</button></div>}
-    <button type="submit" disabled={busy || loading || cashLoading || !cashBalance || cashInsufficient || !beneficiaryId || !validNet} className="primary-button justify-center">{busy ? "Enregistrement…" : "Enregistrer le paiement personnel"}</button>
+    <button type="submit" disabled={busy || loading || cashLoading || !cashBalance || cashInsufficient || !beneficiaryId || !validNet || subRubricBlocks(subRubricCheck)} className="primary-button justify-center">{busy ? "Enregistrement…" : "Enregistrer le paiement personnel"}</button>
   </form>;
 }

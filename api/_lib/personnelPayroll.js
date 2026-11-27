@@ -8,7 +8,7 @@ import { protectCashMutation, readCashBalance } from "./cashBalance.js";
 import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
 
 const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
-const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId", "allocationRubricId"]);
+const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId", "allocationRubricId", "allocationSubRubricId"]);
 
 function invalid(message, code = "invalid-argument", status = 400) { throw new FinancialApiError(status, code, message); }
 function field(value, max = 200) { return typeof value === "string" && value.trim().length <= max ? value.trim() : ""; }
@@ -160,6 +160,7 @@ export async function createPersonnelPayment({ db, caller, body, now = new Date(
     const expense = {
       id: expenseRef.id, schoolId: caller.schoolId, schoolYearId, currency, amount: netCents / 100,
       ...(body.allocationRubricId !== undefined ? { allocationRubricId: body.allocationRubricId } : {}),
+    ...(body.allocationSubRubricId !== undefined ? { allocationSubRubricId: body.allocationSubRubricId } : {}),
       category: kind === "salary" ? "Salaire" : "Autre",
       description: `${kind === "salary" ? "Salaire" : kind === "bonus" ? "Prime" : "Avance sur salaire"} — ${beneficiary.name}${description ? ` — ${description}` : ""}`,
       beneficiary: beneficiary.name, paymentMethod: "Paiement personnel", reference, spentAt: paidAt,
