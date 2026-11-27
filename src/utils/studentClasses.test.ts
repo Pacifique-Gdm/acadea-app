@@ -13,6 +13,13 @@ describe("promotions", () => {
     expect(getClassSection("2ème Sciences" as SchoolClass)).toBe("Secondaire");
   });
 
+  it("classe les options des Humanités écrites dans le nom de la classe dans le Secondaire", () => {
+    for (const name of ["4ème Commerciale", "2ème Commerciale et Gestion", "3ème Pédagogie Générale", "1ère Littéraire", "2ème Latin-Philo", "4ème Technique Mécanique", "3ème Électricité", "1ère Nutrition", "2ème Math-Physique"]) {
+      expect(getClassSection(name as SchoolClass)).toBe("Secondaire");
+    }
+    for (const name of ["1ère Primaire", "6ème Primaire", "Maternelle 2"]) expect(getClassSection(name as SchoolClass)).not.toBe("Secondaire");
+  });
+
   it("classe toujours 7ème et 8ème CTEB dans la section CTEB", () => {
     expect(getClassSection("7ème CTEB")).toBe("CTEB");
     expect(getClassSection("8ème CTEB")).toBe("CTEB");

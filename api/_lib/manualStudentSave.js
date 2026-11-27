@@ -3,6 +3,7 @@ import { studentForPersistence } from "../../src/utils/studentYearTransition.js"
 import { studentIdentityKey } from "../../src/utils/studentSearch.js";
 import { CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, hasYearPayments, isClassChange } from "../../src/utils/classChangeGuard.js";
 import { buildStudentChangeLog, summarizeStudentChanges } from "./studentChangeLog.js";
+import { requiredStudentSection } from "./studentSection.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { identityCandidatesQuery, identityIndexReady, identityIndexStateRef, identityLockId } from "./studentIdentityIndex.js";
 
@@ -150,6 +151,8 @@ export async function saveManualStudent({ db, caller, body }) {
       biometric: input.biometric && typeof input.biometric === "object" && !Array.isArray(input.biometric) ? input.biometric : undefined,
     };
     if (existing) for (const key of OPTIONAL_FIELDS) if (!(key in fields)) delete next[key];
+    // Section obligatoire : calculée d'après la classe si elle manque, refusée si inconnue.
+    next.section = requiredStudentSection(next);
     // Protection provisoire : un élève qui a déjà au moins un paiement cette année ne change pas de classe
     // (rattachement des paiements et remboursement du trop-perçu pas encore en ligne).
     if (existing && isClassChange(existing, next)) {
