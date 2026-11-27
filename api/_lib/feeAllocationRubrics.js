@@ -1,6 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { FeeAllocationError } from "./feeAllocationMath.js";
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
+import { SUB_RUBRICS_PHRASE, subRubricAmountsKey, subRubricBalanceView, validateSubRubrics } from "./feeAllocationSubRubrics.js";
+import { allocationBalanceId } from "./feeAllocationRuntime.js";
 
 /** Lot 27b — catalogue des rubriques de la répartition des frais (décision du propriétaire, 16/11/2026).
  * - Propre à chaque école ET à chaque année scolaire (une nouvelle année commence avec une liste vide).
@@ -56,17 +58,23 @@ async function usedRubricIds(db, schoolId, schoolYearId) {
 
 export async function manageFeeAllocationRubrics({ db, caller, body, now = new Date().toISOString() }) {
   const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
-  const { yearId } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
+  const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
   if (body.action === "list-rubrics") {
     const catalog = await readRubricCatalog(db, schoolId, yearId);
     // Lot « Deux onglets » : « Supprimer » ne s'affiche que pour une rubrique qui n'a jamais servi.
     const used = isAdmin(caller.role) ? await usedRubricIds(db, schoolId, yearId) : new Set();
-    return { operational: false, schoolId, schoolYearId: yearId, ...catalog, rubrics: catalog.rubrics.map((r) => ({ ...r, used: used.has(r.id) })) };
+    // Lots 5 et 6 : soldes des sous-rubriques (Administrateur), dans la devise de l'année.
+    const withSubs = isAdmin(caller.role) ? catalog.rubrics.filter((r) => Array.isArray(r.subRubrics) && r.subRubrics.length) : [];
+    const subBalances = new Map(await Promise.all(withSubs.map(async (r) => [r.id, (await db.doc(`feeAllocationBalances/${allocationBalanceId(schoolId, yearId, currency, r.id)}`).get()).data()])));
+    return { operational: false, schoolId, schoolYearId: yearId, currency, ...catalog, rubrics: catalog.rubrics.map((r) => ({ ...r, used: used.has(r.id),
+      ...(subBalances.has(r.id) ? { subView: subRubricBalanceView(subBalances.get(r.id), r.subRubrics, r.name) } : {}) })) };
   }
   if (!isAdmin(caller.role) || caller.schoolId !== schoolId) fail(403, "permission-denied", "Seul l'Administrateur gère les rubriques.");
   if (!id(body.requestId) || body.requestId.length < 12) fail(400, "invalid-argument", "Clé de requête invalide.");
   const receiptRef = db.doc(`feeAllocationRequests/rubric_${hash([caller.uid, schoolId, body.requestId])}`);
-  const fingerprint = hash([body.action, body.rubricId ?? null, body.name ?? null, body.hidden ?? null]);
+  // Lots 5 et 6 : l'empreinte d'un enregistrement de sous-rubriques comprend la liste et la phrase (ancienne empreinte inchangée sinon).
+  const fingerprint = hash([body.action, body.rubricId ?? null, body.name ?? null, body.hidden ?? null,
+    ...(body.action === "save-sub-rubrics" ? [body.subRubrics ?? null, body.confirmation ?? null] : [])]);
   return db.runTransaction(async (transaction) => {
     const receipt = await transaction.get(receiptRef);
     if (receipt.exists) {
@@ -102,6 +110,21 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
         if (await rubricUsage(db, transaction, schoolId, yearId, rubric.id)) fail(409, "conflict", "Cette rubrique a déjà servi : elle ne peut pas être supprimée, seulement masquée.");
         transaction.delete(ref);
         result = { deletedId: rubric.id };
+      } else if (body.action === "save-sub-rubrics") {
+        // Lots 5 et 6 : une seule répartition par rubrique, pour tous les frais. Phrase tapée à la main avant tout
+        // changement de pourcentage ou de montant ; une sous-rubrique qui a servi ne peut pas être retirée.
+        const saved = Array.isArray(rubric.subRubrics) ? rubric.subRubrics : [];
+        const subRubrics = validateSubRubrics(body.subRubrics);
+        if (subRubrics.some((sub) => !saved.some((old) => old.id === sub.id) && body.subRubrics.some((input) => input?.id === sub.id))) fail(400, "invalid-argument", "Sous-rubrique inconnue pour cette rubrique.");
+        if (subRubricAmountsKey(saved) !== subRubricAmountsKey(subRubrics) && body.confirmation !== SUB_RUBRICS_PHRASE) fail(400, "invalid-argument", `Tapez à la main « ${SUB_RUBRICS_PHRASE} » pour changer un pourcentage ou un montant.`);
+        const removed = saved.filter((old) => !subRubrics.some((sub) => sub.id === old.id));
+        if (removed.length) {
+          const balances = await transaction.get(db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", yearId));
+          const usedSub = removed.find((old) => balances.docs.some((doc) => { const own = doc.data().rubricId === rubric.id ? doc.data().subBalances?.[old.id] : null; return !!own && ((own.receivedMinor ?? 0) !== 0 || (own.spentMinor ?? 0) !== 0); }));
+          if (usedSub) fail(409, "conflict", `La sous-rubrique « ${usedSub.name} » a déjà servi : elle ne peut pas être retirée.`);
+        }
+        transaction.update(ref, { subRubrics, updatedAt: now, updatedBy: caller.uid });
+        result = { rubric: { ...rubric, subRubrics } };
       } else fail(400, "invalid-argument", "Action inconnue sur les rubriques.");
     }
     // Lot « répartition rapide » : chaque changement de rubrique change la révision du catalogue,
@@ -112,4 +135,4 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
   });
 }
 
-export const rubricActions = new Set(["list-rubrics", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric"]);
+export const rubricActions = new Set(["list-rubrics", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "save-sub-rubrics"]);

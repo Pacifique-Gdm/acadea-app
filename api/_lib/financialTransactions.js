@@ -15,7 +15,7 @@ const ARREARS_READ_KEYS = ["action", "schoolYearId", "studentId"];
 const FORMER_SEARCH_KEYS = ["action", "schoolYearId", "query"];
 const FORMER_DEBTS_KEYS = ["action", "schoolYearId", "formerStudentId"];
 const FORMER_LIST_KEYS = ["action", "schoolYearId"];
-const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId", "allocationRubricId", "categoryDetail"];
+const EXPENSE_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "description", "beneficiary", "paymentMethod", "reference", "clientRequestId", "allocationRubricId", "allocationSubRubricId", "categoryDetail"];
 const CASH_INFLOW_CREATE_KEYS = ["action", "schoolYearId", "amount", "category", "categoryDetail", "description", "source", "paymentMethod", "reference", "entryDate", "clientRequestId"];
 const PAYMENT_UPDATE_KEYS = ["action", "transactionId", "amount", "reason", "confirmation", "expectedUpdatedAt", "clientRequestId"];
 const EXPENSE_UPDATE_KEYS = ["action", "transactionId", "amount", "category", "description", "reason", "clientRequestId"];
@@ -699,6 +699,7 @@ async function createExpense(transaction, db, caller, body, hash, now) {
   const expense = {
     id: expenseId, schoolId: caller.schoolId, schoolYearId, currency, amount, category, ...(otherCategory ? { categoryDetail } : {}), description, beneficiary, paymentMethod,
     ...(body.allocationRubricId !== undefined ? { allocationRubricId: body.allocationRubricId } : {}),
+    ...(body.allocationSubRubricId !== undefined ? { allocationSubRubricId: body.allocationSubRubricId } : {}),
     ...(reference ? { reference } : {}), spentAt: now.slice(0, 10), createdAt: now, updatedAt: now,
     createdBy: caller.uid, updatedBy: caller.uid, cashierName: actorName, provenance: "financial-api", clientRequestIdHash: hash,
   };

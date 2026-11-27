@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.38.0] — 2026-11-27 — Fonctionnalité
+- Sous-rubriques de la répartition : pourcentage ou montant fixe, soldes, blocage des sorties, proposition dans la paie
+
 ## [1.37.3] — 2026-11-27 — Correction
 - Regroupement des fichiers serveur, lot 3 (Super administrateur) : 9 fonctions sur 12, adresses inchangées
 
