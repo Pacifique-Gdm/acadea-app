@@ -88,6 +88,8 @@ export function getClassSection(className) {
   if (canonical.includes("Maternelle")) return "Maternelle";
   if (canonical.includes("CTEB")) return "CTEB";
   if (/\b(scientifique|sciences)\b/i.test(canonical) || canonical.includes("Humanité")) return "Secondaire";
+  // Options des Humanités écrites dans le nom de la classe (ex. « 4ème Commerciale », « 2ème Commerciale et Gestion »).
+  if (/(commercia|gestion|p[ée]dagogi|litt[ée]raire|latin|technique|m[ée]canique|[ée]lectri|nutrition|agrono|v[ée]t[ée]rinaire|biochimie|math[ée]matique|physique)/i.test(canonical)) return "Secondaire";
   return "Primaire";
 }
 

@@ -3,6 +3,7 @@ import { studentForPersistence } from "../../src/utils/studentYearTransition.js"
 import { studentIdentityKey } from "../../src/utils/studentSearch.js";
 import { CLASS_CHANGE_WITH_PAYMENTS_MESSAGE, hasYearPayments, isClassChange } from "../../src/utils/classChangeGuard.js";
 import { buildStudentChangeLog, summarizeStudentChanges } from "./studentChangeLog.js";
+import { requiredStudentSection } from "./studentSection.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { identityCandidatesQuery, identityIndexReady, identityIndexStateRef, identityLockId } from "./studentIdentityIndex.js";
 
@@ -150,6 +151,8 @@ export async function saveManualStudent({ db, caller, body }) {
       biometric: input.biometric && typeof input.biometric === "object" && !Array.isArray(input.biometric) ? input.biometric : undefined,
     };
     if (existing) for (const key of OPTIONAL_FIELDS) if (!(key in fields)) delete next[key];
+    // Section obligatoire : calculée d'après la classe si elle manque, refusée si inconnue.
+    next.section = requiredStudentSection(next);
     // Protection provisoire : un élève qui a déjà au moins un paiement cette année ne change pas de classe
     // (rattachement des paiements et remboursement du trop-perçu pas encore en ligne).
     if (existing && isClassChange(existing, next)) {
@@ -223,7 +226,10 @@ export async function saveManualStudent({ db, caller, body }) {
     const changedAt = new Date().toISOString();
     const logId = `stu_${createHash("sha256").update(`${caller.uid}\0${id}\0${changedAt}\0${randomUUID()}`).digest("hex").slice(0, 32)}`;
     const actorName = typeof actor.name === "string" && actor.name.trim() ? actor.name.trim() : typeof actor.email === "string" ? actor.email : caller.uid;
-    const changeLog = buildStudentChangeLog({ id: logId, actor: { uid: caller.uid, role: caller.role, name: actorName }, previous: existing, student, now: changedAt });
+    // Section complétée automatiquement sur une ancienne fiche (sans section, non saisie) : pas une modification de l'utilisateur.
+    const autoSection = Boolean(existing) && existing.section === undefined && !("section" in fields);
+    const loggedStudent = autoSection ? Object.fromEntries(Object.entries(student).filter(([key]) => key !== "section")) : student;
+    const changeLog = buildStudentChangeLog({ id: logId, actor: { uid: caller.uid, role: caller.role, name: actorName }, previous: existing, student: loggedStudent, now: changedAt });
     if (!existing || changeLog.fields.length) {
       transaction.set(db.doc(`studentChangeLogs/${logId}`), changeLog);
       transaction.set(db.doc(`auditLogs/audit_${logId}`), buildServerAudit({ id: `audit_${logId}`, eventType: existing ? AUDIT_EVENT_TYPES.STUDENT_UPDATED : AUDIT_EVENT_TYPES.STUDENT_CREATED,

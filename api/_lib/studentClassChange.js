@@ -16,6 +16,7 @@ import { fromMoneyMinor, toMoneyMinor } from "./money.js";
 import { feeAllocationPaymentRequestId, feeAllocationStateId, prepareFeeAllocationReceipt } from "./feeAllocationReceipts.js";
 import { pendingAllocationId } from "./feeAllocationPending.js";
 import { validClassReferences } from "./manualStudentSave.js";
+import { requiredStudentSection } from "./studentSection.js";
 import { buildStudentChangeLog, summarizeStudentChanges } from "./studentChangeLog.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { createTransactionOverlay } from "./transactionOverlay.js";
@@ -63,6 +64,9 @@ export async function changeStudentClass(transaction, db, caller, body, hash, no
     if (value) next[key] = value; else delete next[key];
   }
   if (!isClassChange(student, next)) refuse(400, "invalid-argument", "La classe ne change pas.");
+  // Section obligatoire : calculée d'après la nouvelle classe si elle manque, refusée si inconnue.
+  try { next.section = requiredStudentSection(next); }
+  catch (error) { refuse(error.statusCode ?? 400, error.code ?? "invalid-argument", error.message); }
   try { await validClassReferences(transaction, db, { ...next, id: studentId }); }
   catch (error) { refuse(error.statusCode ?? 400, error.code ?? "invalid-argument", error.message); }
 

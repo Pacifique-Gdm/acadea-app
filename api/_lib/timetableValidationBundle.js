@@ -102,6 +102,7 @@ function getClassSection(className) {
   if (canonical.includes("Maternelle")) return "Maternelle";
   if (canonical.includes("CTEB")) return "CTEB";
   if (/\b(scientifique|sciences)\b/i.test(canonical) || canonical.includes("Humanit\xE9")) return "Secondaire";
+  if (/(commercia|gestion|p[ée]dagogi|litt[ée]raire|latin|technique|m[ée]canique|[ée]lectri|nutrition|agrono|v[ée]t[ée]rinaire|biochimie|math[ée]matique|physique)/i.test(canonical)) return "Secondaire";
   return "Primaire";
 }
 
