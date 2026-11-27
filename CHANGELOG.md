@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.38.1] — 2026-11-27 — Correction
+- Conseillers : section obligatoire (sans section, aucun accès) ; l'administrateur et la Direction des études peuvent écrire en premier à un conseiller
+
 ## [1.38.0] — 2026-11-27 — Fonctionnalité
 - Conseiller pédagogique : nouveau module (enseignants, élèves, horaires et cotes en lecture ; fiches de visite de classe)
 - Conseiller d'orientation : nouveau module (élèves et résultats en lecture ; notes de suivi confidentielles)

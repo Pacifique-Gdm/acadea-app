@@ -36,12 +36,13 @@ function fakeDb(initial: Record<string, Record<string, unknown>>) {
   };
 }
 
-const school = { status: "active", schoolType: "Mixte" };
+const school = { status: "active", schoolType: "Mixte", educationLevels: ["Primaire", "Secondaire"] };
 const base = () => ({
   "schools/s1": school,
   "schoolYears/y1": { schoolId: "s1", status: "active" },
   "users/adv": { role: "pedagogical_advisor", schoolId: "s1", name: "Conseiller A", sectionIds: ["Primaire"] },
-  "users/adv2": { role: "pedagogical_advisor", schoolId: "s1", name: "Conseiller B" },
+  "users/adv2": { role: "pedagogical_advisor", schoolId: "s1", name: "Conseiller B", sectionIds: ["Primaire", "Secondaire"] },
+  "users/advSans": { role: "pedagogical_advisor", schoolId: "s1", name: "Conseiller sans section" },
   "users/dir": { role: "study_director", schoolId: "s1", sectionIds: ["Secondaire"] },
   "users/adm": { role: "school_admin", schoolId: "s1" },
   "users/tch": { role: "teacher", schoolId: "s1" },
@@ -59,7 +60,7 @@ const caller = (uid: string, role: string) => ({ uid, role, schoolId: "s1" });
 const visit = { classId: "cP", teacherId: "t1", subjectId: "m", visitDate: "2026-11-20", strengths: "Bonne gestion", improvements: "", advice: "Varier les exercices", nextVisitDate: "2026-12-10" };
 
 describe("Lot 10 — Conseiller pédagogique (serveur)", () => {
-  it("règle unique des sections : un conseiller Primaire ne voit que le Primaire, sans section = toute l'école", async () => {
+  it("règle unique des sections : un conseiller Primaire ne voit que le Primaire, toutes les sections = toute l'école", async () => {
     const db = fakeDb(base());
     const limited = await loadAdvisorOverview({ db, caller: caller("adv", "pedagogical_advisor"), body: { schoolId: "s1", schoolYearId: "y1" } });
     expect(limited.sections).toEqual(["Primaire"]);
@@ -68,6 +69,15 @@ describe("Lot 10 — Conseiller pédagogique (serveur)", () => {
     const whole = await loadAdvisorOverview({ db, caller: caller("adv2", "pedagogical_advisor"), body: { schoolId: "s1", schoolYearId: "y1" } });
     expect(whole.sections).toEqual([]);
     expect(whole.metrics.teachers).toBe(2);
+  });
+
+  it("un Conseiller pédagogique SANS section n'agit jamais pour toute l'école : il est refusé", async () => {
+    const db = fakeDb(base());
+    const body = { schoolId: "s1", schoolYearId: "y1" };
+    await expect(loadAdvisorOverview({ db, caller: caller("advSans", "pedagogical_advisor"), body })).rejects.toMatchObject({ status: 403 });
+    await expect(listClassVisits({ db, caller: caller("advSans", "pedagogical_advisor"), body })).rejects.toMatchObject({ status: 403 });
+    // L'administrateur, lui, garde toute l'école.
+    await expect(listClassVisits({ db, caller: caller("adm", "school_admin"), body })).resolves.toBeTruthy();
   });
 
   it("un compte qui couvre toutes les sections de l'école agit pour toute l'école", () => {
@@ -149,5 +159,10 @@ describe("Lot 10 — Conseiller pédagogique (serveur)", () => {
   it("messagerie : le conseiller écrit à l'administration, à la direction et aux enseignants, jamais aux parents", () => {
     expect([...allowedRecipientRoles("pedagogical_advisor")].sort()).toEqual(["school_admin", "study_director", "teacher"]);
     expect(allowedRecipientRoles("parent").has("pedagogical_advisor")).toBe(false);
+    // Décision de l'utilisateur : l'administrateur et la Direction des études peuvent écrire en premier à un conseiller.
+    for (const sender of ["school_admin", "study_director"]) {
+      expect(allowedRecipientRoles(sender).has("pedagogical_advisor")).toBe(true);
+      expect(allowedRecipientRoles(sender).has("orientation_advisor")).toBe(true);
+    }
   });
 });

@@ -1,6 +1,6 @@
 import { GradingApiError } from "./teacherGrading.js";
 import { calculateConsolidatedReport, GRADE_SLOTS } from "./consolidatedGrading.js";
-import { authoritySections, comparableSection, teacherInSections } from "./studySectionScope.js";
+import { authoritySections, comparableSection, profileSections, teacherInSections } from "./studySectionScope.js";
 import { requireActiveSchoolYear } from "./schoolYear.js";
 
 // Lots 10 et 11 : Conseiller pédagogique et Conseiller d'orientation.
@@ -38,6 +38,11 @@ export async function requireSchoolActor(db, caller, schoolId, schoolYearId, rol
   if (!user.exists || !activeProfile(profile, caller.role, schoolId)) fail(403, deniedMessage);
   if (!school.exists || ["suspended", "inactive", "deleting"].includes(school.data()?.status) || !year.exists || year.data()?.schoolId !== schoolId) {
     fail(403, "École ou année scolaire invalide.");
+  }
+  // Décision de l'utilisateur : un conseiller SANS section n'agit jamais pour toute l'école (il ne voit rien).
+  // S'il couvre toutes les sections de l'école, la règle unique s'applique : toute l'école.
+  if (ADVISOR_ROLES.includes(caller.role) && !profileSections(profile).length) {
+    fail(403, "Aucune section n'est attribuée à votre compte. Demandez à l'administrateur de vous en attribuer une.");
   }
   // Seuls l'administrateur de l'école et les conseillers ne suivent pas forcément des sections :
   // un administrateur agit toujours pour toute l'école.

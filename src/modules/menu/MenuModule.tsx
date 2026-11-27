@@ -131,6 +131,8 @@ export function MenuModule({
   const schoolSectionSavingRef = useRef(false);
   const [schoolUserRole, setSchoolUserRole] = useState<SchoolUserProvisionRole>("cashier");
   const [schoolUserSections, setSchoolUserSections] = useState<SchoolSection[]>([]);
+  // Lots 10 et 11 : la section est obligatoire pour un conseiller (décision de l'utilisateur).
+  const advisorNeedsSection = (schoolUserRole === "pedagogical_advisor" || schoolUserRole === "orientation_advisor") && schoolUserSections.length === 0;
   const [schoolUserStudyFunction, setSchoolUserStudyFunction] = useState<StudyFunction>("director_of_studies");
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
@@ -535,6 +537,7 @@ export function MenuModule({
   }
 
   async function saveSchoolUser() {
+    if (advisorNeedsSection) { setCashierError("La section est obligatoire pour un conseiller."); return; }
     if (schoolUserSubmitting) return;
     setCashierError("");
     setCashierSuccess("");
@@ -1156,7 +1159,8 @@ export function MenuModule({
             visible={showCashierPassword}
             onToggle={() => setShowCashierPassword(!showCashierPassword)}
           />
-          <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || (schoolUserRole === "teacher" && !teacherAccountsLoaded) || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
+          {advisorNeedsSection && <p className="text-sm text-amber-800">La section est obligatoire pour un conseiller.</p>}
+          <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || advisorNeedsSection || (schoolUserRole === "teacher" && !teacherAccountsLoaded) || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
             <UserRound className="h-4 w-4" /> {schoolUserSubmitting ? "Création..." : "Créer le personnel"}
           </button>
           </>}

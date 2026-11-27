@@ -5,10 +5,10 @@ import { requireActiveSchoolYear } from "./schoolYear.js";
 const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "pedagogical_advisor", "orientation_advisor"]);
 
 const RECIPIENTS_BY_ROLE = Object.freeze({
-  school_admin: new Set(["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent", "coordination_admin", "sub_coordination_admin"]),
+  school_admin: new Set(["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor", "orientation_advisor"]),
   cashier: new Set(["school_admin", "secretary", "discipline_director", "study_director", "teacher", "parent"]),
   discipline_director: new Set(["school_admin", "cashier", "secretary", "study_director", "teacher", "parent"]),
-  study_director: new Set(["school_admin", "cashier", "secretary", "discipline_director", "teacher", "parent"]),
+  study_director: new Set(["school_admin", "cashier", "secretary", "discipline_director", "teacher", "parent", "pedagogical_advisor", "orientation_advisor"]),
   secretary: new Set(["school_admin", "cashier", "discipline_director", "study_director", "teacher", "parent"]),
   teacher: new Set(["school_admin", "cashier", "secretary", "discipline_director", "study_director", "parent"]),
   parent: new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]),

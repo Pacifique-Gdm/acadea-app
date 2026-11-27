@@ -759,6 +759,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     const email = normalizeEmail(body.email);
     const profile = normalizePersonnelProfile(body.profile);
     if (!name || !phone || !email) throw Object.assign(new Error("Nom, telephone et email sont requis."), { statusCode: 400, code: "invalid-argument" });
+    if (ADVISOR_ACCOUNT_ROLES.includes(target.role) && !sectionIds.length) throw Object.assign(new Error("La section est obligatoire pour un conseiller."), { statusCode: 400, code: "invalid-argument" });
     const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
     assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
     if (caller.role === "study_director") assertStudyDirectorSections(callerProfile, sectionIds, Array.isArray(target.sectionIds) && target.sectionIds.length ? target.sectionIds : (target.section ? [target.section] : []));
@@ -1033,6 +1034,11 @@ export default async function handler(req, res) {
 
     if (!allowedRoles.has(role)) {
       sendJson(res, 400, { error: "Role a provisionner invalide.", code: "invalid-argument" });
+      return;
+    }
+    // Lots 10 et 11 : un conseiller a toujours au moins une section (jamais « toute l'école » par défaut).
+    if (ADVISOR_ACCOUNT_ROLES.includes(role) && !sectionIds.length) {
+      sendJson(res, 400, { error: "La section est obligatoire pour un conseiller.", code: "invalid-argument" });
       return;
     }
 

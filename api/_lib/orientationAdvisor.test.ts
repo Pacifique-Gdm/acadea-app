@@ -29,10 +29,11 @@ function fakeDb(initial: Record<string, Record<string, unknown>>) {
 }
 
 const base = () => ({
-  "schools/s1": { status: "active", schoolType: "Mixte" },
+  "schools/s1": { status: "active", schoolType: "Mixte", educationLevels: ["Primaire", "Secondaire"] },
   "schoolYears/y1": { schoolId: "s1", status: "active" },
   "users/ori": { role: "orientation_advisor", schoolId: "s1", name: "Conseiller O", sectionIds: ["Secondaire"] },
-  "users/ori2": { role: "orientation_advisor", schoolId: "s1", name: "Conseiller O2" },
+  "users/ori2": { role: "orientation_advisor", schoolId: "s1", name: "Conseiller O2", sectionIds: ["Primaire", "Secondaire"] },
+  "users/oriSans": { role: "orientation_advisor", schoolId: "s1", name: "Conseiller sans section" },
   "users/ped": { role: "pedagogical_advisor", schoolId: "s1" },
   "users/dirS": { role: "study_director", schoolId: "s1", sectionIds: ["Secondaire"] },
   "users/dirP": { role: "study_director", schoolId: "s1", sectionIds: ["Primaire"] },
@@ -113,6 +114,13 @@ describe("Lot 11 — Conseiller d'orientation (serveur)", () => {
       expect.objectContaining({ studentId: "e2", percentage: 50, rank: 2, evaluated: 2 }),
     ]);
     expect(JSON.stringify(result)).not.toMatch(/amount|balance|payment/i);
+  });
+
+  it("un Conseiller d'orientation SANS section n'agit jamais pour toute l'école : il est refusé", async () => {
+    const db = fakeDb(base());
+    await expect(listAdvisorStudents({ db, caller: caller("oriSans", "orientation_advisor"), body })).rejects.toMatchObject({ status: 403 });
+    await expect(listOrientationNotes({ db, caller: caller("oriSans", "orientation_advisor"), body })).rejects.toMatchObject({ status: 403 });
+    await expect(saveOrientationNote({ db, caller: caller("oriSans", "orientation_advisor"), body: { ...body, note } })).rejects.toMatchObject({ status: 403 });
   });
 
   it("résultats réservés au Conseiller d'orientation", async () => {
