@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { schoolYearOpeningDecision } from "../../../api/_lib/schoolYearOpening.js";
 import type { ReactNode } from "react";
-import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, HeartPulse, Landmark, Network, Printer, Settings, UsersRound } from "lucide-react";
+import { ArrowRightLeft, BookOpen, CalendarRange, FileClock, HeartPulse, Landmark, Layers, Network, Printer, Settings, UsersRound } from "lucide-react";
 import { AdminDrawer, ImageUploadField, LogoutButton } from "../../components/ui";
 import { useExpenseCurrencyResolution } from "../../hooks/useResolvedExpenseCurrencies";
 import type { AppUser, Coordination, CoordinationYearGovernance, PersonnelProfile, School, SubCoordination } from "../../types";
@@ -15,6 +15,7 @@ import { FeeAllocationEntry } from "../menu/FeeAllocationDrawer";
 import { AllocationJustifications, parseJustifications } from "../../components/AllocationJustifications";
 import { allocationRequest } from "../../services/feeAllocation";
 import { SubCoordinationManagement } from "./SubCoordinationManagement";
+import { AllocationTemplateEditor } from "./AllocationTemplateEditor";
 import { INTERNAL_PERSONNEL_ROLES, isInternalPersonnel, personnelRoleLabels } from "../../services/personnel";
 import { PersonnelProfileReadOnly } from "../../components/personnel/PersonnelProfileReadOnly";
 import { printPersonnelProfilePdf } from "../../utils/personnelPdf";
@@ -27,7 +28,7 @@ import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
 
-type Drawer = "fees" | "finance" | "personnel" | "years" | "settings" | "history" | "subCoordinations" | "socialSupport";
+type Drawer = "fees" | "finance" | "personnel" | "years" | "settings" | "history" | "subCoordinations" | "socialSupport" | "templates";
 const emptyModel: CoordinationReadModel = { students: [], feeTypes: [], payments: [], expenses: [], personnel: [], schoolYears: [], auditLogs: [] };
 const roleLabel: Record<string, string> = personnelRoleLabels;
 const PERSONNEL_TRANSFER_CONFIRMATION = "MUTER CE PERSONNEL";
@@ -140,7 +141,7 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     setFinancialDateError(nextError);
   }
 
-  async function exportPdf(kind: Exclude<Drawer, "settings" | "subCoordinations" | "socialSupport">) {
+  async function exportPdf(kind: Exclude<Drawer, "settings" | "subCoordinations" | "socialSupport" | "templates">) {
     if ((kind === "finance" || kind === "fees") && financialExportBlocked) return;
     if (kind === "finance") {
       const dateError = financialDateRangeError(from, to);
@@ -214,9 +215,11 @@ export function CoordinationMenu({ coordination, schools, selectedSchoolId, onSc
     }
   }
 
-  const items = [["socialSupport", "Cas sociaux et prises en charge", HeartPulse], ["fees", "Types de frais", BookOpen], ["finance", "Rapport financier", Landmark], ["personnel", "Personnels", UsersRound], ["settings", "Paramètres coordination", Settings], ["history", "Historique", FileClock], ...(user.role === "coordination_admin" ? [["subCoordinations", "Sous-coordinations", Network] as const] : []), ["years", "Année scolaire", CalendarRange]] as const;
+  const items = [["socialSupport", "Cas sociaux et prises en charge", HeartPulse], ["fees", "Types de frais", BookOpen], ...(user.role === "coordination_admin" ? [["templates", "Modèles de répartition", Layers] as const] : []), ["finance", "Rapport financier", Landmark], ["personnel", "Personnels", UsersRound], ["settings", "Paramètres coordination", Settings], ["history", "Historique", FileClock], ...(user.role === "coordination_admin" ? [["subCoordinations", "Sous-coordinations", Network] as const] : []), ["years", "Année scolaire", CalendarRange]] as const;
   function settingsContent(): ReactNode { if (subCoordination || user.role !== "coordination_admin") return <><p className="break-words"><b>{subCoordination ? "Circonscription" : "Coordination"} :</b> {subCoordination?.circumscription ?? coordination.name}</p>{subCoordination && <><p className="break-words"><b>Sous-coordinateur :</b> {user.name}</p><p><b>Statut :</b> {subCoordination.active ? "Actif" : "Archivé"}</p></>}<p><b>Écoles attribuées :</b> {schools.length}</p><p className="rounded bg-slate-50 p-3">Ces paramètres sont disponibles en lecture seule.</p></>; return <><label className="grid min-w-0 gap-1 font-semibold">Nom<input className="input min-w-0 w-full" value={settingsForm.name} onChange={(event) => setSettingsForm({ ...settingsForm, name: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Sigle / code<input className="input min-w-0 w-full" value={settingsForm.code} onChange={(event) => setSettingsForm({ ...settingsForm, code: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Téléphone<input className="input min-w-0 w-full" value={settingsForm.phone} onChange={(event) => setSettingsForm({ ...settingsForm, phone: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">E-mail<input className="input min-w-0 w-full" type="email" value={settingsForm.email} onChange={(event) => setSettingsForm({ ...settingsForm, email: event.target.value })} disabled={settingsBusy} /></label><label className="grid min-w-0 gap-1 font-semibold">Adresse<input className="input min-w-0 w-full" value={settingsForm.address} onChange={(event) => setSettingsForm({ ...settingsForm, address: event.target.value })} disabled={settingsBusy} /></label><ImageUploadField label="Photo / Logo de la Coordination" value={settingsForm.logoUrl} onChange={(logoUrl) => setSettingsForm({ ...settingsForm, logoUrl })} maxWidth={700} maxBytes={250 * 1024} disabled={settingsBusy} previewFit="contain" /><p className="break-words"><b>Coordinateur principal :</b> {principalCoordinatorName || "Non renseigné"}</p><p><b>Écoles :</b> {schools.length} (lecture seule)</p></>; }
   function drawerContent(): ReactNode {
+    // Lot 7 : modèle commun de répartition (Coordinateur principal seulement ; le serveur le vérifie aussi).
+    if (drawer === "templates") return user.role === "coordination_admin" ? <AllocationTemplateEditor /> : null;
     if (drawer === "socialSupport" && (loading || loadedModelScope !== modelScope)) return <p role="status">Chargement des écoles autorisées…</p>;
     if (drawer === "socialSupport") return scopedSchools[0]
       ? <SocialSupportDrawer user={user} school={scopedSchools[0]} scopeSchools={scopedSchools} years={model.schoolYears} data={model} readOnly />
