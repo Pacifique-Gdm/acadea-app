@@ -6,7 +6,7 @@ vi.mock("../../config/apiUrl", () => ({ resolveApiUrl: (path: string) => path })
 
 import { cachedPrefectPayments, clearPrefectPaymentsCache, loadPrefectPayments, prefectPaymentsNeedsLoad } from "./prefectPayments";
 
-const payments = { sections: ["Primaire"], classes: [{ className: "1ère Primaire", students: 3, upToDate: 2, late: 1, unknown: 0, upToDateRate: 67, lateRate: 33 }], overall: { students: 3, upToDate: 2, late: 1, unknown: 0, upToDateRate: 67 } };
+const payments = { sections: ["Primaire"], classes: [{ className: "1ère Primaire", students: 3, settled: 2, remaining: 1, unknown: 0, settledRate: 67, remainingRate: 33 }], overall: { students: 3, settled: 2, remaining: 1, unknown: 0, settledRate: 67 } };
 const fetcher = () => vi.fn(async () => new Response(JSON.stringify(payments), { status: 200 })) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
 const portal = readFileSync(new URL("./StudyDirectorPortal.tsx", import.meta.url), "utf8");
 const section = readFileSync(new URL("./PrefectPaymentsSection.tsx", import.meta.url), "utf8");
@@ -18,7 +18,7 @@ describe("lot P4 : situation des paiements du Préfet d'études (écran)", () =>
     expect(prefectPaymentsNeedsLoad("u1", "school-a", "year-1", 0)).toBe(true);
     const fetchMock = fetcher();
     await loadPrefectPayments("u1", "school-a", "year-1", { headerRefresh: 0, fetcher: fetchMock });
-    expect(cachedPrefectPayments("u1", "school-a", "year-1")?.classes[0].upToDateRate).toBe(67);
+    expect(cachedPrefectPayments("u1", "school-a", "year-1")?.classes[0].settledRate).toBe(67);
     expect(prefectPaymentsNeedsLoad("u1", "school-a", "year-1", 0)).toBe(false);
     expect(prefectPaymentsNeedsLoad("u1", "school-a", "year-1", 1)).toBe(true);
     const body = JSON.parse(String(((fetchMock.mock.calls[0] as unknown[])[1] as RequestInit).body));
@@ -39,6 +39,9 @@ describe("lot P4 : situation des paiements du Préfet d'études (écran)", () =>
 
   it("aucun montant affiché, aucun bouton (ni « Actualiser »), flèche de l'en-tête écoutée", () => {
     expect(section).toContain("Aucun montant affiché");
+    // Décision de l'utilisateur : « Soldé » / « Reste à payer » (aucune date limite), jamais « en ordre » / « en retard ».
+    expect(section).toContain("Vert : soldé · Rouge : reste à payer.");
+    expect(section).not.toMatch(/en ordre|en retard/);
     expect(section).not.toMatch(/formatMoney|USD|CDF/);
     expect(section).not.toContain("<button");
     expect(section).toContain("subscribeStaffChildrenRefresh");

@@ -4,8 +4,8 @@ import { listScopedStudentArrearsBatch } from "./financialTransactions.js";
 
 // Lot P4 (Préfet d'études) : situation des paiements de SES sections, SANS AUCUN MONTANT.
 // Le serveur réutilise le calcul des arriérés de la caisse (prises en charge déduites, années passées comprises) :
-//  - « en ordre » = aucun reste à payer ; « en retard » = un reste à payer ;
-//  - « non calculé » = le calcul a échoué pour ce paquet d'élèves (jamais compté comme en ordre).
+//  - « Soldé » = plus rien à payer ; « Reste à payer » = un reste supérieur à 0 (aucune date limite n'existe) ;
+//  - « non calculé » = le calcul a échoué pour ce paquet d'élèves (jamais compté comme soldé).
 // Il ne renvoie que des nombres et des pourcentages par classe : ni montant, ni nom d'élève.
 // Aucune règle de sécurité ne change : le Préfet ne lit toujours pas les paiements lui-même.
 const BATCH = 50;
@@ -24,21 +24,21 @@ export function computePrefectPayments({ sections, students, totals }) {
   for (const student of students) {
     if (!allowed.has(student.section) || (student.status ?? "ACTIVE") !== "ACTIVE" || student.deletedAt) continue;
     const className = String(student.className ?? "").trim() || "Sans classe";
-    const row = byClass.get(className) ?? { className, students: 0, upToDate: 0, late: 0, unknown: 0 };
+    const row = byClass.get(className) ?? { className, students: 0, settled: 0, remaining: 0, unknown: 0 };
     row.students += 1;
     const total = totals[student.id];
     if (!total || ![total.USD, total.CDF].every((value) => Number.isFinite(value) && value >= 0)) row.unknown += 1;
-    else if (total.USD > 0 || total.CDF > 0) row.late += 1;
-    else row.upToDate += 1;
+    else if (total.USD > 0 || total.CDF > 0) row.remaining += 1;
+    else row.settled += 1;
     byClass.set(className, row);
   }
   const classes = [...byClass.values()].map((row) => {
-    const known = row.upToDate + row.late;
-    return { ...row, upToDateRate: percent(row.upToDate, known), lateRate: percent(row.late, known) };
+    const known = row.settled + row.remaining;
+    return { ...row, settledRate: percent(row.settled, known), remainingRate: percent(row.remaining, known) };
   }).sort((a, b) => a.className.localeCompare(b.className, "fr", { numeric: true }));
-  const upToDate = classes.reduce((sum, row) => sum + row.upToDate, 0), late = classes.reduce((sum, row) => sum + row.late, 0);
-  return { sections: [...allowed], classes, overall: { students: classes.reduce((sum, row) => sum + row.students, 0), upToDate, late,
-    unknown: classes.reduce((sum, row) => sum + row.unknown, 0), upToDateRate: percent(upToDate, upToDate + late) } };
+  const settled = classes.reduce((sum, row) => sum + row.settled, 0), remaining = classes.reduce((sum, row) => sum + row.remaining, 0);
+  return { sections: [...allowed], classes, overall: { students: classes.reduce((sum, row) => sum + row.students, 0), settled, remaining,
+    unknown: classes.reduce((sum, row) => sum + row.unknown, 0), settledRate: percent(settled, settled + remaining) } };
 }
 
 export async function loadPrefectPayments({ db, caller, body, arrearsLoader = listScopedStudentArrearsBatch }) {
@@ -54,7 +54,7 @@ export async function loadPrefectPayments({ db, caller, body, arrearsLoader = li
     try {
       Object.assign(totals, (await arrearsLoader({ db, studentIds: part, schoolIds: [schoolId] })).totals ?? {});
     } catch {
-      // Paquet non calculé : ses élèves restent « non calculés », jamais « en ordre ».
+      // Paquet non calculé : ses élèves restent « non calculés », jamais « soldés ».
     }
   }
   return computePrefectPayments({ sections, students, totals });

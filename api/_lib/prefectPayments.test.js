@@ -31,13 +31,13 @@ const loader = vi.fn(async ({ studentIds }) => ({ totals: Object.fromEntries(stu
 const call = (uid, values = seeded(), arrearsLoader = loader) => loadPrefectPayments({ db: memoryDb(values), caller: { uid, role: "study_director", schoolId: school }, body: base, arrearsLoader });
 
 describe("lot P4 : situation des paiements du Préfet d'études, sans montant (serveur)", () => {
-  it("par classe de SES sections : % en ordre (aucun reste) et % en retard (un reste)", async () => {
+  it("par classe de SES sections : % soldé (plus rien à payer) et % reste à payer (reste > 0)", async () => {
     const result = await call("prefet");
     expect(result.classes).toEqual([
-      { className: "1ère Primaire", students: 3, upToDate: 2, late: 1, unknown: 0, upToDateRate: 67, lateRate: 33 },
-      { className: "3ème Primaire", students: 1, upToDate: 0, late: 1, unknown: 0, upToDateRate: 0, lateRate: 100 },
+      { className: "1ère Primaire", students: 3, settled: 2, remaining: 1, unknown: 0, settledRate: 67, remainingRate: 33 },
+      { className: "3ème Primaire", students: 1, settled: 0, remaining: 1, unknown: 0, settledRate: 0, remainingRate: 100 },
     ]);
-    expect(result.overall).toEqual({ students: 4, upToDate: 2, late: 2, unknown: 0, upToDateRate: 50 });
+    expect(result.overall).toEqual({ students: 4, settled: 2, remaining: 2, unknown: 0, settledRate: 50 });
   });
 
   it("le calcul des arriérés de la caisse est demandé seulement pour les élèves actifs de ses sections", async () => {
@@ -56,9 +56,9 @@ describe("lot P4 : situation des paiements du Préfet d'études, sans montant (s
     expect(text).not.toMatch(/USD|CDF|amount|montant/i);
   });
 
-  it("calcul impossible : élèves « non calculés », jamais comptés en ordre", async () => {
+  it("calcul impossible : élèves « non calculés », jamais comptés soldés", async () => {
     const result = await call("prefet", seeded(), async () => { throw new Error("contexte"); });
-    expect(result.overall).toEqual({ students: 4, upToDate: 0, late: 0, unknown: 4, upToDateRate: null });
+    expect(result.overall).toEqual({ students: 4, settled: 0, remaining: 0, unknown: 4, settledRate: null });
   });
 
   it("refuse le Directeur des études et un autre rôle ; Préfet sans section : liste vide", async () => {
@@ -71,7 +71,7 @@ describe("lot P4 : situation des paiements du Préfet d'études, sans montant (s
 
   it("calcul pur : un total invalide est « non calculé »", () => {
     const result = computePrefectPayments({ sections: ["Primaire"], students: [{ id: "a", section: "Primaire", className: "X" }], totals: { a: { USD: Number.NaN, CDF: 0 } } });
-    expect(result.classes[0]).toMatchObject({ unknown: 1, upToDate: 0, late: 0 });
+    expect(result.classes[0]).toMatchObject({ unknown: 1, settled: 0, remaining: 0 });
   });
 
   it("le point d'entrée existant porte l'action, sans nouveau fichier api/", () => {

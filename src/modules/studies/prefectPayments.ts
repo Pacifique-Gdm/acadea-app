@@ -5,11 +5,11 @@
 import { getCurrentFirebaseIdToken } from "../../services/auth";
 import { resolveApiUrl } from "../../config/apiUrl";
 
-export interface PrefectPaymentClass { className: string; students: number; upToDate: number; late: number; unknown: number; upToDateRate: number | null; lateRate: number | null }
+export interface PrefectPaymentClass { className: string; students: number; settled: number; remaining: number; unknown: number; settledRate: number | null; remainingRate: number | null }
 export interface PrefectPayments {
   sections: string[];
   classes: PrefectPaymentClass[];
-  overall: { students: number; upToDate: number; late: number; unknown: number; upToDateRate: number | null };
+  overall: { students: number; settled: number; remaining: number; unknown: number; settledRate: number | null };
 }
 
 const cache = new Map<string, { payments: PrefectPayments; refreshSeen: number }>();
