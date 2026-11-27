@@ -57,17 +57,19 @@ export const subRubricAmountsKey = (subs) => hash((subs ?? []).map((s) => [s.id,
 /** Partage d'un montant cumulé d'une rubrique pour une ancre (un élève, un frais) : montants fixes d'abord, dans l'ordre,
  * puis les pourcentages sur le reste (arrondis vers le bas). Le reste non partagé va à « Non affecté (rubrique) ».
  * Chaque part ne baisse jamais quand le cumul monte : un paiement suivant n'enlève rien. */
-export function splitSubRubricCumulative(subs, amountMinor) {
+export function splitSubRubricCumulative(subs, amountMinor, carry = {}) {
   let rest = Math.max(0, amountMinor);
   const result = new Map();
-  for (const sub of subs) if (sub.mode === "fixed") { const take = Math.min(rest, sub.fixedMinor); result.set(sub.id, take); rest -= take; }
+  // F2 : `carry` = déjà reçu par chaque sous-rubrique pour cet élève et ce frais avant le dernier changement des montants ;
+  // il compte dans le montant fixe, qui n'est jamais servi deux fois.
+  for (const sub of subs) if (sub.mode === "fixed") { const take = Math.min(rest, Math.max(0, sub.fixedMinor - (carry[sub.id] ?? 0))); result.set(sub.id, take); rest -= take; }
   for (const sub of subs) if (sub.mode === "percent") result.set(sub.id, Number((BigInt(rest) * BigInt(sub.basisPoints)) / 10000n));
   return result;
 }
 
 /** Différence de partage entre deux cumuls, comptés à partir de la base (cumul atteint quand la répartition actuelle a commencé). */
-export function subRubricDeltas(subs, beforeMinor, afterMinor, baseMinor = 0) {
-  const before = splitSubRubricCumulative(subs, beforeMinor - baseMinor), after = splitSubRubricCumulative(subs, afterMinor - baseMinor);
+export function subRubricDeltas(subs, beforeMinor, afterMinor, baseMinor = 0, carry = {}) {
+  const before = splitSubRubricCumulative(subs, beforeMinor - baseMinor, carry), after = splitSubRubricCumulative(subs, afterMinor - baseMinor, carry);
   return subs.map((sub) => ({ subRubricId: sub.id, amountMinor: after.get(sub.id) - before.get(sub.id) })).filter((line) => line.amountMinor !== 0);
 }
 
@@ -104,12 +106,21 @@ export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoo
     const key = subRubricAmountsKey(subs);
     const before = priorLines[index].amountMinor, after = nextLines[index].amountMinor;
     const stored = subBase[rubricId];
-    const baseMinor = stored && stored.key === key && safe(stored.baseMinor) ? stored.baseMinor : before;
-    subBase[rubricId] = { key, baseMinor };
-    byRubric.set(rubricId, subRubricDeltas(subs, before, after, baseMinor));
+    const same = stored && stored.key === key && safe(stored.baseMinor);
+    const baseMinor = same ? stored.baseMinor : before;
+    // F2 : au changement des montants, ce que chaque sous-rubrique a déjà reçu pour cet élève (`served`) devient `carry`.
+    const carry = cleanAmounts(same ? stored.carry : stored?.served);
+    const deltas = subRubricDeltas(subs, before, after, baseMinor, carry);
+    const served = { ...carry };
+    for (const [id, amount] of splitSubRubricCumulative(subs, after - baseMinor, carry)) served[id] = (served[id] ?? 0) + amount;
+    subBase[rubricId] = { key, baseMinor, carry, served };
+    byRubric.set(rubricId, deltas);
   }
   return { byRubric, subBase };
 }
+
+const cleanAmounts = (value) => value && typeof value === "object" && !Array.isArray(value)
+  ? Object.fromEntries(Object.entries(value).filter(([id, n]) => isSubRubricId(id) && safe(n))) : {};
 
 /** Nouveaux soldes des sous-rubriques d'une rubrique après un encaissement (ou sa correction). */
 export function nextSubBalances(balance, deltas, { allowBelowSpent = false } = {}) {
