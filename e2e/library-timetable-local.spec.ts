@@ -3,7 +3,7 @@ import { deleteApp, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { expect, test, type Browser, type Page, type Route } from "@playwright/test";
-import publishedHandler from "../api/manage-teacher-availability-request.js";
+import publishedHandler from "../api/_lib/teacherAvailabilityHandler.js";
 
 const origin = "http://127.0.0.1:5173";
 const projectId = "demo-acadea";

@@ -4,7 +4,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import handler from "../api/manage-teacher-grading.js";
-import publishedHandler from "../api/manage-teacher-availability-request.js";
+import publishedHandler from "../api/_lib/teacherAvailabilityHandler.js";
 import { executeTeacherGrading } from "../api/_lib/teacherGrading.js";
 import { managePersonnel } from "../api/provision-school-account.js";
 

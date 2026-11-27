@@ -48,7 +48,7 @@ describe("finalisation du module Coordination", () => {
   it("reste compatible avec la limite Vercel Hobby de douze fonctions", () => {
     const functions = readdirSync(join(process.cwd(), "api"), { withFileTypes: true })
       .filter((entry) => entry.isFile() && entry.name.endsWith(".js"));
-    expect(functions).toHaveLength(12);
+    expect(functions.length).toBeLessThanOrEqual(12);
   });
 
   it("gouverne les années globalement, sans écraser une année existante", () => {
