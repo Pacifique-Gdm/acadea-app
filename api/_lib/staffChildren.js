@@ -5,7 +5,7 @@ import { FinancialApiError } from "./financialTransactions.js";
 // (« Cas sociaux et prises en charge » → motif « Personnel de l'école ») le désigne, comme un parent voit les siens.
 // Aucune règle de sécurité ne change : le personnel ne lit toujours ni les paiements ni les décisions ;
 // c'est ce service du serveur qui filtre et renvoie uniquement ces enfants.
-export const STAFF_CHILDREN_ROLES = ["school_admin", "admin", "cashier", "secretary", "teacher", "study_director", "discipline_director"];
+export const STAFF_CHILDREN_ROLES = ["school_admin", "admin", "cashier", "secretary", "teacher", "study_director", "discipline_director", "pedagogical_advisor", "orientation_advisor"];
 const STUDENT_FIELDS = ["id", "schoolId", "schoolYearId", "nom", "postnom", "prenom", "matricule", "sexe", "className", "classId", "subClassId", "option", "classOptionKey", "section", "status", "photoUrl", "photoPath", "photoStorageUrl", "financialSupport", "createdAt"];
 const PAYMENT_FIELDS = ["id", "schoolId", "schoolYearId", "collectionSchoolYearId", "studentId", "feeTypeId", "amount", "currency", "paidAt", "createdAt", "receiptNumber", "paymentMethod", "cashierName", "formerStudent", "refundedByClassChangeId", "supportDecisionId"];
 const pick = (value, keys) => Object.fromEntries(keys.filter((key) => value?.[key] !== undefined).map((key) => [key, value[key]]));

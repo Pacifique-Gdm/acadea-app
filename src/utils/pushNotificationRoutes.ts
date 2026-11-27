@@ -111,9 +111,9 @@ export function canOpenOperationalDeepLink(
     return user.role === "parent" && user.parentId === notification.parentId && notification.disciplineSanctionId === resource.id && notification.studentId === resource.studentId && student?.id === resource.studentId && student.parentId === user.parentId;
   }
   if (notification.module === "announcements" && "visibility" in resource && notification.announcementId === resource.id) {
-    if (user.role === "super_admin" || !notification.audienceRoles?.includes(user.role)) return false;
+    if (user.role === "super_admin" || !(notification.audienceRoles as readonly string[] | undefined)?.includes(user.role)) return false;
     if (user.role === "parent") return Boolean(user.parentId && notification.audienceParentIds?.includes(user.parentId));
-    return notification.audienceSchoolWide === true || notification.audienceRoles.includes(user.role);
+    return notification.audienceSchoolWide === true || (notification.audienceRoles as readonly string[]).includes(user.role);
   }
   return false;
 }

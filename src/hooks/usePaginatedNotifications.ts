@@ -62,7 +62,7 @@ function realtimeNotificationQueries(
     ];
   }
 
-  if (["secretary", "teacher", "study_director"].includes(user.role)) {
+  if (["secretary", "teacher", "study_director", "pedagogical_advisor", "orientation_advisor"].includes(user.role)) {
     return [query(notificationCollection, ...constraints, where("recipientUserId", "==", user.id), ...readConstraint, ...recentConstraints)];
   }
 

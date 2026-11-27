@@ -2,7 +2,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePrefetchAllocation } from "./services/feeAllocationStore";
 import { PushNotificationSettings } from "./components/notifications/PushNotificationPrompt";
-import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher } from "./services/auth";
+import { ARCHIVED_TEACHER_LOGIN_MARKER, getCurrentFirebaseIdToken, getDefaultRoute, signIn, signOutUser, subscribeToFirebaseUser, validateCoordinator, validateDisciplineDirector, validateParent, validatePlatformAdmin, validateSchoolStaff, validateSecretary, validateStudyDirector, validateTeacher, validateAdvisor } from "./services/auth";
+import { ADVISOR_ROUTE } from "./utils/advisorRoles";
 import { auth } from "./firebase";
 import { randomId } from "./utils/randomId";
 import { clearOfflineAccess, offlineAccessEligible, readOfflineAccess, readOfflineAccessForCurrentDevice, rememberOfflineAccess, type OfflineAccess } from "./services/offlineAccess";
@@ -94,6 +95,8 @@ const ControlModule = lazy(loadScreen(() => import("./modules/control/ControlMod
 const ParentsModule = lazy(loadScreen(() => import("./modules/parents/ParentsModule").then((module) => ({ default: module.ParentsModule }))));
 const ParentPortal = lazy(loadScreen(() => import("./modules/parent/ParentPortal").then((module) => ({ default: module.ParentPortal }))));
 const SecretaryPortal = lazy(loadScreen(() => import("./modules/secretary/SecretaryPortal").then((module) => ({ default: module.SecretaryPortal }))));
+const OrientationAdvisorPortal = lazy(loadScreen(() => import("./modules/advisors/OrientationAdvisorPortal").then((module) => ({ default: module.OrientationAdvisorPortal }))));
+const PedagogicalAdvisorPortal = lazy(loadScreen(() => import("./modules/advisors/PedagogicalAdvisorPortal").then((module) => ({ default: module.PedagogicalAdvisorPortal }))));
 const StudyDirectorPortal = lazy(loadScreen(() => import("./modules/studies/StudyDirectorPortal").then((module) => ({ default: module.StudyDirectorPortal }))));
 const TeacherPortal = lazy(loadScreen(() => import("./modules/teacher/TeacherPortal").then((module) => ({ default: module.TeacherPortal }))));
 const CoordinationPortal = lazy(loadScreen(() => import("./modules/coordination/CoordinationPortal").then((module) => ({ default: module.CoordinationPortal }))));
@@ -128,6 +131,8 @@ const roleLabels: Record<AppUser["role"], string> = {
   secretary: "Secrétaire",
   teacher: "Enseignant",
   parent: "Parent",
+  pedagogical_advisor: "Conseiller pédagogique",
+  orientation_advisor: "Conseiller d'orientation",
 };
 
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
@@ -1242,7 +1247,7 @@ export default function App() {
     );
   }
 
-  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateStudyDirector(user) && !validateSecretary(user) && !validateTeacher(user)) || !school) {
+  if ((!validateSchoolStaff(user) && !validateParent(user) && !validateDisciplineDirector(user) && !validateStudyDirector(user) && !validateSecretary(user) && !validateTeacher(user) && !validateAdvisor(user)) || !school) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -1280,6 +1285,11 @@ export default function App() {
   }
 
   if ((route === "/teacher" && !validateTeacher(user)) || (validateTeacher(user) && route !== "/teacher")) {
+    return <AccessDenied onLogout={logout} />;
+  }
+
+  // Lots 10 et 11 : un conseiller n'entre que dans son propre module.
+  if ((route === ADVISOR_ROUTE && !validateAdvisor(user)) || (validateAdvisor(user) && route !== ADVISOR_ROUTE)) {
     return <AccessDenied onLogout={logout} />;
   }
 
@@ -1336,6 +1346,21 @@ export default function App() {
       onLogout={logout}
       renderEnvironmentBanner={() => <EnvironmentBanner />}
       renderHeader={({ isRefreshing: studyRefreshing, refreshError: studyRefreshError, onOpenAvailabilityRequests }) => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} isRefreshing={studyRefreshing} refreshError={studyRefreshError} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onOpenAvailabilityRequests={onOpenAvailabilityRequests} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled />}
+    />;
+  }
+
+  if (validateAdvisor(user)) {
+    const AdvisorPortal = user.role === "orientation_advisor" ? OrientationAdvisorPortal : PedagogicalAdvisorPortal;
+    return <AdvisorPortal
+      user={user}
+      school={currentSchool}
+      year={currentYear}
+      appData={data}
+      updateData={updateData}
+      createId={uid}
+      onLogout={logout}
+      renderEnvironmentBanner={() => <EnvironmentBanner />}
+      renderHeader={() => <Header user={user} data={data} yearData={yearData} school={currentSchool} year={currentYear} unreadNotifications={yearData.notifications.filter((item) => !item.read && item.recipientUserId === user.id).length} notificationsOpen={notificationsOpen} isRefreshing={isRefreshing} refreshError={refreshError} onRefresh={refreshCurrentYearData} onToggleNotifications={openNotifications} onCloseNotifications={closeNotifications} onRealtimeNotifications={(items) => setData((current) => ({ ...current, notifications: items }))} onRealtimeMessages={(items) => setData((current) => ({ ...current, messages: items }))} roleLabels={roleLabels} messagingEnabled={true} />}
     />;
   }
 

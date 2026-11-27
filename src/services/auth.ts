@@ -5,6 +5,7 @@ import type { AppUser, Role } from "../types";
 import { markAuthStep, measureAuthStep } from "../utils/authPerformance";
 import { normalizeSectionIds } from "../utils/userSections";
 import { forgetTokenThenSignOut } from "./signOutSequence";
+import { ADVISOR_ROLES, ADVISOR_ROUTE, isAdvisorRole } from "../utils/advisorRoles";
 
 interface FirebaseAuthModule {
   signInWithEmailAndPassword: (authInstance: unknown, email: string, password: string) => Promise<{ user: FirebaseUser }>;
@@ -42,7 +43,7 @@ function assertFirebaseAuthReady() {
 }
 
 function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin" {
-  return ["super_admin", "coordination_admin", "sub_coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin"].includes(String(role));
+  return ["super_admin", "coordination_admin", "sub_coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin", ...ADVISOR_ROLES].includes(String(role));
 }
 
 function normalizeUserProfile(user: RawAppUser): AppUser {
@@ -81,7 +82,7 @@ function resolveFirebaseUserProfile(firebaseUser: FirebaseUser, firestoreDocumen
     throw new Error("Connexion refusée : votre profil d'accès est incomplet.");
   }
 
-  if (["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "admin"].includes(String(claims.role)) && typeof claims.schoolId !== "string") {
+  if ((["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "admin"].includes(String(claims.role)) || isAdvisorRole(String(claims.role))) && typeof claims.schoolId !== "string") {
     throw new Error("Connexion refusée : votre établissement n'est pas renseigné.");
   }
   if (["coordination_admin", "sub_coordination_admin"].includes(String(claims.role)) && typeof claims.coordinationId !== "string") {
@@ -282,6 +283,7 @@ export function canEnterRoute(user: AppUser | null, route: string) {
   if (route === "/coordination") return ["coordination_admin", "sub_coordination_admin"].includes(user.role) && Boolean(user.coordinationId) && (user.role !== "sub_coordination_admin" || Boolean(user.subCoordinationId));
   if (route === "/studies") return user.role === "study_director" && Boolean(user.schoolId);
   if (route === "/teacher") return user.role === "teacher" && Boolean(user.schoolId);
+  if (route === ADVISOR_ROUTE) return isAdvisorRole(user.role) && Boolean(user.schoolId);
   if (route === "/dashboard") return ["school_admin", "cashier", "discipline_director", "secretary"].includes(user.role) && Boolean(user.schoolId);
 
   return false;
@@ -301,6 +303,11 @@ export function validateDisciplineDirector(user: AppUser) {
 
 export function validateStudyDirector(user: AppUser) {
   return user.role === "study_director" && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
+}
+
+/** Lots 10 et 11 : compte conseiller actif d'une école. */
+export function validateAdvisor(user: AppUser) {
+  return isAdvisorRole(user.role) && Boolean(user.schoolId) && user.status !== "inactive" && user.active !== false;
 }
 
 export function validateTeacher(user: AppUser) {
@@ -332,5 +339,6 @@ export function getDefaultRoute(role: Role) {
   if (role === "coordination_admin" || role === "sub_coordination_admin") return "/coordination";
   if (role === "study_director") return "/studies";
   if (role === "teacher") return "/teacher";
+  if (isAdvisorRole(role)) return ADVISOR_ROUTE;
   return "/dashboard";
 }
