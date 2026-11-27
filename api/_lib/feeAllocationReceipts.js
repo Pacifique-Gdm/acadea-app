@@ -6,6 +6,7 @@ import { allocationSupportedProject, readOperationalAllocation } from "./feeAllo
 import { supportBalance } from "./socialSupportMath.js";
 import { assertSocialVersionBinding } from "./feeAllocationSocialPart.js";
 import { prepareSetupPaymentTracking } from "./feeAllocationSetupPayments.js";
+import { nextSubBalances, prepareSubRubricReceipt } from "./feeAllocationSubRubrics.js";
 
 const hash = (parts) => createHash("sha256").update(JSON.stringify(parts)).digest("hex");
 const fail = (message) => { throw new FeeAllocationError(409, "allocation-reconciliation-required", message); };
@@ -297,6 +298,8 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   const linesAt = (total) => socialSegments ? socialSegmentLines(shares, socialSegments, anchor.socialNetMinor, total) : allocateFeeReceiptCumulative(shares, total);
   const priorLines = linesAt(before), nextLines = linesAt(after);
   const lines = nextLines.map((s, i) => ({ rubricId: s.rubricId, amountMinor: s.amountMinor - priorLines[i].amountMinor }));
+  // Lots 5 et 6 : part de chaque sous-rubrique (montant fixe par élève et par frais d'abord, puis les pourcentages).
+  const subs = await prepareSubRubricReceipt({ db, transaction, schoolId: source.schoolId, schoolYearId: collectionYear, lines, priorLines, nextLines, total });
   const balanceRows = await Promise.all(lines.map(async line => {
     const ref = db.doc(`feeAllocationBalances/${feeAllocationBalanceId(source.schoolId, collectionYear, source.currency, line.rubricId)}`);
     const snapshot = await transaction.get(ref), balance = snapshot.data();
@@ -311,7 +314,9 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     return { ref, value: { schoolId: source.schoolId, collectionSchoolYearId: collectionYear, currency: source.currency, rubricId: line.rubricId,
       ...(arrearsNames.has(line.rubricId) ? { arrearsOf: arrearsNames.get(line.rubricId) } : {}),
       receivedMinor, openingMinor, spentMinor: balance?.spentMinor ?? 0, reservedMinor: balance?.reservedMinor ?? 0, operational: !!operational,
-      ...(operational ? { availableMinor: openingMinor + receivedMinor - (balance?.spentMinor ?? 0) - (balance?.reservedMinor ?? 0) } : {}), updatedAt: now } };
+      ...(operational ? { availableMinor: openingMinor + receivedMinor - (balance?.spentMinor ?? 0) - (balance?.reservedMinor ?? 0) } : {}),
+      // Lots 5 et 6 : les soldes des sous-rubriques sont gardés (jamais effacés) et suivent l'encaissement.
+      ...(balance?.subBalances || subs.byRubric.has(line.rubricId) ? { subBalances: nextSubBalances(balance, subs.byRubric.get(line.rubricId) ?? [], { allowBelowSpent: !!reassignment }) } : {}), updatedAt: now } };
   }));
   const movement = assertFeeAllocationMovement({ id: movementId, schoolId: source.schoolId, originSchoolYearId: source.schoolYearId,
     collectionSchoolYearId: collectionYear, currency: source.currency, sourceType: "payment", sourceId: source.id, sourceRevision: requestId,
@@ -322,6 +327,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
     ...(reassignment ? { classChangeId: reassignment.classChangeId, ...(reattached ? { reattachesMovementId: priorSource.lastMovementId } : {}) } : {}), supportDecisionId: source.supportDecisionId ?? null,
     // Une correction ou une suppression reste dans le tableau de l'encaissement d'origine.
     socialCase: typeof priorSource?.socialCase === "boolean" ? priorSource.socialCase : socialCaseNow,
+    ...(subs.byRubric.size ? { subLines: [...subs.byRubric].flatMap(([rubricId, deltas]) => deltas.map((d) => ({ rubricId, ...d }))) } : {}),
     sourceSnapshot: { ...source }, testOnly: operational ? operational.testOnly : true });
   return () => {
     if (!anchorSnap.exists) transaction.create(anchorRef, anchor);
@@ -332,7 +338,8 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
         { schoolId: source.schoolId, schoolYearId: collectionYear, revision: `social-${movementId}`, changedAt: now });
     }
     transaction.create(movementRef, movement);
-    transaction.set(totalRef, { schoolId: source.schoolId, anchorId, versionDigest: nextDigest, amountMinor: after, updatedAt: now });
+    transaction.set(totalRef, { schoolId: source.schoolId, anchorId, versionDigest: nextDigest, amountMinor: after, updatedAt: now,
+      ...(Object.keys(subs.subBase).length ? { subBase: subs.subBase } : {}) });
     transaction.set(sourceRef, { schoolId: source.schoolId, anchorId, sourceId: source.id, sourceDigest: payment ? sourceDigest(payment) : null,
       amountMinor: newMinor, lastMovementId: movementId, deleted: !payment, updatedAt: now,
       ...(reassignment?.kind === "out" ? { reassignedBy: reassignment.classChangeId } : {}),
