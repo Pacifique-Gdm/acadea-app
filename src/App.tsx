@@ -95,6 +95,7 @@ const ControlModule = lazy(loadScreen(() => import("./modules/control/ControlMod
 const ParentsModule = lazy(loadScreen(() => import("./modules/parents/ParentsModule").then((module) => ({ default: module.ParentsModule }))));
 const ParentPortal = lazy(loadScreen(() => import("./modules/parent/ParentPortal").then((module) => ({ default: module.ParentPortal }))));
 const SecretaryPortal = lazy(loadScreen(() => import("./modules/secretary/SecretaryPortal").then((module) => ({ default: module.SecretaryPortal }))));
+const OrientationAdvisorPortal = lazy(loadScreen(() => import("./modules/advisors/OrientationAdvisorPortal").then((module) => ({ default: module.OrientationAdvisorPortal }))));
 const PedagogicalAdvisorPortal = lazy(loadScreen(() => import("./modules/advisors/PedagogicalAdvisorPortal").then((module) => ({ default: module.PedagogicalAdvisorPortal }))));
 const StudyDirectorPortal = lazy(loadScreen(() => import("./modules/studies/StudyDirectorPortal").then((module) => ({ default: module.StudyDirectorPortal }))));
 const TeacherPortal = lazy(loadScreen(() => import("./modules/teacher/TeacherPortal").then((module) => ({ default: module.TeacherPortal }))));
@@ -131,6 +132,7 @@ const roleLabels: Record<AppUser["role"], string> = {
   teacher: "Enseignant",
   parent: "Parent",
   pedagogical_advisor: "Conseiller pédagogique",
+  orientation_advisor: "Conseiller d'orientation",
 };
 
 const appEnvironment = import.meta.env.VITE_APP_ENV ?? "development";
@@ -1348,7 +1350,8 @@ export default function App() {
   }
 
   if (validateAdvisor(user)) {
-    return <PedagogicalAdvisorPortal
+    const AdvisorPortal = user.role === "orientation_advisor" ? OrientationAdvisorPortal : PedagogicalAdvisorPortal;
+    return <AdvisorPortal
       user={user}
       school={currentSchool}
       year={currentYear}

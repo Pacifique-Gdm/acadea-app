@@ -9,7 +9,8 @@ import { requireActiveSchoolYear } from "./schoolYear.js";
 // Règle unique des sections : liste de sections vide = toute l'école (compte sans section, ou qui couvre
 // toutes les sections de l'école) ; sinon seulement ses sections.
 export const PEDAGOGICAL_ADVISOR = "pedagogical_advisor";
-export const ADVISOR_ROLES = [PEDAGOGICAL_ADVISOR];
+export const ORIENTATION_ADVISOR = "orientation_advisor";
+export const ADVISOR_ROLES = [PEDAGOGICAL_ADVISOR, ORIENTATION_ADVISOR];
 export const SLOT_LABELS = {
   period_1: "1ère Période", period_2: "2ème Période", semester_1_exam: "Examen 1er Semestre",
   period_3: "3ème Période", period_4: "4ème Période", semester_2_exam: "Examen 2ème Semestre",
@@ -126,7 +127,7 @@ export function computeAdvisorGrades(input) {
   return { sections: [...input.sections], classes: classesOut };
 }
 
-async function loadGradingSources(db, schoolId, schoolYearId, sections) {
+export async function loadGradingSources(db, schoolId, schoolYearId, sections) {
   const scoped = (name) => db.collection(name).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId);
   const [students, classes, subjects, assignments] = await Promise.all([
     scoped("students").get().then(serialize),

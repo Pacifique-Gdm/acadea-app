@@ -15,7 +15,7 @@ import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
 import { prepareManagerCleanup, setSectionSettingsManager } from "./_lib/sectionSettingsManagers.js";
 
 // Lots 10 et 11 : conseillers, créés par l'administrateur de l'école seulement.
-export const ADVISOR_ACCOUNT_ROLES = ["pedagogical_advisor"];
+export const ADVISOR_ACCOUNT_ROLES = ["pedagogical_advisor", "orientation_advisor"];
 const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", ...ADVISOR_ACCOUNT_ROLES]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const parentLinkConfirmation = "LIER À CE PARENT";

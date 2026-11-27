@@ -11,7 +11,7 @@ export const schoolStaffEmailPrefixes: Record<SchoolStaffRole, string> = {
 };
 
 // Lots 10 et 11 : préfixes des comptes conseillers (liste ci-dessus inchangée).
-const advisorEmailPrefixes: Record<string, string> = { pedagogical_advisor: "pedagogie" };
+const advisorEmailPrefixes: Record<string, string> = { pedagogical_advisor: "pedagogie", orientation_advisor: "orientation" };
 
 export function normalizeEmailDomainLabel(schoolName: string) {
   return schoolName
@@ -36,7 +36,7 @@ export function schoolAccountEmailExists(email: string, users: AppUser[], parent
   return [...users, ...parents].some((item) => (item.email ?? "").trim().toLowerCase() === normalizedEmail);
 }
 
-export function nextSchoolStaffEmail(school: School, role: SchoolStaffRole | "pedagogical_advisor", users: AppUser[], parents: ParentProfile[]) {
+export function nextSchoolStaffEmail(school: School, role: SchoolStaffRole | "pedagogical_advisor" | "orientation_advisor", users: AppUser[], parents: ParentProfile[]) {
   const prefix = advisorEmailPrefixes[role] ?? schoolStaffEmailPrefixes[role as SchoolStaffRole];
   const domain = schoolAccountEmailDomain(school);
   let number = 1;

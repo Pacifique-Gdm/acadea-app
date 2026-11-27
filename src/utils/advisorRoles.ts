@@ -4,6 +4,7 @@ import type { Role } from "../types";
 
 export const ADVISOR_ROLE_LABELS = {
   pedagogical_advisor: "Conseiller pédagogique",
+  orientation_advisor: "Conseiller d'orientation",
 } as const;
 
 export type AdvisorRole = keyof typeof ADVISOR_ROLE_LABELS;

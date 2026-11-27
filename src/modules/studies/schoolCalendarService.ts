@@ -63,7 +63,7 @@ function readEvent(data: Record<string, unknown>, id: string): SchoolCalendarEve
 }
 
 export function subscribeSchoolCalendar(input: { user: AppUser; schoolId: string; schoolYearId: string; onData: (calendar?: SchoolCalendar) => void; onError: (error: Error) => void }): Unsubscribe {
-  if (!input.schoolYearId || input.user.schoolId !== input.schoolId || !["teacher", "study_director", "pedagogical_advisor"].includes(input.user.role) || input.user.active === false || input.user.status === "inactive") throw new Error("Accès au calendrier non autorisé.");
+  if (!input.schoolYearId || input.user.schoolId !== input.schoolId || !["teacher", "study_director", "pedagogical_advisor", "orientation_advisor"].includes(input.user.role) || input.user.active === false || input.user.status === "inactive") throw new Error("Accès au calendrier non autorisé.");
   let metadata: Record<string, unknown> | undefined;
   let metadataLoaded = false;
   let documents: SchoolCalendarEvent[] = [];

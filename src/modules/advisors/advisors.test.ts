@@ -4,7 +4,9 @@ import type { AppUser } from "../../types";
 import { ADVISOR_ROUTE, isAdvisorRole } from "../../utils/advisorRoles";
 import { filterAdvisorStudents, type AdvisorOverview } from "./advisorService";
 import { visitCourseChoices } from "./ClassVisitsContent";
-import { pedagogicalAdvisorTabs } from "./advisorNavigation";
+import { orientationAdvisorTabs, pedagogicalAdvisorTabs } from "./advisorNavigation";
+import { orientationDashboard } from "./OrientationNotesContent";
+import type { OrientationNote } from "./advisorService";
 
 const advisor = { id: "u", role: "pedagogical_advisor", schoolId: "s1", status: "active", active: true } as AppUser;
 
@@ -46,5 +48,26 @@ describe("Lot 10 — Conseiller pédagogique (écran)", () => {
     expect(visitCourseChoices(overview, "c1", "")).toEqual({ teachers: [{ id: "t1", name: "M. A" }, { id: "t2", name: "Mme B" }], subjects: [{ id: "m", name: "Maths" }, { id: "f", name: "Français" }] });
     expect(visitCourseChoices(overview, "c1", "t2").subjects).toEqual([{ id: "f", name: "Français" }]);
     expect(visitCourseChoices(overview, "c3", "")).toEqual({ teachers: [], subjects: [] });
+  });
+});
+
+describe("Lot 11 — Conseiller d'orientation (écran)", () => {
+  const orientation = { ...advisor, role: "orientation_advisor" } as AppUser;
+  it("rôle reconnu, même route propre, aucun autre module", () => {
+    expect(isAdvisorRole("orientation_advisor")).toBe(true);
+    expect(getDefaultRoute("orientation_advisor")).toBe(ADVISOR_ROUTE);
+    expect(canEnterRoute(orientation, ADVISOR_ROUTE)).toBe(true);
+    expect(canEnterRoute(orientation, "/studies")).toBe(false);
+  });
+
+  it("5 onglets : Dashboard, Élèves, Suivi, Résultats, Menu (ni Enseignants ni Horaires)", () => {
+    expect(orientationAdvisorTabs.map((tab) => tab.label)).toEqual(["Dashboard", "Élèves", "Suivi", "Résultats", "Menu"]);
+  });
+
+  it("Dashboard : élèves suivis et notes de suivi du mois", () => {
+    const note = (id: string, studentId: string, noteDate: string) => ({ id, studentId, noteDate, kind: "interview", content: "x", studentName: "", className: "", section: "", authorId: "u", authorName: "" }) as OrientationNote;
+    expect(orientationDashboard([note("1", "e1", "2026-11-20"), note("2", "e1", "2026-11-02"), note("3", "e2", "2026-10-30")], "2026-11-27"))
+      .toEqual({ followedStudents: 2, notesThisMonth: 2, totalNotes: 3 });
+    expect(orientationDashboard([], "2026-11-27")).toEqual({ followedStudents: 0, notesThisMonth: 0, totalNotes: 0 });
   });
 });

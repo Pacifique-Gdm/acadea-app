@@ -9,7 +9,7 @@ import { apiErrorMessage } from "../utils/rateLimitErrors";
 export const INTERNAL_PERSONNEL_ROLES = ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"] as const satisfies readonly Role[];
 export type InternalPersonnelRole = typeof INTERNAL_PERSONNEL_ROLES[number];
 // Lots 10 et 11 : comptes conseillers, listés à part pour l'administrateur (liste ci-dessus inchangée).
-export const ADVISOR_PERSONNEL_ROLES = ["pedagogical_advisor"] as const satisfies readonly Role[];
+export const ADVISOR_PERSONNEL_ROLES = ["pedagogical_advisor", "orientation_advisor"] as const satisfies readonly Role[];
 export type PersonnelRecord = AppUser | ServicePersonnel;
 export const isServicePersonnel = (personnel: PersonnelRecord): personnel is ServicePersonnel => "kind" in personnel && personnel.kind === "service";
 
@@ -21,6 +21,7 @@ export const personnelRoleLabels: Record<InternalPersonnelRole | typeof ADVISOR_
   secretary: "Secrétaire",
   teacher: "Enseignant",
   pedagogical_advisor: "Conseiller pédagogique",
+  orientation_advisor: "Conseiller d'orientation",
 };
 
 export function personnelJobTitleLabel(jobTitle: string, hasAccount: boolean): string {

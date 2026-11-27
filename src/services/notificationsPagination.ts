@@ -32,7 +32,7 @@ function notificationRecipientConstraints(user: AppUser, schoolId: string, schoo
   if (user.role === "parent") {
     return [...constraints, where("parentId", "==", user.parentId)];
   }
-  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor"].includes(user.role)) return [...constraints, where("recipientUserId", "==", user.id)];
+  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor", "orientation_advisor"].includes(user.role)) return [...constraints, where("recipientUserId", "==", user.id)];
   if (user.role === "discipline_director") {
     return [...constraints, where("recipientRole", "==", "school"), where("schoolRecipient", "==", "discipline")];
   }
@@ -99,7 +99,7 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
     ]);
     return parentUnreadCount(legacySnapshot.data().count, personalSnapshot.data().count, overlappingSnapshot.data().count);
   }
-  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor"].includes(user.role)) {
+  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor", "orientation_advisor"].includes(user.role)) {
     const snapshot = await getCountFromServer(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id)));
     return snapshot.data().count;
   }
@@ -122,7 +122,7 @@ export async function countUnreadNotifications(user: AppUser, schoolId: string, 
 }
 
 function canMarkSchoolNotificationRead(user: AppUser, notification: AppNotification) {
-  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor"].includes(user.role)) return notification.recipientUserId === user.id;
+  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor", "orientation_advisor"].includes(user.role)) return notification.recipientUserId === user.id;
   if (notification.parentId || notification.recipientRole !== "school") return false;
   if (!notification.schoolRecipient) return true;
   if (user.role === "school_admin") return notification.schoolRecipient === "admin" || notification.schoolRecipient === "both";
@@ -164,7 +164,7 @@ export async function markNotificationsReadTargeted(user: AppUser, schoolId: str
     return notificationIds.length;
   }
 
-  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor"].includes(user.role)) {
+  if (["secretary", "teacher", "study_director", "coordination_admin", "sub_coordination_admin", "pedagogical_advisor", "orientation_advisor"].includes(user.role)) {
     const snapshot = await getDocs(query(collection(database, "notifications"), ...baseConstraints, where("recipientUserId", "==", user.id)));
     const notificationIds = snapshot.docs.map((item) => item.id);
     await commitReadUpdates(database, notificationIds);

@@ -22,6 +22,10 @@ export interface ClassVisit {
   visitDate: string; strengths: string; improvements: string; advice: string; nextVisitDate: string;
   authorId: string; authorName: string; createdAt?: string; updatedAt?: string;
 }
+// Lot 11 : résultats en lecture et notes de suivi confidentielles du Conseiller d'orientation.
+export interface AdvisorResult { studentId: string; studentName: string; className: string; section: string; slot: string | null; slotLabel: string | null; percentage: number | null; rank: number | null; evaluated: number }
+export interface OrientationNoteInput { studentId: string; noteDate: string; kind: "interview" | "observation" | "orientation" | "other"; content: string }
+export interface OrientationNote extends OrientationNoteInput { id: string; studentName: string; className: string; section: string; authorId: string; authorName: string; createdAt?: string; updatedAt?: string }
 export interface ClassVisitInput { classId: string; teacherId: string; subjectId: string; visitDate: string; strengths: string; improvements: string; advice: string; nextVisitDate: string }
 
 type Fetcher = typeof fetch;
@@ -80,6 +84,10 @@ export function useAdvisorData<T>(action: string, payload: { uid: string; school
 
 export function saveClassVisit(input: { schoolId: string; schoolYearId: string; visitId?: string; visit: ClassVisitInput }, fetcher?: Fetcher) {
   return callAdvisorAction<{ visit: ClassVisit }>("class-visit-save", input, fetcher);
+}
+
+export function saveOrientationNote(input: { schoolId: string; schoolYearId: string; noteId?: string; note: OrientationNoteInput }, fetcher?: Fetcher) {
+  return callAdvisorAction<{ note: OrientationNote }>("orientation-note-save", input, fetcher);
 }
 
 /** Calcul pur : filtre de recherche simple sur les élèves (nom, matricule, classe). */
