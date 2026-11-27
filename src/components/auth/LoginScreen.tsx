@@ -9,7 +9,7 @@ import { ARCHIVED_TEACHER_LOGIN_MARKER } from "../../services/auth";
 import { ErrorNotice } from "../ui/ErrorNotice";
 
 // Textes de la proposition B : slogan sur la photo et 4 avantages.
-const LOGIN_SLOGAN = "La gestion scolaire dans ma poche";
+export const LOGIN_SLOGAN = "La gestion scolaire dans ma poche";
 const LOGIN_ADVANTAGES = [
   "Paiements et reçus en quelques secondes",
   "Suivi des élèves, des présences et des dettes",
@@ -17,7 +17,7 @@ const LOGIN_ADVANTAGES = [
   "Parents, enseignants et direction connectés",
 ];
 // Photo : Katerina Holmes, Pexels (licence Pexels, usage commercial permis), 84 Ko.
-const LOGIN_PHOTO_SRC = "/connexion-enseignante.jpg";
+export const LOGIN_PHOTO_SRC = "/connexion-enseignante.jpg";
 const LOGIN_PHOTO_CREDIT = "Photo : Katerina Holmes · Pexels";
 // Téléphone (maquette validée le 25/11/2026) : avantages courts, animés sur la photo.
 const LOGIN_ADVANTAGES_PHONE = [
@@ -45,18 +45,21 @@ const LOGIN_PHOTO_ANIMATIONS = `
 `;
 const advantageDelay = (index: number) => ({ animationDelay: `${index * 0.4}s` });
 // Téléphone : voile de la maquette (fondu blanc en bas, léger dégradé sombre, teinte bleue).
-const PHONE_PHOTO_VEIL = "linear-gradient(180deg,rgba(255,255,255,0) calc(100% - 26px),#fff 100%),linear-gradient(180deg,rgba(20,33,61,0) 45%,rgba(20,33,61,.42) 85%),rgba(30,58,138,.16)";
+export const PHONE_PHOTO_VEIL = "linear-gradient(180deg,rgba(255,255,255,0) calc(100% - 26px),#fff 100%),linear-gradient(180deg,rgba(20,33,61,0) 45%,rgba(20,33,61,.42) 85%),rgba(30,58,138,.16)";
 
 export function LoginScreen({
   onLogin,
   onDismissError,
   initialError,
   platformLogoUrl,
+  loginImageUrl = "",
 }: {
   onLogin: (email: string, password: string) => Promise<void>;
   onDismissError?: () => void;
   initialError?: string;
   platformLogoUrl: string;
+  /** Lot 9 : image choisie par le Super administrateur ; vide = photo d'origine, rien ne change. */
+  loginImageUrl?: string;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -122,8 +125,8 @@ export function LoginScreen({
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
       <aside className="relative min-h-[120px] flex-[0_1_50%] overflow-hidden [border-radius:0_0_50%_50%/0_0_22px_22px] lg:h-auto lg:w-[55%] lg:flex-none lg:rounded-none">
         <img
-          src={LOGIN_PHOTO_SRC}
-          alt="Enseignante souriante qui interroge ses élèves dans une classe lumineuse"
+          src={loginImageUrl || LOGIN_PHOTO_SRC}
+          alt={loginImageUrl ? "Image de l'écran de connexion" : "Enseignante souriante qui interroge ses élèves dans une classe lumineuse"}
           className="login-photo-zoom absolute inset-0 h-full w-full origin-[50%_60%] object-cover object-[50%_45%] lg:origin-[50%_40%] lg:object-[50%_30%]"
         />
         <div className="absolute inset-0 hidden bg-gradient-to-t from-[#14213d]/30 via-transparent to-transparent lg:from-[#14213d]/90 lg:via-[#14213d]/45 lg:block" />
@@ -147,7 +150,7 @@ export function LoginScreen({
             ))}
           </ul>
         </div>
-        <p className="absolute right-3 top-2 hidden text-[10px] text-white/70 lg:block">{LOGIN_PHOTO_CREDIT}</p>
+        {!loginImageUrl && <p className="absolute right-3 top-2 hidden text-[10px] text-white/70 lg:block">{LOGIN_PHOTO_CREDIT}</p>}
       </aside>
       {/* Téléphone : le slogan est déjà dans le logo ; ce titre reste seulement pour les lecteurs d'écran. */}
       <h1 className="sr-only lg:hidden">{LOGIN_SLOGAN}</h1>

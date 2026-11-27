@@ -30,6 +30,7 @@ import { ParentBottomNavigation } from "./components/layout/ParentBottomNavigati
 import { SecretaryBottomNavigation } from "./components/layout/SecretaryBottomNavigation";
 import type { SecretaryTab } from "./components/layout/SecretaryBottomNavigation";
 import { PlatformLogoSlot } from "./components/layout/PlatformLogoSlot";
+import { loadLoginImage, readCachedLoginImage, writeCachedLoginImage } from "./services/loginImage";
 import { YearScreen } from "./components/school/YearScreen";
 import { ParentFormEditor } from "./components/parents/ParentFormEditor";
 import { StudentDetailPage } from "./components/students/StudentDetailPage";
@@ -317,6 +318,8 @@ export default function App() {
   useEffect(() => { void purgeExpiredOfflineData(); }, []);
   const renderedSessionRef = useRef("");
   const [platformLogoUrl, setPlatformLogoUrl] = useState("");
+  // Lot 9 : image de l'écran de connexion (vide = photo d'origine). Dernière image connue affichée tout de suite.
+  const [loginImageUrl, setLoginImageUrl] = useState(() => readCachedLoginImage());
   const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [pwaInstalled, setPwaInstalled] = useState(() => isStandaloneDisplayMode());
   const billingControls = useBillingControls(Boolean(user));
@@ -507,6 +510,25 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  const showingLoginScreen = !user || route === "/login";
+  useEffect(() => {
+    if (!showingLoginScreen || !canUseFirestoreData()) return;
+    setLoginImageUrl(readCachedLoginImage());
+    let cancelled = false;
+    loadLoginImage()
+      .then((image) => {
+        if (cancelled) return;
+        writeCachedLoginImage(image.imageDataUrl);
+        setLoginImageUrl(image.imageDataUrl);
+      })
+      .catch(() => {
+        // Serveur indisponible : l'écran garde l'image déjà affichée.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showingLoginScreen]);
 
   const school = data.schools.find((item) => item.id === user?.schoolId);
   // Lot « répartition rapide » : « Répartition des frais » préparée dès la connexion (Administrateur, Caissier).
@@ -1147,7 +1169,7 @@ export default function App() {
   }
 
   if (!user || route === "/login") {
-    return <LoginScreen onLogin={loginWithCredentials} onDismissError={() => setAuthError("")} initialError={authError} platformLogoUrl={platformLogoUrl} />;
+    return <LoginScreen onLogin={loginWithCredentials} onDismissError={() => setAuthError("")} initialError={authError} platformLogoUrl={platformLogoUrl} loginImageUrl={loginImageUrl} />;
   }
 
   if (schoolSuspended || school?.status === "suspended") {
