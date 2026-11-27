@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.36.0] — 2026-11-27 — Fonctionnalité
+- Préfet d’études : cours et absences des enseignants, situation des paiements, validation des bulletins
+
 ## [1.35.3] — 2026-11-27 — Correction
 - Règle unique des sections appliquée partout ; demandes d’indisponibilité filtrées par le serveur
 
