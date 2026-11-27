@@ -8,16 +8,19 @@ import { apiErrorMessage } from "../utils/rateLimitErrors";
 
 export const INTERNAL_PERSONNEL_ROLES = ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"] as const satisfies readonly Role[];
 export type InternalPersonnelRole = typeof INTERNAL_PERSONNEL_ROLES[number];
+// Lots 10 et 11 : comptes conseillers, listés à part pour l'administrateur (liste ci-dessus inchangée).
+export const ADVISOR_PERSONNEL_ROLES = ["pedagogical_advisor"] as const satisfies readonly Role[];
 export type PersonnelRecord = AppUser | ServicePersonnel;
 export const isServicePersonnel = (personnel: PersonnelRecord): personnel is ServicePersonnel => "kind" in personnel && personnel.kind === "service";
 
-export const personnelRoleLabels: Record<InternalPersonnelRole, string> = {
+export const personnelRoleLabels: Record<InternalPersonnelRole | typeof ADVISOR_PERSONNEL_ROLES[number], string> = {
   school_admin: "Administrateur",
   cashier: "Caissier",
   discipline_director: "Directeur de Discipline",
   study_director: "Directeur des études",
   secretary: "Secrétaire",
   teacher: "Enseignant",
+  pedagogical_advisor: "Conseiller pédagogique",
 };
 
 export function personnelJobTitleLabel(jobTitle: string, hasAccount: boolean): string {
@@ -65,11 +68,30 @@ export function normalizePersonnelSnapshot(users: readonly AppUser[]) {
 export function subscribeToSchoolPersonnel(input: { user: AppUser; schoolId: string; onData: (users: AppUser[]) => void; onError: (error: Error) => void }) {
   if (!firebaseReady || !db || !["school_admin", "study_director"].includes(input.user.role) || input.user.status === "inactive" || input.user.active === false || input.user.schoolId !== input.schoolId) return () => undefined;
   const roles = input.user.role === "study_director" ? ["teacher"] : [...INTERNAL_PERSONNEL_ROLES];
-  return onSnapshot(
-    query(collection(db as unknown as Firestore, "users"), where("schoolId", "==", input.schoolId), where("role", "in", roles)),
-    (snapshot) => input.onData(normalizePersonnelSnapshot(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser))),
+  const database = db as unknown as Firestore;
+  if (input.user.role === "study_director") {
+    return onSnapshot(
+      query(collection(database, "users"), where("schoolId", "==", input.schoolId), where("role", "in", roles)),
+      (snapshot) => input.onData(normalizePersonnelSnapshot(snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser))),
+      input.onError,
+    );
+  }
+  // Lots 10 et 11 : les comptes conseillers sont lus par une seconde requête (règle ajoutée à part) ;
+  // la requête existante du personnel reste exactement la même.
+  let staff: AppUser[] | undefined, advisors: AppUser[] | undefined;
+  const emit = () => { if (staff && advisors) input.onData([...normalizePersonnelSnapshot(staff), ...advisors.filter((item) => Boolean(item.schoolId) && !staff!.some((other) => other.id === item.id))]); };
+  const stopStaff = onSnapshot(
+    query(collection(database, "users"), where("schoolId", "==", input.schoolId), where("role", "in", roles)),
+    (snapshot) => { staff = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser); emit(); },
     input.onError,
   );
+  const stopAdvisors = onSnapshot(
+    query(collection(database, "users"), where("schoolId", "==", input.schoolId), where("role", "in", [...ADVISOR_PERSONNEL_ROLES])),
+    (snapshot) => { advisors = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }) as AppUser); emit(); },
+    // Règle pas encore publiée : la liste du personnel s'affiche quand même, sans les conseillers.
+    () => { advisors = []; emit(); },
+  );
+  return () => { stopStaff(); stopAdvisors(); };
 }
 
 export function subscribeToServicePersonnel(input: { user: AppUser; schoolId: string; onData: (personnel: ServicePersonnel[]) => void; onError: (error: Error) => void }) {

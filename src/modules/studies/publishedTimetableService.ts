@@ -13,7 +13,7 @@ export type PublishedTimetableRow = {
 };
 export type PublishedTimetableSnapshot = { version: number; rows: PublishedTimetableRow[] } | null;
 
-const publishedReaderRoles = new Set<AppUser["role"]>(["school_admin", "secretary", "discipline_director", "study_director", "teacher"]);
+const publishedReaderRoles = new Set<AppUser["role"]>(["school_admin", "secretary", "discipline_director", "study_director", "teacher", "pedagogical_advisor"]);
 
 export function canReadPublishedTimetable(user: AppUser) {
   return publishedReaderRoles.has(user.role) && user.status !== "inactive" && user.active !== false && Boolean(user.schoolId);

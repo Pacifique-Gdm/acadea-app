@@ -14,7 +14,7 @@ export async function requireActiveApiUser(db, caller) {
     || (role === "sub_coordination_admin" && (!caller.subCoordinationId || profile.subCoordinationId !== caller.subCoordinationId))) {
     throw Object.assign(new Error("Périmètre du compte invalide."), { statusCode: 403, code: "permission-denied" });
   }
-  if (["admin", "school_admin", "secretary", "cashier", "study_director", "discipline_director", "teacher", "parent"].includes(caller.role)) {
+  if (["admin", "school_admin", "secretary", "cashier", "study_director", "discipline_director", "teacher", "parent", "pedagogical_advisor", "orientation_advisor"].includes(caller.role)) {
     if (!caller.schoolId || profile.schoolId !== caller.schoolId) {
       throw Object.assign(new Error("École du compte invalide."), { statusCode: 403, code: "permission-denied" });
     }

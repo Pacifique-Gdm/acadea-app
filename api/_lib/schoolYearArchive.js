@@ -1,7 +1,7 @@
 import { authoritySectionsFor, comparableSection } from "./studySectionScope.js";
 import { GradingApiError } from "./teacherGrading.js";
 
-const roles = new Set(["study_director", "cashier", "parent", "discipline_director", "secretary", "teacher"]);
+const roles = new Set(["study_director", "cashier", "parent", "discipline_director", "secretary", "teacher", "pedagogical_advisor"]);
 const docs = (snapshot) => snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
 const required = (value) => typeof value === "string" && value.trim() ? value.trim() : "";
 const scope = (db, collection, schoolId, schoolYearId) => db.collection(collection).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get().then(docs);
@@ -27,7 +27,8 @@ export async function executeSchoolYearArchive({ db, caller, body }) {
   const yearSnapshot = await db.doc(`schoolYears/${schoolYearId}`).get();
   const year = yearSnapshot.data();
   if (!yearSnapshot.exists || year?.schoolId !== schoolId || year?.status !== "archived") throw new GradingApiError(403, "permission-denied", "Année archivée non autorisée.");
-  if (caller.role === "study_director") {
+  // Lots 10 et 11 : un conseiller voit les mêmes archives pédagogiques (classes), jamais les archives financières.
+  if (caller.role === "study_director" || caller.role === "pedagogical_advisor") {
     // Règle unique des sections : un compte qui couvre toute l'école voit toutes les classes.
     const studySections = await authoritySectionsFor(db, user, schoolId);
     const classes = (await scope(db, "classes", schoolId, schoolYearId))

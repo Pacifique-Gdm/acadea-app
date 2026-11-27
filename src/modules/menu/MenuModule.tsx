@@ -12,6 +12,7 @@ import { deleteFeeType } from "../../services/feeTypesRepository";
 import { addFeeKind as persistFeeKind, FeeTypeSaveError, saveFeeTypes, type FeeKindAddRequest, type FeeTypeSaveRequest } from "../../services/feeTypeMutations";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
 import { STUDY_FUNCTION_LABELS, type StudyFunction } from "../../utils/studyFunction";
+import { ClassVisitsContent } from "../advisors/ClassVisitsContent";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
@@ -42,7 +43,7 @@ import { useSchoolLogo } from "../../hooks/useSchoolLogo";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
-type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "pedagogical_advisor";
 
 type MenuYearData = {
   students: Student[];
@@ -84,6 +85,7 @@ const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
   study_director: "Directeur des études",
   secretary: "Secrétaire",
   teacher: "Enseignant",
+  pedagogical_advisor: "Conseiller pédagogique",
 };
 
 export function MenuModule({
@@ -111,7 +113,7 @@ export function MenuModule({
   onOpenBiometrics,
   initialBiometricsOpen = false,
 }: MenuModuleProps) {
-  type MenuSection = "socialSupport" | "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
+  type MenuSection = "classVisits" | "socialSupport" | "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
   // Logo rangé à part : null = logo inchangé (il n'est pas réécrit).
   const [schoolLogoDraft, setSchoolLogoDraft] = useState<string | null>(null);
@@ -205,6 +207,8 @@ export function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "personnel", title: "Personnels", description: "Personnel actif, archivage et réactivation des comptes internes.", icon: UsersRound },
+    // Lot 10 : fiches de visite des conseillers pédagogiques, en lecture seule pour l'administrateur.
+    { id: "classVisits", title: "Fiches de visite", description: "Visites de classe des conseillers pédagogiques (lecture seule).", icon: BookOpen },
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
@@ -868,6 +872,7 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
+    if (sectionId === "classVisits" && canReadAdmin) return <ClassVisitsContent scope={{ uid: user.id, schoolId: school.id, schoolYearId: selectedYear.id }} canWrite={false} />;
     if (sectionId === "socialSupport" && canViewSocialSupport) return <SocialSupportDrawer user={user} school={school} years={years} data={data} readOnly={isArchivedContext} />;
     if (sectionId === "biometrics" && canReadAdmin) {
       return (
@@ -1122,6 +1127,7 @@ export function MenuModule({
               <option value="study_director">Direction des études</option>
               <option value="secretary">Secrétaire</option>
               <option value="teacher">Enseignant</option>
+              <option value="pedagogical_advisor">Conseiller pédagogique</option>
             </select>
           </label>
           {schoolUserRole === "study_director" && <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">

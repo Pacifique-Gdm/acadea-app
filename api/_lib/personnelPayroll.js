@@ -7,7 +7,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { protectCashMutation, readCashBalance } from "./cashBalance.js";
 import { prepareFeeAllocationExpense } from "./feeAllocationExpenses.js";
 
-const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+// Lots 10 et 11 : un conseiller voit seulement SA paie (list-own-payroll), comme les autres personnels.
+const STAFF_ROLES = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "pedagogical_advisor"]);
 const WRITE_KEYS = new Set(["action", "schoolYearId", "beneficiaryId", "kind", "periodMonth", "periodYear", "paidAt", "amount", "recoveries", "deduction", "deductionReason", "cnss", "tax", "description", "clientRequestId", "allocationRubricId"]);
 
 function invalid(message, code = "invalid-argument", status = 400) { throw new FinancialApiError(status, code, message); }

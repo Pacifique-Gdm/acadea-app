@@ -14,7 +14,7 @@ import { buildAllocationWorkspace, readAllocationToken } from "./feeAllocationPh
 import { readRubricCatalog } from "./feeAllocationRubrics.js";
 
 export const sharingActions = new Set(["get-shares", "set-rubric-share", "revoke-share", "get-my-shares", "get-shared-workspace", "get-shared-revision"]);
-export const SHARE_ROLES = ["discipline_director", "study_director", "secretary", "teacher"];
+export const SHARE_ROLES = ["discipline_director", "study_director", "secretary", "teacher", "pedagogical_advisor"];
 const fail = (status, code, message) => { throw new FeeAllocationError(status, code, message); };
 const hash = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const id = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value);

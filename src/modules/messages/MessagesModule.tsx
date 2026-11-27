@@ -1,3 +1,4 @@
+import { isAdvisorRole } from "../../utils/advisorRoles";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, MessageSquare, Search, X } from "lucide-react";
 import { FormPanel } from "../../components/ui";
@@ -51,7 +52,8 @@ export function MessagesModule({
   canAttachFiles = false,
 }: MessagesModuleProps) {
   const [recipientParentId, setRecipientParentId] = useState<string>("");
-  const [recipientCategory, setRecipientCategory] = useState<SchoolMessageRecipientCategory>("parents");
+  // Lots 10 et 11 : un conseiller n'écrit jamais aux parents ; il commence par « Administratifs ».
+  const [recipientCategory, setRecipientCategory] = useState<SchoolMessageRecipientCategory>(isAdvisorRole(user.role) ? "administrative" : "parents");
   const [adminRecipientMode, setAdminRecipientMode] = useState<"all" | "parents" | "sections" | "classes">("all");
   const [selectedAdminParentIds, setSelectedAdminParentIds] = useState<string[]>([]);
   const [selectedAdminSection, setSelectedAdminSection] = useState<SchoolSection | "">("");
@@ -79,8 +81,9 @@ export function MessagesModule({
   const isSecretary = user.role === "secretary";
   const disciplineMessageSubjects = ["Avertissement disciplinaire", "Convocation", "Décision disciplinaire", "Notification de fin de sanction"];
   const { recipients: secureDirectory, loading: isLoadingAdministrativeRecipients, error: administrativeLoadError, retry: retryAdministrativeRecipients, hasCoordination } = useSchoolMessageRecipients(user, school, year.id);
-  const recipientCategories = useMemo(() => schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin, hasCoordination, !isLoadingAdministrativeRecipients),
-    [isSchoolAdmin, secureDirectory, hasCoordination, isLoadingAdministrativeRecipients]);
+  const recipientCategories = useMemo(() => schoolMessageRecipientCategories(secureDirectory, isSchoolAdmin, hasCoordination, !isLoadingAdministrativeRecipients)
+    .filter(({ value }) => !isAdvisorRole(user.role) || value !== "parents"),
+    [isSchoolAdmin, secureDirectory, hasCoordination, isLoadingAdministrativeRecipients, user.role]);
   const administrativeRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "administrative", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const coordinationRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "coordination", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);
   const subCoordinationRecipients = useMemo(() => schoolMessageRecipientsForCategory(secureDirectory, "subCoordination", isSchoolAdmin), [isSchoolAdmin, secureDirectory]);

@@ -2336,6 +2336,79 @@ service cloud.firestore {
       allow read, create, update, delete: if false;
     }
 
+    // ===== Lots 10 et 11 : conseillers (pedagogical_advisor, orientation_advisor) =====
+    // Règles AJOUTÉES seulement : aucune règle existante n'est modifiée. Aucun accès à l'argent.
+    // Élèves, cotes, fiches de visite et notes de suivi passent par le serveur (collections fermées au navigateur).
+    function schoolAdvisor() {
+      let profile = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return request.auth != null
+        && request.auth.token.role in ["pedagogical_advisor", "orientation_advisor"]
+        && tenantSchoolId() is string
+        && tenantSchoolActive()
+        && profile.get("role", "") == request.auth.token.role
+        && profile.get("schoolId", "") == tenantSchoolId()
+        && profile.get("status", "active") != "inactive"
+        && profile.get("active", true) != false;
+    }
+
+    match /users/{userId} {
+      // Le conseiller lit son propre profil ; l'administrateur lit les comptes conseillers de son école.
+      allow read: if (schoolAdvisor() && request.auth.uid == userId)
+        || (schoolAdmin()
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.role in ["pedagogical_advisor", "orientation_advisor"]);
+
+      match /pushTokens/{tokenId} {
+        allow read, delete: if schoolAdvisor() && request.auth.uid == userId;
+        allow create, update: if schoolAdvisor()
+          && request.auth.uid == userId
+          && request.resource.data.userId == userId
+          && request.resource.data.deviceId == tokenId
+          && request.resource.data.token is string
+          && request.resource.data.token.size() > 0
+          && request.resource.data.platform == "web"
+          && request.resource.data.active is bool
+          && request.resource.data.createdAt is string
+          && request.resource.data.updatedAt is string
+          && request.resource.data.keys().hasOnly(["userId", "deviceId", "token", "platform", "active", "createdAt", "updatedAt"]);
+      }
+    }
+
+    match /schools/{schoolId} {
+      allow read: if schoolAdvisor() && schoolId == tenantSchoolId();
+    }
+
+    match /schoolYears/{yearId} {
+      allow read: if schoolAdvisor() && resource.data.schoolId == tenantSchoolId();
+    }
+
+    match /schoolCalendars/{yearId} {
+      allow get: if schoolAdvisor()
+        && schoolYearBelongsToSchool(yearId, tenantSchoolId())
+        && (!exists(/databases/$(database)/documents/schoolCalendars/$(yearId))
+          || (resource.data.schoolId == tenantSchoolId() && resource.data.schoolYearId == yearId));
+
+      match /events/{eventId} {
+        allow get: if schoolAdvisor()
+          && resource.data.schoolId == tenantSchoolId()
+          && resource.data.schoolYearId == yearId
+          && schoolYearBelongsToSchool(yearId, tenantSchoolId());
+        allow list: if schoolAdvisor() && schoolYearBelongsToSchool(yearId, tenantSchoolId());
+      }
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if schoolAdvisor()
+        && resource.data.schoolId == tenantSchoolId()
+        && resource.data.recipientUserId == request.auth.uid;
+    }
+
+    match /messages/{messageId} {
+      allow read: if schoolAdvisor()
+        && resource.data.schoolId == tenantSchoolId()
+        && request.auth.uid in resource.data.participantIds;
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

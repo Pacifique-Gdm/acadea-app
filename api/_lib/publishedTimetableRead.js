@@ -1,7 +1,7 @@
 import { composePublishedEntries, timetableSection } from "./timetableValidationBundle.js";
 
 const MAX_ACTIVE_PUBLICATIONS = 5;
-const READER_ROLES = new Set(["school_admin", "secretary", "discipline_director", "study_director", "teacher"]);
+const READER_ROLES = new Set(["school_admin", "secretary", "discipline_director", "study_director", "teacher", "pedagogical_advisor"]);
 const DAY_ORDER = new Map(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday"].map((day, index) => [day, index]));
 
 export class PublishedTimetableReadError extends Error {

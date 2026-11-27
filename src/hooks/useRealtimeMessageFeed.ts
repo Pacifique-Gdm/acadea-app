@@ -54,7 +54,7 @@ function messageFeedQueries(database: Firestore, user: AppUser, schoolId: string
     ];
   }
 
-  if (["secretary", "teacher", "study_director"].includes(user.role)) {
+  if (["secretary", "teacher", "study_director", "pedagogical_advisor"].includes(user.role)) {
     return [
       query(
         messagesCollection,

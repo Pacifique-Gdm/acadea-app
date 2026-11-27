@@ -12,7 +12,7 @@ import { useLoadRetry } from "../../hooks/useLoadRetry";
 
 const loadOwnPayroll = createOwnPayrollCache<PersonnelPayment[]>(listOwnPayroll);
 
-const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "pedagogical_advisor"]);
 
 export function OwnPayrollEntry({ user, school }: { user: AppUser; school: School }) {
   const [open, setOpen] = useState(false);

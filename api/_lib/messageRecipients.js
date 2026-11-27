@@ -2,7 +2,7 @@ import { authoritySectionsFor, comparableSection } from "./studySectionScope.js"
 import { requireActiveApiUser, verifyActorIdToken } from "./activeUser.js";
 import { requireActiveSchoolYear } from "./schoolYear.js";
 
-const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
+const ALLOWED_SENDERS = new Set(["school_admin", "admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "pedagogical_advisor"]);
 
 const RECIPIENTS_BY_ROLE = Object.freeze({
   school_admin: new Set(["cashier", "secretary", "discipline_director", "study_director", "teacher", "parent", "coordination_admin", "sub_coordination_admin"]),
@@ -12,6 +12,8 @@ const RECIPIENTS_BY_ROLE = Object.freeze({
   secretary: new Set(["school_admin", "cashier", "discipline_director", "study_director", "teacher", "parent"]),
   teacher: new Set(["school_admin", "cashier", "secretary", "discipline_director", "study_director", "parent"]),
   parent: new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]),
+  // Lots 10 et 11 : un conseiller écrit à l'administration, à la direction des études et aux enseignants ; jamais aux parents.
+  pedagogical_advisor: new Set(["school_admin", "study_director", "teacher"]),
 });
 
 export function normalizedMessagingRole(value) {

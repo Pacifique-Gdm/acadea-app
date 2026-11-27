@@ -111,7 +111,7 @@ type ProvisionCashierInput = {
 };
 
 type ProvisionSchoolUserInput = ProvisionCashierInput & {
-  role: "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+  role: "school_admin" | "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "pedagogical_advisor";
   section?: SchoolSection;
   sectionIds?: SchoolSection[];
   studyFunction?: string;

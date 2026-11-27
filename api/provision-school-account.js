@@ -14,13 +14,15 @@ import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } f
 import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
 import { prepareManagerCleanup, setSectionSettingsManager } from "./_lib/sectionSettingsManagers.js";
 
-const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
+// Lots 10 et 11 : conseillers, créés par l'administrateur de l'école seulement.
+export const ADVISOR_ACCOUNT_ROLES = ["pedagogical_advisor"];
+const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", ...ADVISOR_ACCOUNT_ROLES]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const parentLinkConfirmation = "LIER À CE PARENT";
 const parentUnlinkConfirmation = "DÉLIER LE PARENT";
 const parentStudentUnlinkConfirmation = "DÉLIER À CET ÉLÈVE";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
-const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", ...ADVISOR_ACCOUNT_ROLES]);
 const schoolSections = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
 const serviceJobTitles = new Set(["Vigile", "Gardien", "Agent de sécurité", "Agent d'entretien", "Personnel de ménage", "Intendant", "Jardinier", "Technicien", "Agent de maintenance"]);
 const privilegedJobTitle = /\b(admin(?:istrateur)?|enseignant|professeur|directeur|caissier|secretaire|parent|coordinateur|coordination)\b/i;
@@ -1073,7 +1075,7 @@ export default async function handler(req, res) {
     });
     createdAuthUid = authUser.uid;
 
-    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary" || role === "teacher") {
+    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary" || role === "teacher" || ADVISOR_ACCOUNT_ROLES.includes(role)) {
       const schoolUser = {
         id: authUser.uid,
         name,

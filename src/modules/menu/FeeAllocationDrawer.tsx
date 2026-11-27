@@ -28,7 +28,7 @@ import { useLoadRetry } from "../../hooks/useLoadRetry";
 export const FEE_ALLOCATION_MENU_DESCRIPTION = "Parts des frais par rubrique, encaissements et dépenses.";
 const roles = new Set(["school_admin", "cashier", "coordination_admin", "sub_coordination_admin"]);
 /** Lot « Deux onglets » : le personnel voit le drawer seulement si une rubrique lui est partagée. */
-const staffRoles = new Set(["discipline_director", "study_director", "secretary", "teacher"]);
+const staffRoles = new Set(["discipline_director", "study_director", "secretary", "teacher", "pedagogical_advisor"]);
 const myShares = new Map<string, Promise<string[]>>();
 function useHasSharedRubrics(user: AppUser) {
   const staff = staffRoles.has(user.role);

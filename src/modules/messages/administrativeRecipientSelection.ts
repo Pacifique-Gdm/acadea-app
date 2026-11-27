@@ -9,6 +9,7 @@ const administrativeRoleLabels: Record<Exclude<SchoolMessageRecipient["role"], "
   teacher: "Enseignant",
   coordination_admin: "Coordinateur",
   sub_coordination_admin: "Sous-coordinateur",
+  pedagogical_advisor: "Conseiller pédagogique",
 };
 
 export type AdministrativeRecipientMode = "all" | "selection";
