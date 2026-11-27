@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { ErrorNotice } from "../../components/ui";
 import { localDateKey } from "../studies/prefectDashboard";
 import { formatDay } from "./AdvisorContents";
-import { filterAdvisorStudents, saveOrientationNote, useAdvisorData, type AdvisorStudent, type OrientationNote, type OrientationNoteInput } from "./advisorService";
+import { filterAdvisorStudents, saveOrientationNote, useAdvisorData, type AdvisorResult, type AdvisorStudent, type OrientationNote, type OrientationNoteInput } from "./advisorService";
 
 type Scope = { uid: string; schoolId: string; schoolYearId: string };
 const card = "rounded border border-slate-200 bg-white p-3 shadow-sm";
@@ -17,6 +17,20 @@ export const NOTE_KIND_LABELS: Record<OrientationNoteInput["kind"], string> = { 
 export function orientationDashboard(notes: OrientationNote[], today: string) {
   const month = today.slice(0, 7);
   return { followedStudents: new Set(notes.map((note) => note.studentId)).size, notesThisMonth: notes.filter((note) => note.noteDate.startsWith(month)).length, totalNotes: notes.length };
+}
+
+/** Lot H : seuil « en difficulté », le même que sur le Dashboard du Préfet d'études. */
+export const ORIENTATION_DIFFICULTY_THRESHOLD = 50;
+
+/** Calcul pur (lot H) : élèves de ses sections, élèves en difficulté et, parmi eux, ceux sans aucune note de suivi. */
+export function orientationPriorities(students: AdvisorStudent[] | undefined, results: AdvisorResult[] | undefined, notes: OrientationNote[] | undefined) {
+  const struggling = results ? new Set(results.filter((row) => row.percentage !== null && row.percentage < ORIENTATION_DIFFICULTY_THRESHOLD).map((row) => row.studentId)) : undefined;
+  const followed = notes ? new Set(notes.map((note) => note.studentId)) : undefined;
+  return {
+    students: students?.length,
+    struggling: struggling?.size,
+    strugglingWithoutNote: struggling && followed ? [...struggling].filter((id) => !followed.has(id)).length : undefined,
+  };
 }
 
 export function OrientationNotesContent({ scope, canWrite, readOnlyYear = false }: { scope: Scope; canWrite: boolean; readOnlyYear?: boolean }) {
