@@ -4,7 +4,7 @@
 // Retiré : Enseignants, Horaires, création d'enseignant, publication des cotes, périodes, écriture du calendrier,
 // demandes d'indisponibilité. AUCUN accès à l'argent. Rechargement par la flèche ronde de l'en-tête.
 import { useMemo, useState, type ReactNode } from "react";
-import { BookOpen, CalendarDays, LogOut, MessageSquare, NotebookPen, UsersRound } from "lucide-react";
+import { BellRing, BookOpen, CalendarDays, GraduationCap, LogOut, MessageSquare, NotebookPen, TrendingDown, UsersRound } from "lucide-react";
 import { AppVersion } from "../../components/ui/AppVersion";
 import { AdminDrawer, DashboardCard, ErrorNotice } from "../../components/ui";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
@@ -18,8 +18,9 @@ import { LibraryDrawer } from "../library/LibraryDrawer";
 import { MessagesModule } from "../messages/MessagesModule";
 import { localDateKey } from "../studies/prefectDashboard";
 import { AdvisorCalendarContent, AdvisorStudentsContent, sectionsNote } from "./AdvisorContents";
-import { OrientationNotesContent, orientationDashboard } from "./OrientationNotesContent";
-import { filterAdvisorStudents, useAdvisorData, type AdvisorResult, type OrientationNote } from "./advisorService";
+import { OrientationNotesContent, orientationDashboard, orientationPriorities, ORIENTATION_DIFFICULTY_THRESHOLD } from "./OrientationNotesContent";
+import { DashboardCardButton } from "./DashboardCardButton";
+import { filterAdvisorStudents, useAdvisorData, type AdvisorResult, type AdvisorStudent, type OrientationNote } from "./advisorService";
 import { orientationAdvisorTabs, type OrientationAdvisorTab } from "./advisorNavigation";
 
 type MenuDrawer = "library" | "messages" | "calendar" | "school-years" | null;
@@ -55,14 +56,23 @@ export function OrientationAdvisorPortal({ user, school, year, appData, updateDa
   const scope = { uid: user.id, schoolId: school.id, schoolYearId: year.id };
   const notes = useAdvisorData<{ notes: OrientationNote[] }>("orientation-notes-list", scope, activeTab === "dashboard");
   const figures = notes.value ? orientationDashboard(notes.value.notes, localDateKey()) : undefined;
+  // Lot H : 3 cartes de plus (mêmes lectures que les onglets « Élèves » et « Résultats »).
+  const students = useAdvisorData<{ students: AdvisorStudent[] }>("advisor-students", scope, activeTab === "dashboard");
+  const results = useAdvisorData<{ sections: string[]; results: AdvisorResult[] }>("advisor-results", scope, activeTab === "dashboard");
+  const priorities = orientationPriorities(students.value?.students, results.value?.results, notes.value?.notes);
   const close = () => setDrawer(null);
   return <div className="flex h-screen min-w-0 flex-col overflow-hidden bg-[#f6f8fb]">{renderEnvironmentBanner()}{renderHeader()}<main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
     {activeTab === "dashboard" && <section className="grid gap-4"><div><h1 className="text-2xl font-bold text-ink">Conseiller d'orientation</h1><p className="mt-1 break-words text-sm text-slate-600">{school.name} · Année scolaire {year.name}</p></div>
       <ErrorNotice error={notes.error} fallback="Notes de suivi indisponibles." onRetry={notes.retry} />
+      <ErrorNotice error={students.error} fallback="Élèves indisponibles." onRetry={students.retry} />
+      <ErrorNotice error={results.error} fallback="Résultats indisponibles." onRetry={results.retry} />
       <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <DashboardCard title="Élèves suivis" value={figures?.followedStudents ?? "—"} icon={UsersRound} tone="bg-blue-50 text-blue-700" />
         <DashboardCard title="Notes de suivi du mois" value={figures?.notesThisMonth ?? "—"} icon={NotebookPen} tone="bg-amber-50 text-amber-700" />
         <DashboardCard title="Notes de suivi (année)" value={figures?.totalNotes ?? "—"} icon={BookOpen} tone="bg-emerald-50 text-emerald-700" />
+        <DashboardCardButton title="Élèves de mes sections" value={priorities.students ?? "—"} icon={GraduationCap} tone="bg-violet-50 text-violet-700" onClick={() => setActiveTab("students")} />
+        <DashboardCardButton title="Élèves en difficulté" value={priorities.struggling ?? "—"} icon={TrendingDown} tone="bg-red-50 text-red-700" onClick={() => setActiveTab("results")}><p className="text-xs text-slate-500">moyenne &lt; {ORIENTATION_DIFFICULTY_THRESHOLD} % · dernière période complète</p></DashboardCardButton>
+        <DashboardCardButton title="En difficulté, sans suivi" value={priorities.strugglingWithoutNote ?? "—"} icon={BellRing} tone="bg-orange-50 text-orange-700" onClick={() => setActiveTab("notes")}><p className="text-xs text-slate-500">aucune note de suivi cette année</p></DashboardCardButton>
       </div></section>}
     {activeTab === "students" && <section className="grid gap-3"><h1 className="text-2xl font-bold text-ink">Élèves</h1><AdvisorStudentsContent scope={scope} /></section>}
     {activeTab === "notes" && <section className="grid gap-3"><h1 className="text-2xl font-bold text-ink">Notes de suivi</h1><OrientationNotesContent scope={scope} canWrite readOnlyYear={year.status === "archived"} /></section>}
