@@ -21,7 +21,7 @@ import coordinationYears from "../api/manage-coordination-school-years.js";
 import manageCoordination from "../api/manage-coordination.js";
 import manageFinance from "../api/manage-financial-transaction.js";
 import manageSchool from "../api/manage-school.js";
-import manageAvailability from "../api/manage-teacher-availability-request.js";
+import manageAvailability from "../api/_lib/teacherAvailabilityHandler.js";
 import manageGrading from "../api/manage-teacher-grading.js";
 import messageRecipients from "../api/message-recipients.js";
 import provisionAccount from "../api/provision-school-account.js";

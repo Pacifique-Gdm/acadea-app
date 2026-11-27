@@ -3,12 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   verify: vi.fn(), active: vi.fn(), read: vi.fn(), rate: vi.fn(), create: vi.fn(), review: vi.fn(),
 }));
-vi.mock("./_lib/firebaseAdmin.js", () => ({ initAdmin: () => ({ auth: {}, db: {} }) }));
-vi.mock("./_lib/activeUser.js", () => ({ verifyActorIdToken: mocks.verify, requireActiveApiUser: mocks.active }));
-vi.mock("./_lib/publishedTimetableRead.js", () => ({ PublishedTimetableReadError: class extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }, readPublishedTimetable: mocks.read }));
-vi.mock("./_lib/rateLimit.js", () => ({ API_RATE_LIMITS: { PUBLISHED_TIMETABLE: { limit: 60, windowMs: 60000 } }, enforceApiRateLimit: mocks.rate, sendRateLimitError: () => false }));
-vi.mock("./_lib/teacherAvailabilityRequests.js", () => ({ AvailabilityRequestApiError: class extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }, createAvailabilityRequest: mocks.create, reviewAvailabilityRequest: mocks.review }));
-import handler from "./manage-teacher-availability-request.js";
+vi.mock("./firebaseAdmin.js", () => ({ initAdmin: () => ({ auth: {}, db: {} }) }));
+vi.mock("./activeUser.js", () => ({ verifyActorIdToken: mocks.verify, requireActiveApiUser: mocks.active }));
+vi.mock("./publishedTimetableRead.js", () => ({ PublishedTimetableReadError: class extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }, readPublishedTimetable: mocks.read }));
+vi.mock("./rateLimit.js", () => ({ API_RATE_LIMITS: { PUBLISHED_TIMETABLE: { limit: 60, windowMs: 60000 } }, enforceApiRateLimit: mocks.rate, sendRateLimitError: () => false }));
+vi.mock("./teacherAvailabilityRequests.js", () => ({ AvailabilityRequestApiError: class extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }, createAvailabilityRequest: mocks.create, reviewAvailabilityRequest: mocks.review }));
+import handler from "./teacherAvailabilityHandler.js";
 
 function response() {
   const result = { statusCode: 0, body: {} as Record<string, unknown>, setHeader: vi.fn(), end: vi.fn(function (this: typeof result, body: string) { this.body = JSON.parse(body); }) };

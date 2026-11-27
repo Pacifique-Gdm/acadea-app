@@ -10,7 +10,7 @@ vi.mock("./teacherAvailabilityRequests.js", () => ({
   AvailabilityRequestApiError: class extends Error { constructor(public status: number, public code: string, message: string) { super(message); } },
   createAvailabilityRequest: vi.fn(), reviewAvailabilityRequest: vi.fn(), listAvailabilityRequests: mocks.list,
 }));
-import handler from "../manage-teacher-availability-request.js";
+import handler from "./teacherAvailabilityHandler.js";
 
 function response() {
   const result = { statusCode: 0, body: {} as Record<string, unknown>, setHeader: vi.fn(), end: vi.fn(function (this: typeof result, body: string) { this.body = JSON.parse(body); }) };

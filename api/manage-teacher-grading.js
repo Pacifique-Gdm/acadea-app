@@ -11,7 +11,15 @@ import { listPrefectStaff } from "./_lib/prefectStaff.js";
 import { loadPrefectPayments } from "./_lib/prefectPayments.js";
 import { listStaffLabels } from "./_lib/staffLabels.js";
 import { executeAttendanceSettings } from "./_lib/attendanceSettingsScope.js";
+import teacherAvailabilityHandler, { TEACHER_AVAILABILITY_ROUTE } from "./_lib/teacherAvailabilityHandler.js";
 export default async function handler(req, res) {
+  // Regroupement lot 1 : l’ancienne adresse /api/manage-teacher-availability-request arrive ici (vercel.json).
+  // Le repère « route » est retiré avant l’appel : l’ancien code reçoit exactement les mêmes paramètres qu’avant.
+  if (req.query?.route === TEACHER_AVAILABILITY_ROUTE) {
+    const { route: _route, ...query } = req.query;
+    Object.defineProperty(req, "query", { value: query, configurable: true, enumerable: true, writable: true });
+    return teacherAvailabilityHandler(req, res);
+  }
   if (req.method !== "POST") return send(res, 405, { code: "invalid-argument", error: "Méthode non autorisée." });
   try {
     const header = req.headers.authorization ?? "", token = header.startsWith("Bearer ") ? header.slice(7) : "";
