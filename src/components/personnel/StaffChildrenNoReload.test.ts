@@ -86,7 +86,7 @@ describe("Menu : « Enfants » est le 3e bouton de la liste", () => {
   // Préfet d'études = Enfants 3e puis Discipline (bouton affiché pour le Préfet seulement).
   it("direction des études : Assistant IA, Salaire/Prime, Enfants, puis Répartition (Préfet : Enfants, puis Discipline)", () => {
     const portal = read("src/modules/studies/StudyDirectorPortal.tsx");
-    expect(portal).toContain("<StudyAiAssistant user={user} school={school} year={year} data={data} /><OwnPayrollEntry user={user} school={school} /><StaffChildrenEntry school={school} />{isPrefectOfStudies(user) && <button type=\"button\" className={menuButton} onClick={() => setDrawer(\"prefect-discipline\")}><ShieldAlert className=\"h-5 w-5 shrink-0\"/><strong>Discipline</strong></button>}<FeeAllocationEntry user={user} schools={[school]} />");
+    expect(portal).toContain("<StudyAiAssistant user={user} school={school} year={year} data={data} /><OwnPayrollEntry user={user} school={school} /><StaffChildrenEntry school={school} />{isPrefectOfStudies(user) && <button type=\"button\" className={menuButton} onClick={() => setDrawer(\"grade-validation\")}><ClipboardCheck className=\"h-5 w-5 shrink-0\"/><strong>Validation des bulletins</strong></button>}{isPrefectOfStudies(user) && <button type=\"button\" className={menuButton} onClick={() => setDrawer(\"prefect-discipline\")}><ShieldAlert className=\"h-5 w-5 shrink-0\"/><strong>Discipline</strong></button>}<FeeAllocationEntry user={user} schools={[school]} />");
   });
 
   it("enseignant, caissier et discipline : « Enfants » reste un onglet (pas dans le Menu)", () => {
