@@ -37,7 +37,7 @@ describe("diagnostic public Firebase Admin", () => {
     expect(refreshSource).not.toContain("userId:");
     expect(refreshSource).not.toContain("errorStack:");
     expect(refreshSource).not.toContain("errorMessage:");
-    for (const apiPath of ["api/manage-school.js", "api/provision-school-admin.js", "api/provision-school-account.js"]) {
+    for (const apiPath of ["api/manage-school.js", "api/_lib/provisionSchoolAdminHandler.js", "api/provision-school-account.js"]) {
       expect(readFileSync(apiPath, "utf8")).not.toContain("details: diagnostic");
     }
   });

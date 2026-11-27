@@ -11,6 +11,7 @@ import { readPlatformStats } from "./_lib/platformStats.js";
 import { cachedSchoolSearchEntries, searchSchoolEntries } from "./_lib/schoolSearchIndex.js";
 import { isSafeSchoolScopeId, readSchoolDrawerSummary, readSchoolHistoryPage } from "./_lib/schoolDrawerSummary.js";
 import { readLoginImage, saveLoginImage, validateLoginImageRequest } from "./_lib/loginImage.js";
+import provisionSchoolAdminHandler, { PROVISION_SCHOOL_ADMIN_ROUTE } from "./_lib/provisionSchoolAdminHandler.js";
 
 export const maxDuration = 300;
 
@@ -145,6 +146,13 @@ async function sendPublicLoginImage(res) {
 }
 
 export default async function handler(req, res) {
+  // Regroupement lot 3 : l’ancienne adresse /api/provision-school-admin arrive ici (vercel.json).
+  // Le repère « route » est retiré avant l’appel : l’ancien code reçoit exactement la même demande qu’avant.
+  if (req.query?.route === PROVISION_SCHOOL_ADMIN_ROUTE) {
+    const { route: _route, ...query } = req.query;
+    Object.defineProperty(req, "query", { value: query, configurable: true, enumerable: true, writable: true });
+    return provisionSchoolAdminHandler(req, res);
+  }
   if (req.method === "GET" && requestedQueryAction(req) === "login-image") {
     await sendPublicLoginImage(res);
     return;

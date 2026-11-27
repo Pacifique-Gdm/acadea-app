@@ -25,7 +25,7 @@ import manageAvailability from "../api/_lib/teacherAvailabilityHandler.js";
 import manageGrading from "../api/manage-teacher-grading.js";
 import messageRecipients from "../api/message-recipients.js";
 import provisionAccount from "../api/provision-school-account.js";
-import provisionAdmin from "../api/provision-school-admin.js";
+import provisionAdmin from "../api/_lib/provisionSchoolAdminHandler.js";
 import sendParentMessage from "../api/send-parent-message.js";
 import sendSchoolMessage from "../api/send-school-message.js";
 
