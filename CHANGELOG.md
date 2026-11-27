@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.37.1] — 2026-11-27 — Correction
+- Regroupement des fichiers serveur, lot 1 (enseignants) : 11 fonctions sur 12, adresses inchangées
+
 ## [1.37.0] — 2026-11-27 — Fonctionnalité
 - Image de l’écran de connexion modifiable par le Super administrateur
 
