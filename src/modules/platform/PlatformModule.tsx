@@ -7,7 +7,7 @@ import { MessagingDrawerShell } from "../../components/messages/MessagingDrawerS
 import { syncAppBadge } from "../../utils/appBadge";
 import { useVisitedTabs } from "../../components/layout/keptTabState";
 import type { ReactNode } from "react";
-import { ArrowUpDown, Bell, BookOpen, Megaphone, Building2, CheckCircle2, Filter, GraduationCap, LayoutDashboard, Menu as MenuIcon, MessageSquare, RefreshCw, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
+import { ArrowUpDown, Bell, BookOpen, Megaphone, Building2, CheckCircle2, Filter, GraduationCap, Image as ImageIcon, LayoutDashboard, Menu as MenuIcon, MessageSquare, RefreshCw, Plus, RotateCcw, Search, ShieldCheck, Sparkles, Upload, UsersRound, X } from "lucide-react";
 import { BillingControlsDrawer } from "../../components/platform/BillingControlsDrawer";
 import { AdCampaignsDrawer } from "../../components/platform/AdCampaignsDrawer";
 import { AuditTimeline, BiometricTerminalStatusBadge, InfoRow, MiniStat, PlatformCard, SchoolLogo, SchoolSaasCard, StatusBadge } from "../../components/platform";
@@ -18,6 +18,7 @@ import type { UseBillingControlsResult } from "../../hooks/useBillingControls";
 import { useRealtimeCoordinations } from "../../hooks/useRealtimeCoordinations";
 import { reconcileRealtimeSchoolUsers, useRealtimeSchoolUsers } from "../../hooks/useRealtimeSchoolUsers";
 import { savePlatformSettings } from "../../services/firestoreData";
+import { LoginImageDrawer } from "../../components/platform/LoginImageDrawer";
 import { loadAllPlatformSchools, loadPlatformSchoolWithYears } from "../../services/superAdminData";
 import { appendSchoolHistoryPage, loadSchoolDrawerDetail, loadSchoolHistoryPage } from "../../services/schoolDrawerSummary";
 import { platformStatsTimeLabel, type PlatformStats } from "../../services/platformStats";
@@ -135,7 +136,9 @@ export function PlatformModule({
   const [schoolDrawerId, setSchoolDrawerId] = useState("");
   const [drawerYearId, setDrawerYearId] = useState("");
   const [detailTab, setDetailTab] = useState<SchoolDetailTab>("overview");
-  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "create-coordination" | "logo" | "billing-controls" | "ad-campaigns" | null>(null);
+  const [platformMenuDrawer, setPlatformMenuDrawer] = useState<"create-school" | "create-coordination" | "logo" | "login-image" | "billing-controls" | "ad-campaigns" | null>(null);
+  // Lot 9 : chaque appui sur la flèche ronde de l'en-tête relit aussi l'image de connexion du drawer.
+  const [headerRefreshToken, setHeaderRefreshToken] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | School["status"]>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | NonNullable<School["schoolType"]>>("all");
@@ -1337,7 +1340,7 @@ export function PlatformModule({
               <p className="break-words text-xs text-slate-500">{roleLabels[user.role]} | dashboard SaaS anonymisé</p>
             </div>
             {/* Lot 25 : actualisation et cloche, comme chez l'Administrateur. */}
-            <button type="button" onClick={() => onRefresh?.()} className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser"><RefreshCw className="h-4 w-4" /></button>
+            <button type="button" onClickCapture={() => setHeaderRefreshToken((value) => value + 1)} onClick={() => onRefresh?.()} className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Actualiser" aria-label="Actualiser"><RefreshCw className="h-4 w-4" /></button>
             <button type="button" onClick={() => { platformInbox.start(); setMessagingOpen(true); }} className="relative inline-flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 transition hover:text-ink" title="Boîte à Messagerie" aria-label="Boîte à Messagerie">
               <Bell className="h-4 w-4" />
               {platformUnread > 0 && <span className="absolute -right-1 -top-1 min-w-5 rounded-full bg-red-600 px-1 text-center text-[11px] font-bold text-white">{platformUnread}</span>}
@@ -1469,6 +1472,19 @@ export function PlatformModule({
                   </span>
                   <Upload className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
                 </button>
+                {user.role === "super_admin" && (
+                  <button
+                    onClick={() => setPlatformMenuDrawer("login-image")}
+                    className="group flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40"
+                    type="button"
+                  >
+                    <span className="min-w-0">
+                      <span className="block break-words font-bold text-ink">Image de connexion</span>
+                      <span className="mt-1 block break-words text-sm text-slate-500">Changer la photo de l'écran de connexion, avec aperçu ordinateur et téléphone.</span>
+                    </span>
+                    <ImageIcon className="h-5 w-5 shrink-0 text-slate-400 transition group-hover:text-blue-700" />
+                  </button>
+                )}
                 <button
                   onClick={() => setPlatformMenuDrawer("billing-controls")}
                   className="group flex min-w-0 items-center justify-between gap-3 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-blue-200 hover:bg-blue-50/40"
@@ -1513,6 +1529,11 @@ export function PlatformModule({
       {platformMenuDrawer === "logo" && (
         <AdminDrawer title="Logo de l'application" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer la gestion du logo">
           {renderPlatformLogoForm()}
+        </AdminDrawer>
+      )}
+      {platformMenuDrawer === "login-image" && user.role === "super_admin" && (
+        <AdminDrawer title="Image de connexion" onClose={() => setPlatformMenuDrawer(null)} closeLabel="Fermer l'image de connexion">
+          <LoginImageDrawer platformLogoUrl={platformLogoUrl} refreshToken={headerRefreshToken} />
         </AdminDrawer>
       )}
       {platformMenuDrawer === "ad-campaigns" && user.role === "super_admin" && (
