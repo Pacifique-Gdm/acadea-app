@@ -66,6 +66,7 @@ describe("Lot A — sections d'un enseignant existant", () => {
 
   it("désactive le champ Sections de la fiche pour la Direction des études", () => {
     const source = readFileSync("src/modules/menu/PersonnelDrawerContent.tsx", "utf8");
-    expect(source).toMatch(/<MultiSelectDropdown label="Sections"[^>]*disabled=\{user\.role === "study_director"\}/);
+    const field = source.slice(source.indexOf('<MultiSelectDropdown label="Sections"'));
+    expect(field.slice(0, field.indexOf("/>"))).toContain('disabled={user.role === "study_director"}');
   });
 });
