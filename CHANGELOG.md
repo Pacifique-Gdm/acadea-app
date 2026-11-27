@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.40.0] — 2026-11-27 — Fonctionnalité
+- Lot 7 : modèle commun de répartition de la Coordination (Modèles de répartition, versions publiées, serveur uniquement)
+
 ## [1.39.1] — 2026-11-27 — Correction
 - Essai « Teacher documents » stabilisé : préparation à l'avance du code demandé par l'écran de connexion sur le serveur de test (aucun changement de l'application ni de ce que vérifie l'essai)
 

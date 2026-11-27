@@ -7,6 +7,7 @@ import { listScopedStudentArrears, listScopedStudentArrearsBatch } from "./_lib/
 import { manageCoordinationAdministrator } from "./_lib/coordinationAdministrators.js";
 import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
 import coordinationSchoolYearsHandler, { COORDINATION_SCHOOL_YEARS_ROUTE } from "./_lib/coordinationSchoolYearsHandler.js";
+import { publishAllocationTemplate, readAllocationTemplate } from "./_lib/coordinationAllocationTemplate.js";
 
 export const maxDuration = 300;
 
@@ -393,6 +394,13 @@ export default async function handler(req, res) {
       return sendJson(res, 200, { profile: safeProfile });
     }
     if (SUB_COORDINATION_ACTIONS.has(action)) return await manageSubCoordination({ res, auth, db, token, input, action });
+    // Lot 7 : modèle commun de répartition, lu et publié par le Coordinateur seulement (serveur uniquement).
+    if (action === "allocation-template-read" || action === "allocation-template-publish") {
+      const caller = await requireActiveCoordinator(auth, db, token);
+      if (action === "allocation-template-read") return sendJson(res, 200, await readAllocationTemplate({ db, caller }));
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.allocation_template_published", ...API_RATE_LIMITS.SCHOOL_ADMIN });
+      return sendJson(res, 200, await publishAllocationTemplate({ db, caller, input }));
+    }
     if (action === "update-settings") {
       const caller = await requireActiveCoordinator(auth, db, token);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: caller.coordinationId, action: "coordination.settings_updated", ...API_RATE_LIMITS.PROVISION_SCHOOL });
