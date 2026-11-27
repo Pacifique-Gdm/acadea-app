@@ -8,6 +8,7 @@ import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib
 import { loadPrefectDashboard } from "./_lib/prefectDashboard.js";
 import { listPrefectDiscipline } from "./_lib/prefectDiscipline.js";
 import { listPrefectStaff } from "./_lib/prefectStaff.js";
+import { loadPrefectPayments } from "./_lib/prefectPayments.js";
 import { listStaffLabels } from "./_lib/staffLabels.js";
 import { executeAttendanceSettings } from "./_lib/attendanceSettingsScope.js";
 export default async function handler(req, res) {
@@ -41,6 +42,12 @@ export default async function handler(req, res) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-staff", ...API_RATE_LIMITS.FINANCE_MUTATE });
       return send(res, 200, await listPrefectStaff({ db, caller, body }));
+    }
+    // Lot P4 : situation des paiements des sections du Préfet d'études (pourcentages par classe, aucun montant).
+    if (action === "prefect-payments") {
+      await requireActiveApiUser(db, caller);
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: "studies.prefect-payments", ...API_RATE_LIMITS.FINANCE_MUTATE });
+      return send(res, 200, await loadPrefectPayments({ db, caller, body }));
     }
     // Lot R1 : nom et fonction des auteurs des réglages (« Modifié par … »).
     if (action === "staff-labels") {
