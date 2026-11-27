@@ -1,4 +1,4 @@
-import type { AllocationRow, AllocationFinancialField } from "./feeAllocationView";
+import type { AllocationRow, AllocationFinancialField, AllocationSubLine } from "./feeAllocationView";
 import { allocationTotals, allocationFinancialTotals, buildAllocationTables, noAllocationConfigured, unavailableAllocation } from "./feeAllocationView";
 import { escapePdfHtml, pdfSection, pdfTable } from "./pdf";
 import { formatCurrencyMoney } from "./currency";
@@ -22,21 +22,29 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   const globalFields = ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const;
   const globalLabels = ["Ouverture", "Encaissé (cumul)", "Dépensé (cumul)", "Disponible"];
   const weights = FEE_ALLOCATION_PDF_WEIGHTS[operational ? "operational" : "preparatory"];
+  // Lignes « ↳ » des sous-rubriques : « — » pour le prévu et l'encaissé selon le filtre, situation globale seulement.
+  const subOf = (row: AllocationRow) => (row as AllocationRow & { subLine?: AllocationSubLine }).subLine;
+  const subMoney: Record<AllocationFinancialField, (line: AllocationSubLine) => number | null> = { openingMinor: (l) => l.openingMinor, cumulativeReceivedMinor: (l) => l.cumulativeReceivedMinor,
+    cumulativeSpentMinor: (l) => l.cumulativeSpentMinor, availableMinor: (l) => l.availableMinor, receivedMinor: () => null, spentMinor: () => null, arrearsMinor: () => null, formerMinor: () => null };
   const columns = [
-    { header: "Rubrique", render: name, weight: weights[0] },
-    { header: "Prévu de l’année", render: (row: AllocationRow) => money(row.amountMinor, row.currency), align: "right" as const, weight: weights[1] },
-    { header: receivedLabel, weight: weights[2], render: (row: AllocationRow) => row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
-    ...(operational ? globalFields.map((field: AllocationFinancialField, i) => ({ header: globalLabels[i], weight: weights[3 + i], render: (row: AllocationRow) => row.financial ? money(row.financial[field], row.currency) : "Non disponible" })) : []),
+    { header: "Rubrique", render: (row: AllocationRow) => subOf(row) ? `↳ ${subOf(row)!.name}` : name(row), weight: weights[0] },
+    { header: "Prévu de l’année", render: (row: AllocationRow) => subOf(row) ? "—" : money(row.amountMinor, row.currency), align: "right" as const, weight: weights[1] },
+    { header: receivedLabel, weight: weights[2], render: (row: AllocationRow) => subOf(row) ? "—" : row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
+    ...(operational ? globalFields.map((field: AllocationFinancialField, i) => ({ header: globalLabels[i], weight: weights[3 + i], render: (row: AllocationRow) => {
+      const sub = subOf(row);
+      if (sub) { const value = subMoney[field](sub); return value === null ? "—" : money(value, row.currency); }
+      return row.financial ? money(row.financial[field], row.currency) : "Non disponible"; } })) : []),
   ];
   const totalLine = (table: AllocationRow[]) => allocationTotals(table).map(total => `Total ${total.currency} : prévu ${money(total.amountMinor, total.currency)}${operational ? ` · ${globalLabels.map((label, i) => {
     const value = allocationFinancialTotals(table, globalFields[i]).find(t => t.currency === total.currency)?.value;
     return `${label.toLowerCase()} ${value === null || value === undefined ? unavailableAllocation : money(value, total.currency)}`; }).join(" · ")}` : ""}`).join(" ; ");
   const tables = buildAllocationTables(rows);
+  const withSubs = (table: AllocationRow[]) => table.flatMap((row) => [row, ...(row.financial ? row.subLines ?? [] : []).map((subLine) => ({ ...row, key: `${row.key}/${subLine.id}`, subLine }))]);
   // Lot 27c-3a : rubriques de l'année, puis une partie « Arriérés AAAA-AAAA » par année d'origine (mêmes colonnes).
   const parts = (table: AllocationRow[]) => {
     const current = table.filter((row) => !row.arrearsYearName);
     const years = [...new Set(table.filter((row) => row.arrearsYearName).map((row) => row.arrearsYearName!))];
-    return `${current.length ? pdfTable<AllocationRow>(columns, current, "Aucun montant dans ce tableau.") : ""}${years.map((year) =>
+    return `${current.length ? pdfTable<AllocationRow>(columns, withSubs(current), "Aucun montant dans ce tableau.") : ""}${years.map((year) =>
       `<h3 style="margin: 10px 0 4px; font-size: 9pt">Arriérés ${escapePdfHtml(year)}</h3>${pdfTable<AllocationRow>(columns, table.filter((row) => row.arrearsYearName === year), "Aucun montant.")}`).join("")}`;
   };
   // Le premier tableau suit l'en-tête ; chacun des suivants commence sur une nouvelle page.

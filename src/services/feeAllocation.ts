@@ -21,7 +21,9 @@ export type AllocationWorkspace = {
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
       originSchoolYearId: string; postedAt: string; socialCase?: boolean; formerStudent?: boolean }[];
-    balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number }[] };
+    balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number;
+      /** Soldes des sous-rubriques, puis « Non affecté (rubrique) » (id UNALLOCATED), seulement si la rubrique en a. */
+      subView?: { id: string; name: string; mode?: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number; receivedMinor: number; spentMinor: number; availableMinor: number }[] }[] };
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;
   targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[];

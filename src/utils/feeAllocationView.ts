@@ -1,5 +1,6 @@
 import type { AllocationWorkspace } from "../services/feeAllocation";
 import type { FeeAllocationConfig, FeeAllocationRubric } from "../types/feeAllocation";
+import { formatCurrencyMoney } from "./currency";
 
 export type AllocationFilter = { kind: "fee" | "class" | "period"; value: string; from: string; to: string };
 /** Lot 27c-1 : 1 = élèves normalement inscrits, 2 = cas sociaux et prises en charge, 3 = ensemble (somme). */
@@ -13,7 +14,20 @@ export type AllocationRow = { key: string; schoolId: string; schoolName: string;
   financial?: { receivedMinor: number; spentMinor: number; availableMinor: number; openingMinor: number; arrearsMinor: number;
     cumulativeReceivedMinor: number; cumulativeSpentMinor: number;
     /** Lot 27c-2 : paiements d'anciens élèves, inclus à la fois dans le prévu et dans l'encaissé. */
-    formerMinor: number } };
+    formerMinor: number };
+  /** Lignes « ↳ » : solde global de chaque sous-rubrique, puis « Non affecté (rubrique) ». Jamais comptées dans les totaux. */
+  subLines?: AllocationSubLine[] };
+/** Une ligne « ↳ » : ouverture seulement pour « Non affecté (rubrique) » (null = « — »). */
+export type AllocationSubLine = { id: string; name: string; openingMinor: number | null; cumulativeReceivedMinor: number; cumulativeSpentMinor: number; availableMinor: number };
+
+/** Lignes « ↳ » d'une rubrique à partir de son solde (situation globale, commune aux tableaux 1, 2 et 3). */
+export function allocationSubLines(balance: { openingMinor: number; subView?: NonNullable<AllocationWorkspace["ledger"]>["balances"][number]["subView"] } | undefined, currency: "USD" | "CDF"): AllocationSubLine[] | undefined {
+  if (!balance?.subView?.length) return undefined;
+  return balance.subView.map((sub) => sub.id === "UNALLOCATED"
+    ? { id: sub.id, name: sub.name, openingMinor: balance.openingMinor, cumulativeReceivedMinor: sub.receivedMinor - balance.openingMinor, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor }
+    : { id: sub.id, name: `${sub.name} (${sub.mode === "fixed" ? `${formatCurrencyMoney((sub.fixedMinor ?? 0) / 100, currency)} fixe` : `${((sub.basisPoints ?? 0) / 100).toLocaleString("fr-FR")} %`})`,
+      openingMinor: null, cumulativeReceivedMinor: sub.receivedMinor, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor });
+}
 export type AllocationFinancialField = keyof NonNullable<AllocationRow["financial"]>;
 export const unavailableAllocation = "Indisponible — répartition en préparation";
 /** Lot du 21/11 : sans répartition configurée (école et année actives), ni tableaux ni « Non affecté », à l'écran comme dans le PDF. */
@@ -146,6 +160,7 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
       if (m.originSchoolYearId !== workspace.year.id) arrears[table] += amount;
     }
     const reserved = ledger.balances.find(b => b.rubricId === rubric.id)?.reservedMinor ?? 0;
+    const subLines = allocationSubLines(ledger.balances.find(b => b.rubricId === rubric.id), workspace.currency);
     // This candidate does not create reservations. Fail explicitly rather than
     // display a balance that the three displayed components cannot explain.
     if (reserved) throw new Error("Réservations à rapprocher : le solde disponible ne peut pas être justifié par cette vue.");
@@ -161,7 +176,7 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
       table, rubricId: rubric.id, ...labels, ...("arrearsYearName" in rubric && rubric.arrearsYearName ? { arrearsYearName: rubric.arrearsYearName } : {}),
       financial: { receivedMinor: received[table], spentMinor: spent[index], openingMinor: opening[index],
         cumulativeReceivedMinor: cumulative[table], cumulativeSpentMinor: cumSpent[index], arrearsMinor: arrears[table], formerMinor: former[table],
-        availableMinor: opening[index] + cumulative[table] - cumSpent[index] } }));
+        availableMinor: opening[index] + cumulative[table] - cumSpent[index] }, ...(subLines ? { subLines } : {}) }));
   });
 }
 

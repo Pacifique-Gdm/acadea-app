@@ -54,6 +54,8 @@ export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, curr
           arrearsYearName: b.arrearsOf.originYearName, originSchoolYearId: b.arrearsOf.originSchoolYearId }))],
       movements: bounded, pagination: { page, hasNext, nextCursor: bounded.at(-1)?.id ?? null, fingerprint: digest },
       metrics: { movementReads: movements.docs.length, movementLimit: 101, transactionDocumentReads: documentReads, transactionAttempts: attempts },
-      balances: relevant.map(b => ({ rubricId: b.rubricId, openingMinor: b.openingMinor ?? 0, receivedMinor: b.receivedMinor, spentMinor: b.spentMinor, reservedMinor: b.reservedMinor, availableMinor: b.availableMinor })) };
+      balances: relevant.map(b => ({ rubricId: b.rubricId, openingMinor: b.openingMinor ?? 0, receivedMinor: b.receivedMinor, spentMinor: b.spentMinor, reservedMinor: b.reservedMinor, availableMinor: b.availableMinor,
+        // Soldes des sous-rubriques : transformés en lignes lisibles (subView) par buildAllocationWorkspace, puis retirés.
+        ...(b.subBalances && typeof b.subBalances === "object" ? { subBalances: b.subBalances } : {}) })) };
   });
 }

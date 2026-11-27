@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.41.0] — 2026-11-27 — Fonctionnalité
+- Soldes des sous-rubriques (et « Non affecté (rubrique) ») affichés sous chaque rubrique dans les tableaux 1-2-3, le PDF et la vue partagée
+
 ## [1.40.0] — 2026-11-27 — Fonctionnalité
 - Sous-rubriques pour toute rubrique depuis le drawer de la rubrique, sous-rubriques des cas sociaux dans la partie 2, bouton « Partie 2 » en double retiré
 
