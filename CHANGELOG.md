@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.35.0] — 2026-11-27 — Fonctionnalité
+- Réglages R6 : « Responsable des réglages de la section » désigné par l'administrateur, pris en compte par le calendrier et l'horaire
+
 ## [1.34.0] — 2026-11-26 — Fonctionnalité
 - Réglages R5 : horaire par section (brouillon, validation et publication par section)
 

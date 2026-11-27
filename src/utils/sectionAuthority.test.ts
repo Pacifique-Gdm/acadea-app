@@ -43,8 +43,27 @@ describe("périmètre de réglage par section (règle unique)", () => {
     expect(outside).toMatchObject({ wholeSchool: false, sections: [] });
   });
 
-  it("le paramètre prévu pour R6 ne change encore rien", () => {
-    const user = { sectionIds: ["Primaire" as const] };
-    expect(resolveSectionAuthority(user, complete, { sectionSettingsManagers: { Primaire: "autre" } })).toEqual(resolveSectionAuthority(user, complete));
+  it("R6 : sans responsable désigné, rien ne change", () => {
+    const user = { id: "u", sectionIds: ["Primaire" as const] };
+    expect(resolveSectionAuthority(user, complete, { sectionSettingsManagers: {} })).toEqual(resolveSectionAuthority(user, complete));
+    expect(resolveSectionAuthority(user, complete, { sectionSettingsManagers: { Primaire: "u" } })).toEqual(resolveSectionAuthority(user, complete));
+  });
+
+  it("R6 : une section confiée à un autre responsable n'est réglée que par lui", () => {
+    const managers = { Secondaire: "prefet" };
+    const director = resolveSectionAuthority({ id: "directeur", sectionIds: ["CTEB", "Secondaire"] }, complete, { sectionSettingsManagers: managers });
+    expect(director.sections).toEqual(["CTEB"]);
+    expect(canManageSections(director, ["CTEB"])).toBe(true);
+    expect(canManageSections(director, ["Secondaire"])).toBe(false);
+    expect(canManageSections(director, ["CTEB", "Secondaire"])).toBe(false);
+    const prefect = resolveSectionAuthority({ id: "prefet", sectionIds: ["Secondaire"] }, complete, { sectionSettingsManagers: managers });
+    expect(prefect.sections).toEqual(["Secondaire"]);
+    expect(canManageSections(prefect, ["Secondaire"])).toBe(true);
+    // Un compte de toute l'école garde les éléments « toute l'école » et les autres sections, mais pas la section confiée.
+    const wholeSchool = resolveSectionAuthority({ id: "ancien" }, complete, { sectionSettingsManagers: managers });
+    expect(wholeSchool).toMatchObject({ wholeSchool: true, sections: ["Maternelle", "Primaire", "CTEB"], managedByOthers: ["Secondaire"] });
+    expect(canManageSections(wholeSchool, [])).toBe(true);
+    expect(canManageSections(wholeSchool, ["Primaire"])).toBe(true);
+    expect(canManageSections(wholeSchool, ["Secondaire"])).toBe(false);
   });
 });

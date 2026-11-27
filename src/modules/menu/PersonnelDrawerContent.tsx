@@ -21,6 +21,7 @@ import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 import { useLoadRetry } from "../../hooks/useLoadRetry";
 import { studyFunctionLabel } from "../../utils/studyFunction";
+import { SectionSettingsManagerField } from "../../components/personnel/SectionSettingsManagerField";
 
 type ProfileForm = Partial<Omit<PersonnelProfile, "id" | "schoolId" | "personnelId" | "matricule" | "createdAt" | "createdBy" | "updatedAt" | "updatedBy">>;
 
@@ -157,6 +158,7 @@ export function PersonnelDrawerContent({ user, school, readOnly = false, allowed
       <div className="grid grid-cols-2 gap-2"><div className="relative min-w-0"><button ref={actionsDropdownRef} type="button" className="secondary-button w-full justify-center" aria-haspopup="menu" aria-expanded={actionsOpen} disabled={readOnly || busy || !profileReady || !isServicePersonnel(selected) && selected.role === "school_admin"} onClick={() => setActionsOpen((current) => !current)}>Actions <ChevronDown className="h-4 w-4"/></button>{!readOnly && actionsOpen && (isServicePersonnel(selected) || selected.role !== "school_admin") && <div role="menu" className="absolute left-0 right-0 top-full z-50 mt-1 grid rounded border border-slate-200 bg-white p-1 shadow-lg"><button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); openEdit(selected); }}><Pencil className="h-4 w-4"/> Modifier</button>{isArchivedPersonnel(selected) ? <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm hover:bg-slate-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("reactivate"); }}><ArchiveRestore className="h-4 w-4"/> Réactiver</button> : <button role="menuitem" type="button" className="flex min-h-10 items-center gap-2 rounded px-3 text-left text-sm text-red-700 hover:bg-red-50" onClick={() => { setActionsOpen(false); setStatusConfirmation(""); setConfirming("archive"); }}><Archive className="h-4 w-4"/> Archiver</button>}</div>}</div><button type="button" className="primary-button w-full justify-center" disabled={busy || !profileReady} onClick={() => void printPersonnelProfilePdf(school, selected, profile)}><Printer className="h-4 w-4"/> Imprimer</button></div>
       {user.role === "school_admin" && <button type="button" className="secondary-button mt-2 w-full justify-center" onClick={() => setPayrollOpen(true)}>Paiements du personnel — justificatifs</button>}
       {!profileReady && <p role="status" className="py-4 text-center text-sm text-slate-500">Chargement de la fiche administrative…</p>}
+      {user.role === "school_admin" && !isServicePersonnel(selected) && <SectionSettingsManagerField admin={user} school={school} target={selected} personnel={personnel}/>}
       {profileReady && (
         <PersonnelProfileReadOnly personnel={selected} profile={profile}/>
       )}

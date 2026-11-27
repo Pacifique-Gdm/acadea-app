@@ -21,6 +21,7 @@ import { ModifiedBy } from "../../components/ui/ModifiedBy";
 import { userFacingError } from "../../utils/userFacingError";
 import type { SchoolSection } from "../../types";
 import { resolveSectionAuthority } from "../../utils/sectionAuthority";
+import { useSectionSettingsManagers } from "../../hooks/useSectionSettingsManagers";
 import { sectionTimetableProblem, timetableInScope, timetableSection, validateSectionTimetable } from "./sectionTimetable";
 
 type View = "class" | "teacher" | "day";
@@ -38,7 +39,9 @@ export function StudySchedulesModule({ user, school, year, data }: { user: AppUs
   // un compte limité à des sections construit l'horaire de chacune de ses sections.
   const [scopeChoice, setScopeChoice] = useState<string>();
   // Règle unique des sections (fonction commune R4) ; point d'extension R6 : responsable désigné.
-  const authority = resolveSectionAuthority(user, school);
+  // Lot R6 : une section confiée à un responsable désigné n'est réglée que par lui.
+  const { authorityManagers } = useSectionSettingsManagers(school.id);
+  const authority = resolveSectionAuthority(user, school, { sectionSettingsManagers: authorityManagers });
   const scopeChoices: Array<SchoolSection | ""> = authority.wholeSchool
     ? (data.timetables.some((item) => timetableSection(item)) ? ["", ...authority.schoolSections] : [""])
     : authority.sections.length ? authority.sections : [""];

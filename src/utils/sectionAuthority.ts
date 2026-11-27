@@ -20,34 +20,34 @@ export interface SectionAuthority {
   sections: SchoolSection[];
   /** Sections de l'école. */
   schoolSections: SchoolSection[];
+  /** R6 : sections confiées à un autre responsable désigné (présent seulement s'il y en a). */
+  managedByOthers?: SchoolSection[];
 }
 
 export interface SectionAuthorityOptions {
   /**
-   * Point d'extension pour le lot R6 (« responsable des réglages de la section ») :
-   * section → identifiant du compte désigné. Quand il sera branché, seul le compte
-   * désigné pourra régler une telle section. NON UTILISÉ pour l'instant : le
-   * résultat est identique avec ou sans ce paramètre.
+   * Lot R6 (« responsable des réglages de la section ») : section → identifiant du compte désigné.
+   * Dans une section qui a un responsable désigné, seul lui la règle ; les autres sections
+   * suivent la règle unique des sections. Sans désignation : résultat inchangé.
    */
   sectionSettingsManagers?: Partial<Record<SchoolSection, string>>;
 }
 
 export function resolveSectionAuthority(
-  user: Pick<AppUser, "section" | "sectionIds">,
+  user: Pick<AppUser, "section" | "sectionIds"> & { id?: string },
   school: Pick<School, "educationLevels" | "schoolType">,
-  // R6 : options.sectionSettingsManagers sera lu ici.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _options: SectionAuthorityOptions = {},
+  options: SectionAuthorityOptions = {},
 ): SectionAuthority {
   const schoolSections = getSchoolSections(school);
   const assigned = userSectionIds(user);
   const wholeSchool = assigned.length === 0
     || (schoolSections.length > 0 && schoolSections.every((section) => assigned.includes(section)));
-  return {
-    wholeSchool,
-    sections: wholeSchool ? [...schoolSections] : schoolSections.filter((section) => assigned.includes(section)),
-    schoolSections,
-  };
+  const sections = wholeSchool ? [...schoolSections] : schoolSections.filter((section) => assigned.includes(section));
+  // R6 : une section confiée à un autre compte désigné n'est plus réglable par celui-ci.
+  const managers = options.sectionSettingsManagers ?? {};
+  const managedByOthers = schoolSections.filter((section) => Boolean(managers[section]) && managers[section] !== user.id);
+  if (!managedByOthers.length) return { wholeSchool, sections, schoolSections };
+  return { wholeSchool, sections: sections.filter((section) => !managedByOthers.includes(section)), schoolSections, managedByOthers };
 }
 
 /**
@@ -56,6 +56,7 @@ export function resolveSectionAuthority(
  * Sinon, toutes les sections de l'élément doivent faire partie de son périmètre.
  */
 export function canManageSections(authority: SectionAuthority, sections?: readonly SchoolSection[] | null): boolean {
+  if (sections?.some((section) => authority.managedByOthers?.includes(section))) return false;
   if (authority.wholeSchool) return true;
   if (!sections || sections.length === 0) return false;
   return sections.every((section) => authority.sections.includes(section));

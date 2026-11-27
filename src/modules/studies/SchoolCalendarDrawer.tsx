@@ -3,6 +3,7 @@ import { AdminDrawer } from "../../components/ui";
 import type { AppUser, School, SchoolSection, SchoolYear } from "../../types";
 import { calendarEventSections, calendarStatusForSection, defaultEventSuspendsCourses, validCalendarDate, validateCalendarEvent, type CalendarEventKind, type SchoolCalendarEvent } from "./schoolCalendar";
 import { canManageSections, resolveSectionAuthority } from "../../utils/sectionAuthority";
+import { useSectionSettingsManagers } from "../../hooks/useSectionSettingsManagers";
 import { schoolSectionLabels } from "../../utils/schoolConfig";
 import { analyzeCalendarPdf, isImportablePdfCandidate, type PdfAnalysis } from "./calendarPdfImport";
 import { downloadCalendarPdf, removeUnreferencedCalendarPdf, uploadCalendarPdf } from "./calendarPdfStorage";
@@ -28,7 +29,9 @@ export function SchoolCalendarDrawer({ user, school, years, selectedYear, onClos
   const year = scopedYears.find((item) => item.id === yearId) ?? selectedYear;
   const { calendar, loading, error: loadError, retry: retryCalendar } = useSchoolCalendar(user, school.id, year.id);
   // Lot R4 : règle unique des sections (toute l'école, ou seulement ses sections).
-  const authority = useMemo(() => resolveSectionAuthority(user, school), [user, school]);
+  // Lot R6 : une section confiée à un responsable désigné n'est réglée que par lui.
+  const { authorityManagers } = useSectionSettingsManagers(school.id);
+  const authority = useMemo(() => resolveSectionAuthority(user, school, { sectionSettingsManagers: authorityManagers }), [user, school, authorityManagers]);
   const defaultSections = authority.wholeSchool ? undefined : authority.sections;
   const canEdit = (event: SchoolCalendarEvent) => canManageSections(authority, calendarEventSections(event));
   const [events, setEvents] = useState<SchoolCalendarEvent[]>([]);
@@ -122,7 +125,8 @@ export function SchoolCalendarDrawer({ user, school, years, selectedYear, onClos
       <ErrorNotice error={loadError} onRetry={retryCalendar} />
       {!loading && !loadError && <>
         <p className="text-sm font-semibold">{calendar ? calendar.status === "validated" ? "Calendrier validé" : "Calendrier en brouillon" : "Calendrier scolaire non configuré"}</p>
-        {calendar && !authority.wholeSchool && <p className="text-sm">Vos sections ({sectionNames(authority.sections)}) : {authority.sections.length > 0 && authority.sections.every((section) => calendarStatusForSection(calendar, section) === "validated") ? "validées" : "en brouillon"}. Les événements des autres sections et ceux de toute l’école sont en lecture seule.</p>}
+        {calendar && !authority.wholeSchool && authority.sections.length === 0 && authority.managedByOthers?.length ? <p className="text-sm">Vos sections sont réglées par leur responsable désigné : le calendrier est en lecture seule.</p> : null}
+        {calendar && !authority.wholeSchool && authority.sections.length > 0 && <p className="text-sm">Vos sections ({sectionNames(authority.sections)}) : {authority.sections.length > 0 && authority.sections.every((section) => calendarStatusForSection(calendar, section) === "validated") ? "validées" : "en brouillon"}. Les événements des autres sections et ceux de toute l’école sont en lecture seule.</p>}
         {calendar?.updatedBy && <ModifiedBy userId={calendar.updatedBy} schoolId={school.id} at={calendar.updatedAt} />}
         <div className="flex items-center justify-between gap-2"><button type="button" className="secondary-button" onClick={() => setMonth((value) => { const date = new Date(`${value}-01T12:00:00Z`); date.setUTCMonth(date.getUTCMonth() - 1); return date.toISOString().slice(0, 7); })}>Mois précédent</button><strong>{month}</strong><button type="button" className="secondary-button" onClick={() => setMonth((value) => { const date = new Date(`${value}-01T12:00:00Z`); date.setUTCMonth(date.getUTCMonth() + 1); return date.toISOString().slice(0, 7); })}>Mois suivant</button></div>
         <div className="grid grid-cols-7 gap-1 text-center text-xs sm:text-sm">{["L", "M", "M", "J", "V", "S", "D"].map((label, index) => <strong key={index}>{label}</strong>)}{Array.from({ length: offset }, (_, index) => <span key={`empty-${index}`} />)}{days.map((day) => { const scheduled = events.filter((event) => event.startsAt <= day && day <= event.endsAt); return <button key={day} type="button" className={`rounded border p-1 ${scheduled.length ? "border-amber-400 bg-amber-50" : "border-slate-200"}`} title={scheduled.map((item) => item.title).join(", ") || day} onClick={() => setEditing({ ...blank(defaultSections), startsAt: day, endsAt: day })}>{Number(day.slice(-2))}</button>; })}</div>
