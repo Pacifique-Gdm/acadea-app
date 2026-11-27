@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { authoritySections, authoritySectionsFor, comparableSection, NO_VALID_SECTION } from "./studySectionScope.js";
+import { authoritySections, authoritySectionsFor, comparableSection } from "./studySectionScope.js";
 import { reviewAvailabilityRequest } from "./teacherAvailabilityRequests.js";
 import { readDisciplineClasses } from "./disciplineClassesRead.js";
 
@@ -26,7 +26,7 @@ describe("authoritySections", () => {
     expect(authoritySections({ sectionIds: ["Maternelle"] }, { schoolType: "CTEB et Secondaire" })).toEqual(["Maternelle"]);
   });
   it("sections invalides : jamais élargi", () => {
-    expect(authoritySections({ sectionIds: ["Lycée"] }, mixte)).toEqual([NO_VALID_SECTION]);
+    expect(authoritySections({ sectionIds: ["Lycée"] }, mixte)).toEqual(["Lycée"]);
   });
   it("lit l'école seulement si le compte a des sections ; école illisible = prudence", async () => {
     let reads = 0;

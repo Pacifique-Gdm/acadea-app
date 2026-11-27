@@ -22,11 +22,10 @@ export function profileSections(profile) {
  * Sinon ses sections présentes dans l'école ; à défaut (sections absentes de l'école) ses propres sections,
  * pour ne jamais élargir un compte limité à toute l'école.
  */
-export const NO_VALID_SECTION = "__aucune-section-valide__";
-
 export function authoritySections(user, school) {
-  // Sections renseignées mais toutes invalides : le compte reste limité (il ne voit que ce qui n'a pas de section).
-  if (!userSectionIds(user ?? {}).length && profileSections(user).length) return [NO_VALID_SECTION];
+  // Sections renseignées mais toutes invalides : le compte reste limité à ces valeurs telles qu'écrites
+  // (comme avant), jamais élargi à toute l'école.
+  if (!userSectionIds(user ?? {}).length && profileSections(user).length) return profileSections(user);
   const authority = resolveSectionAuthority(user ?? {}, school ?? {});
   if (authority.wholeSchool) return [];
   return authority.sections.length ? authority.sections : userSectionIds(user ?? {});
