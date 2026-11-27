@@ -3,7 +3,7 @@ import { deleteRubric, loadRubricCatalog, renameRubric, type AllocationCatalogRu
 import { BUTTON_ROW, HandTypedPhraseField, RENAME_PHRASE, ShareRubricButton } from "./FeeAllocationSharing";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
-import { SubRubricsPanel, type RubricWithSubs } from "./SubRubricsPanel";
+import { SubRubricsSection, type RubricWithSubs } from "./SubRubricsPanel";
 
 const message = (cause: unknown) => userFacingError(cause, "Rubriques indisponibles.");
 
@@ -57,10 +57,8 @@ export function RubricCatalogPanel({ schoolId, onChanged, order = [], shares, on
             {shares && onSharesChanged && <ShareRubricButton schoolId={schoolId} rubric={rubric} shares={shares} onChanged={onSharesChanged} />}
             {rubric.used === false && <button type="button" className="secondary-button w-full justify-center" disabled={!!busy} onClick={() => void run(`delete-${rubric.id}`, () => deleteRubric(schoolId, rubric.id))}>Supprimer</button>}
           </span>
-          {(() => { const withSubs = rubric as AllocationCatalogRubric & RubricWithSubs; const count = withSubs.subRubrics?.length ?? 0; return <>
-            <span className={BUTTON_ROW}><button type="button" className="secondary-button w-full justify-center" aria-expanded={subOpen === rubric.id} onClick={() => setSubOpen(subOpen === rubric.id ? "" : rubric.id)}>{subOpen === rubric.id ? "Fermer les sous-rubriques" : `Sous-rubriques${count ? ` (${count})` : ""}`}</button></span>
-            {subOpen === rubric.id && <SubRubricsPanel key={JSON.stringify(withSubs.subRubrics ?? [])} schoolId={schoolId} rubric={withSubs} currency={currency} onSaved={() => { void refresh(); onChanged(); }} />}
-          </>; })()}</>}
+          <SubRubricsSection schoolId={schoolId} rubric={rubric as AllocationCatalogRubric & RubricWithSubs} currency={currency} open={subOpen === rubric.id}
+            onToggle={() => setSubOpen(subOpen === rubric.id ? "" : rubric.id)} onSaved={() => { void refresh(); onChanged(); }} /></>}
     </li>)}</ul>
     {rubrics && !sorted.length && <p className="mt-2 text-slate-600">Aucune rubrique pour cette année. Utilisez « + Ajouter » puis « + Nouvelle rubrique… ».</p>}
   </details>;

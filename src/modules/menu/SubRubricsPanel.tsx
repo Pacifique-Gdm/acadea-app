@@ -104,3 +104,14 @@ export function SubRubricsPanel({ schoolId, rubric, currency, onSaved }: { schoo
     </div>
   </section>;
 }
+
+/** Bouton « Sous-rubriques » (seul sur sa ligne, pleine largeur) et le panneau qu'il ouvre sous la rubrique. */
+export function SubRubricsSection({ schoolId, rubric, currency, open, onToggle, onSaved }: {
+  schoolId: string; rubric: RubricWithSubs; currency?: string; open: boolean; onToggle: () => void; onSaved: () => void;
+}) {
+  const count = rubric.subRubrics?.length ?? 0;
+  return <>
+    <span className={BUTTON_ROW}><button type="button" className="secondary-button w-full justify-center" aria-expanded={open} onClick={onToggle}>{open ? "Fermer les sous-rubriques" : `Sous-rubriques${count ? ` (${count})` : ""}`}</button></span>
+    {open && <SubRubricsPanel key={JSON.stringify(rubric.subRubrics ?? [])} schoolId={schoolId} rubric={rubric} currency={currency} onSaved={onSaved} />}
+  </>;
+}
