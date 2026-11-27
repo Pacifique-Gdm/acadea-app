@@ -14,6 +14,9 @@ import { sameAllocationRubrics, validateFeeAllocationRubrics } from "./feeAlloca
 import { evidenceRevisionRef } from "./feeAllocationRevision.js";
 import { allocationHash as hash, allocationFail as fail, allocationIdentifier as id } from "./feeAllocationRuntime.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
+import { allocationStateId } from "./feeAllocationRuntime.js";
+import { isCatalogRubricId, validateSocialSubOverrides } from "./feeAllocationSubRubrics.js";
+import { rubricCatalogId } from "./feeAllocationRubrics.js";
 
 export const socialPartActions = new Set(["get-social-part", "get-social-parts", "publish-social-part", "publish-social-parts"]);
 /** Phrase que l'Administrateur tape lui-même pour publier une partie 2. */
@@ -95,15 +98,20 @@ export async function manageSocialPart({ db, caller, body, now = new Date().toIS
     return { items: items.filter(Boolean).sort((a, b) => a.feeName.localeCompare(b.feeName, "fr") || label(a).localeCompare(label(b), "fr")), operational: false };
   }
   // publish-social-parts : tous les frais modifiés en une seule fois, tout passe ou rien ne passe.
-  if (Object.keys(body).some((key) => !["action", "requestId", "confirmation", "items"].includes(key))) fail("Demande invalide.", "invalid-argument", 400);
+  if (Object.keys(body).some((key) => !["action", "requestId", "confirmation", "items", "socialSubRubrics"].includes(key))) fail("Demande invalide.", "invalid-argument", 400);
+  // F2 (27/11/2026) : sous-rubriques des cas sociaux, une seule répartition par rubrique pour tous les frais, publiées avec la partie 2.
+  const subEntries = body.socialSubRubrics === undefined ? [] : body.socialSubRubrics && typeof body.socialSubRubrics === "object" && !Array.isArray(body.socialSubRubrics)
+    ? Object.entries(body.socialSubRubrics) : null;
+  if (!subEntries || subEntries.length > 40 || subEntries.some(([rubricId]) => !isCatalogRubricId(rubricId))) fail("Demande invalide.", "invalid-argument", 400);
   if (!isAdmin(caller.role)) fail("Action réservée à l'Administrateur.", "permission-denied", 403);
   if (body.confirmation !== SOCIAL_PUBLISH_CONFIRMATION) fail(`Tapez exactement « ${SOCIAL_PUBLISH_CONFIRMATION} » pour publier la partie 2.`, "invalid-argument", 400);
-  if (!id(body.requestId) || body.requestId.length < 12 || !Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_SOCIAL_ITEMS
+  if (!id(body.requestId) || body.requestId.length < 12 || !Array.isArray(body.items) || body.items.length < (subEntries.length ? 0 : 1) || body.items.length > MAX_SOCIAL_ITEMS
     || body.items.some((item) => !item || typeof item !== "object" || Object.keys(item).some((key) => !["feeTypeId", "expectedPartOneVersionId", "expectedSocialVersionId", "rubrics"].includes(key))
       || !id(item.feeTypeId) || !id(item.expectedPartOneVersionId) || !(item.expectedSocialVersionId === null || id(item.expectedSocialVersionId)))
     || new Set(body.items.map((item) => item.feeTypeId)).size !== body.items.length) fail("Demande invalide.", "invalid-argument", 400);
-  await readFeeAllocationScope(db, caller, caller.schoolId);
+  const { school: scopedSchool } = await readFeeAllocationScope(db, caller, caller.schoolId);
   const schoolId = caller.schoolId, fingerprint = hash(body);
+  const subCurrency = subEntries.length ? (await readFeeAllocationYear(db, schoolId, scopedSchool, undefined, false)).currency : null;
   const receiptRef = db.doc(`feeAllocationRequests/social_${hash([caller.uid, schoolId, body.requestId])}`);
   return db.runTransaction(async (tx) => {
     const [schoolSnap, userSnap, receiptSnap] = await Promise.all([tx.get(db.doc(`schools/${schoolId}`)), tx.get(db.doc(`users/${caller.uid}`)), tx.get(receiptRef)]);
@@ -137,6 +145,17 @@ export async function manageSocialPart({ db, caller, body, now = new Date().toIS
       if ((await tx.get(versionRef)).exists) fail("Cette partie 2 a déjà été publiée.");
       rows.push({ configId, configRef, previousRef, versionRef, version });
     }
+    const subRows = [];
+    if (subEntries.length) {
+      const state = (await tx.get(db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, subCurrency)}`))).data();
+      if (!["ACTIVE", "PAUSED"].includes(state?.status)) fail("Les sous-rubriques seront disponibles quand la répartition sera activée.");
+      for (const [rubricId, overrides] of subEntries) {
+        const ref = db.doc(`feeAllocationRubrics/${rubricId}`);
+        const rubric = (await tx.get(ref)).data();
+        if (!rubric || rubric.schoolId !== schoolId || rubric.schoolYearId !== yearId || !Array.isArray(rubric.subRubrics) || !rubric.subRubrics.length) fail("Rubrique sans sous-rubrique pour cette école et cette année.", "invalid-argument", 400);
+        subRows.push({ ref, rubricId, clean: validateSocialSubOverrides(overrides, rubric.subRubrics) });
+      }
+    }
     for (const { configId, configRef, previousRef, versionRef, version } of rows) {
       tx.create(versionRef, version);
       if (previousRef) tx.update(previousRef, { status: "superseded", supersededAt: now });
@@ -146,9 +165,18 @@ export async function manageSocialPart({ db, caller, body, now = new Date().toIS
         actor: caller, schoolId, schoolYearId: yearId, resourceType: "feeAllocation", resourceId: configId,
         metadata: { feeTypeId: version.feeTypeId, socialVersion: version.version, copyOfPartOne: version.copyOfPartOne, publishedTogether: rows.length } }));
     }
+    for (const { ref, clean } of subRows) tx.update(ref, { socialSubRubrics: clean, updatedAt: now, updatedBy: caller.uid });
+    if (subRows.length) {
+      const auditId = `audit_allocation_${hash([caller.uid, schoolId, "social-subs", body.requestId]).slice(0, 32)}`;
+      tx.create(db.doc(`auditLogs/${auditId}`), buildServerAudit({ id: auditId, eventType: AUDIT_EVENT_TYPES.FINANCE_ALLOCATION_SOCIAL_PART_PUBLISHED,
+        actor: caller, schoolId, schoolYearId: yearId, resourceType: "feeAllocation", resourceId: rubricCatalogId(schoolId, yearId),
+        metadata: { socialSubRubrics: subRows.length, publishedTogether: rows.length } }));
+      // Les drawers ouverts relisent le catalogue des rubriques.
+      tx.set(db.doc(`feeAllocationRubricCatalogs/${rubricCatalogId(schoolId, yearId)}`), { schoolId, schoolYearId: yearId, revision: hash([fingerprint, now]) }, { merge: true });
+    }
     tx.set(evidenceRevisionRef(db, schoolId, yearId), { schoolId, schoolYearId: yearId, revision: fingerprint });
     tx.set(db.doc(`feeAllocationForecastSignals/${hash([schoolId, yearId])}`), { schoolId, schoolYearId: yearId, revision: fingerprint });
-    const result = { socials: rows.map((row) => row.version), operational: false };
+    const result = { socials: rows.map((row) => row.version), ...(subRows.length ? { socialSubRubrics: Object.fromEntries(subRows.map((row) => [row.rubricId, row.clean])) } : {}), operational: false };
     tx.create(receiptRef, { schoolId, schoolYearId: yearId, userId: caller.uid, fingerprint, result, createdAt: now });
     return { ...result, idempotent: false };
   });

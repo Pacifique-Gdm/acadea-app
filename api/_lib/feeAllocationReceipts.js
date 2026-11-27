@@ -299,7 +299,7 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   const priorLines = linesAt(before), nextLines = linesAt(after);
   const lines = nextLines.map((s, i) => ({ rubricId: s.rubricId, amountMinor: s.amountMinor - priorLines[i].amountMinor }));
   // Lots 5 et 6 : part de chaque sous-rubrique (montant fixe par élève et par frais d'abord, puis les pourcentages).
-  const subs = await prepareSubRubricReceipt({ db, transaction, schoolId: source.schoolId, schoolYearId: collectionYear, lines, priorLines, nextLines, total });
+  const subs = await prepareSubRubricReceipt({ db, transaction, schoolId: source.schoolId, schoolYearId: collectionYear, lines, priorLines, nextLines, total, social: !!socialSegments });
   const balanceRows = await Promise.all(lines.map(async line => {
     const ref = db.doc(`feeAllocationBalances/${feeAllocationBalanceId(source.schoolId, collectionYear, source.currency, line.rubricId)}`);
     const snapshot = await transaction.get(ref), balance = snapshot.data();

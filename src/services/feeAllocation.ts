@@ -21,7 +21,9 @@ export type AllocationWorkspace = {
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
       originSchoolYearId: string; postedAt: string; socialCase?: boolean; formerStudent?: boolean }[];
-    balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number }[] };
+    balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number;
+      /** Soldes des sous-rubriques, puis « Non affecté (rubrique) » (id UNALLOCATED), seulement si la rubrique en a. */
+      subView?: { id: string; name: string; mode?: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number; receivedMinor: number; spentMinor: number; availableMinor: number }[] }[] };
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;
   targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[];
@@ -150,7 +152,11 @@ export async function loadSocialParts(schoolId: string) {
 }
 export type SocialPartRubricInput = { id: string; mode: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number };
 export type PublishSocialParts = { requestId: string; confirmation: string;
-  items: Array<{ feeTypeId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null; rubrics: SocialPartRubricInput[] }> };
+  items: Array<{ feeTypeId: string; expectedPartOneVersionId: string; expectedSocialVersionId: string | null; rubrics: SocialPartRubricInput[] }>;
+  /** F2 : écarts des sous-rubriques des cas sociaux avec la partie 1, par rubrique (une répartition pour tous les frais). */
+  socialSubRubrics?: Record<string, SocialSubOverrides> };
+export type SocialSubOverride = { removed: true } | { mode: "percent"; basisPoints: number } | { mode: "fixed"; fixedMinor: number };
+export type SocialSubOverrides = Record<string, SocialSubOverride>;
 /** Tous les frais modifiés en une seule fois : tout passe ou rien ne passe. */
 export async function publishSocialParts(request: PublishSocialParts) {
   const result = await allocationRequest<{ socials: FeeAllocationSocialVersion[] }>("publish-social-parts", request);

@@ -3,7 +3,6 @@ import { deleteRubric, loadRubricCatalog, renameRubric, type AllocationCatalogRu
 import { BUTTON_ROW, HandTypedPhraseField, RENAME_PHRASE, ShareRubricButton } from "./FeeAllocationSharing";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
-import { SubRubricsSection, type RubricWithSubs } from "./SubRubricsPanel";
 
 const message = (cause: unknown) => userFacingError(cause, "Rubriques indisponibles.");
 
@@ -20,10 +19,9 @@ export function RubricCatalogPanel({ schoolId, onChanged, order = [], shares, on
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null);
   // Version 1.15.2 : « RENOMMER CETTE RUBRIQUE » tapée à la main ; bouton bloqué tant que la phrase n'est pas exacte.
   const [renameTyped, setRenameTyped] = useState("");
-  // Lots 5 et 6 : sous-rubriques d'une rubrique, ouvertes une à la fois.
-  const [subOpen, setSubOpen] = useState(""), [currency, setCurrency] = useState<string>();
+  // F2 (27/11/2026) : le bouton « Sous-rubriques » a quitté cette liste ; il est dans le drawer de la rubrique (Répartition).
   const refresh = useCallback(async () => {
-    try { const catalog = await loadRubricCatalog(schoolId); setRubrics(catalog.rubrics); setCurrency(catalog.currency); setError(""); } catch (cause) { setError(message(cause)); }
+    try { const catalog = await loadRubricCatalog(schoolId); setRubrics(catalog.rubrics); setError(""); } catch (cause) { setError(message(cause)); }
   }, [schoolId]);
   useEffect(() => { void refresh(); }, [refresh]);
   async function run(key: string, action: () => Promise<unknown>) {
@@ -56,9 +54,7 @@ export function RubricCatalogPanel({ schoolId, onChanged, order = [], shares, on
             <button type="button" className="secondary-button w-full justify-center" disabled={!!busy} onClick={() => { setEditing({ id: rubric.id, name: rubric.name }); setRenameTyped(""); }}>Renommer</button>
             {shares && onSharesChanged && <ShareRubricButton schoolId={schoolId} rubric={rubric} shares={shares} onChanged={onSharesChanged} />}
             {rubric.used === false && <button type="button" className="secondary-button w-full justify-center" disabled={!!busy} onClick={() => void run(`delete-${rubric.id}`, () => deleteRubric(schoolId, rubric.id))}>Supprimer</button>}
-          </span>
-          <SubRubricsSection schoolId={schoolId} rubric={rubric as AllocationCatalogRubric & RubricWithSubs} currency={currency} open={subOpen === rubric.id}
-            onToggle={() => setSubOpen(subOpen === rubric.id ? "" : rubric.id)} onSaved={() => { void refresh(); onChanged(); }} /></>}
+          </span></>}
     </li>)}</ul>
     {rubrics && !sorted.length && <p className="mt-2 text-slate-600">Aucune rubrique pour cette année. Utilisez « + Ajouter » puis « + Nouvelle rubrique… ».</p>}
   </details>;
