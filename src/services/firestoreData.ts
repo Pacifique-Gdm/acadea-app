@@ -7,7 +7,7 @@ import { loadSuperAdminInitialData } from "./superAdminData";
 import type { AppData, AppUser } from "../types";
 import { resolveDefaultSchoolYear } from "../utils/schoolYears";
 import { userSectionIds } from "../utils/userSections";
-import { disciplineAttendanceScope, disciplineParentScope, disciplineSanctionScope, disciplineStudentScope } from "../utils/disciplineSectionScope";
+import { disciplineAttendanceScope, disciplineParentScope, disciplineSanctionScope, disciplineStudentScope, hasDeclaredSections } from "../utils/disciplineSectionScope";
 import { canonicalSchoolOption, normalizeSchoolOptions } from "../utils/schoolOptions";
 
 type CollectionKey = keyof AppData;
@@ -451,7 +451,7 @@ export async function loadFirestoreData(
     if (user.role === "discipline_director") {
       const disciplineSections = disciplineStudentQuerySections(user);
       [scopedData.students, scopedData.parents, scopedData.messages, scopedData.notifications, scopedData.disciplineSanctions, scopedData.attendance, scopedData.attendanceSettings, scopedData.valves] = await Promise.all([
-        omitted.has("students") ? Promise.resolve([]) : disciplineSections ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, disciplineSections) : Promise.resolve([]),
+        omitted.has("students") ? Promise.resolve([]) : disciplineSections ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, disciplineSections) : hasDeclaredSections(user) ? Promise.resolve([]) : loadCollection<AppData["students"][number]>("students", annualFilter),
         maybeLoad("parents", () => loadCollection<AppData["parents"][number]>("parents", schoolFilter)),
         loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
         loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
@@ -536,7 +536,7 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
   const assignedSections = userSectionIds(user);
 
   const [loadedStudents, loadedParents, loadedMessages, loadedNotifications, loadedSanctions, loadedAttendance, loadedAttendanceSettings, loadedValves] = await Promise.all([
-    assignedSections.length ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, assignedSections) : Promise.resolve([]),
+    assignedSections.length ? loadCollectionInSections<AppData["students"][number]>("students", annualFilter, assignedSections) : hasDeclaredSections(user) ? Promise.resolve([]) : loadCollection<AppData["students"][number]>("students", annualFilter),
     loadCollection<AppData["parents"][number]>("parents", schoolFilter),
     loadCollection<AppData["messages"][number]>("messages", [...annualFilter, ["schoolRecipient", "discipline"]]),
     loadCollection<AppData["notifications"][number]>("notifications", [...annualFilter, ["recipientRole", "school"], ["schoolRecipient", "discipline"]]),
@@ -555,7 +555,8 @@ export async function loadDisciplineYearData(user: AppUser, schoolYearId: string
     notifications: user.role === "discipline_director" ? loadedNotifications.filter((notification) => !notification.disciplineSanctionId || allowedSanctionIds.has(notification.disciplineSanctionId)) : loadedNotifications,
     disciplineSanctions: allowedSanctions,
     attendance: disciplineAttendanceScope(user, loadedAttendance, students),
-    attendanceSettings: user.role === "discipline_director" && assignedSections.length === 0 ? [] : loadedAttendanceSettings,
+    // Règle unique des sections : sans section = toute l'école ; sections invalides = rien.
+    attendanceSettings: user.role === "discipline_director" && assignedSections.length === 0 && hasDeclaredSections(user) ? [] : loadedAttendanceSettings,
     valves: loadedValves,
   };
 }

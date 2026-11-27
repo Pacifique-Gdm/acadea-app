@@ -1,3 +1,4 @@
+import { authoritySections, comparableSection } from "./studySectionScope.js";
 import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 
@@ -56,9 +57,9 @@ export async function syncOfflineAttendance({ db, caller, body }) {
       || student.data()?.status !== "ACTIVE" || student.data()?.deletedAt) {
       throw new OfflineAttendanceError(409, "offline-conflict", "Élève absent ou transféré depuis la saisie locale.");
     }
-    const assignedSections = Array.isArray(user.data()?.sectionIds) && user.data().sectionIds.length
-      ? user.data().sectionIds : user.data()?.section ? [user.data().section] : [];
-    if (!assignedSections.length || !assignedSections.includes(student.data()?.section)) {
+    // Règle unique des sections (lot B) : sans section, ou sections couvrant toute l'école = toute l'école.
+    const assignedSections = authoritySections(user.data(), school.data());
+    if (assignedSections.length && !assignedSections.includes(comparableSection(student.data()?.section))) {
       throw new OfflineAttendanceError(403, "permission-denied", "Section de l'élève hors du périmètre du Directeur de Discipline.");
     }
     if (version(prior) !== expectedAttendanceVersion) {

@@ -1,10 +1,10 @@
+import { authoritySectionsFor, comparableSection } from "./studySectionScope.js";
 import { GradingApiError } from "./teacherGrading.js";
 
 const roles = new Set(["study_director", "cashier", "parent", "discipline_director", "secretary", "teacher"]);
 const docs = (snapshot) => snapshot.docs.map((document) => ({ id: document.id, ...document.data() }));
 const required = (value) => typeof value === "string" && value.trim() ? value.trim() : "";
 const scope = (db, collection, schoolId, schoolYearId) => db.collection(collection).where("schoolId", "==", schoolId).where("schoolYearId", "==", schoolYearId).get().then(docs);
-const sectionsFor = (user) => Array.isArray(user.sectionIds) && user.sectionIds.length ? user.sectionIds : user.section ? [user.section] : [];
 
 export async function executeSchoolYearArchive({ db, caller, body }) {
   const schoolId = required(body.schoolId);
@@ -27,10 +27,11 @@ export async function executeSchoolYearArchive({ db, caller, body }) {
   const yearSnapshot = await db.doc(`schoolYears/${schoolYearId}`).get();
   const year = yearSnapshot.data();
   if (!yearSnapshot.exists || year?.schoolId !== schoolId || year?.status !== "archived") throw new GradingApiError(403, "permission-denied", "Année archivée non autorisée.");
-  const sections = sectionsFor(user);
   if (caller.role === "study_director") {
+    // Règle unique des sections : un compte qui couvre toute l'école voit toutes les classes.
+    const studySections = await authoritySectionsFor(db, user, schoolId);
     const classes = (await scope(db, "classes", schoolId, schoolYearId))
-      .filter((item) => !sections.length || sections.includes(item.section))
+      .filter((item) => !studySections.length || studySections.includes(comparableSection(item.section)))
       .map((item) => ({ label: item.name, detail: item.option ? `Option : ${item.option}` : "Classe" }));
     return { year: { id: schoolYearId, name: year.name }, title: "Archives pédagogiques", items: classes };
   }
@@ -74,7 +75,9 @@ export async function executeSchoolYearArchive({ db, caller, body }) {
       .map((item) => ({ label: subjectById.get(item.subjectId) ?? "Cours", detail: classById.get(item.classId) ?? "Classe" })) };
   }
   if (caller.role === "discipline_director") {
-    const students = sections.length ? (await scope(db, "students", schoolId, schoolYearId)).filter((student) => sections.includes(student.section)) : [];
+    // Règle unique des sections (lot B) : sans section, ou sections couvrant toute l'école = toute l'école.
+    const disciplineSections = await authoritySectionsFor(db, user, schoolId);
+    const students = (await scope(db, "students", schoolId, schoolYearId)).filter((student) => !disciplineSections.length || disciplineSections.includes(comparableSection(student.section)));
     const studentIds = new Set(students.map((student) => student.id));
     const sanctions = await scope(db, "disciplineSanctions", schoolId, schoolYearId);
     const visibleSanctions = sanctions.filter((item) => studentIds.has(item.studentId));

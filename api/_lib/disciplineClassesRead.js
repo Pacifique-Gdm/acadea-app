@@ -1,3 +1,4 @@
+import { authoritySectionsFor } from "./studySectionScope.js";
 import { requireActiveApiUser } from "./activeUser.js";
 import { PublishedTimetableReadError } from "./publishedTimetableRead.js";
 import { studyClassSection, userSectionIds } from "./timetableValidationBundle.js";
@@ -15,9 +16,10 @@ export async function readDisciplineClasses({ db, caller, schoolYearId }) {
   ]);
   const profile = profileSnapshot.data();
   if (!profile || profile.archivedAt || !yearSnapshot.exists || yearSnapshot.data()?.schoolId !== caller.schoolId) denied();
-  const sections = userSectionIds(profile);
   // Invalid assigned sections must never expand to the historical unbounded scope.
-  if (!sections.length && (profile.section || profile.sectionIds?.length)) denied();
+  if (!userSectionIds(profile).length && (profile.section || profile.sectionIds?.length)) denied();
+  // Règle unique des sections : un compte qui couvre toute l'école voit toutes les classes.
+  const sections = await authoritySectionsFor(db, profile, caller.schoolId);
   const snapshot = await db.collection("classes").where("schoolId", "==", caller.schoolId).where("schoolYearId", "==", schoolYearId).limit(2001).get();
   if (snapshot.docs.length > 2000) throw new PublishedTimetableReadError(409, "failed-precondition", "Liste de classes trop volumineuse.");
   const records = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));

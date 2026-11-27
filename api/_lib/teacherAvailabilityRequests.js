@@ -1,4 +1,4 @@
-import { profileSections, teacherInSectionsWithReads } from "./studySectionScope.js";
+import { authoritySections, teacherInSectionsWithReads, teacherUserIdsInSections } from "./studySectionScope.js";
 
 const DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
@@ -27,13 +27,15 @@ export async function createAvailabilityRequest({ db, caller, request }) {
   if (request.requestType === "TIME_RANGE" && request.startTime >= request.endTime) fail(400, "invalid-argument", "L’heure de fin doit être postérieure à l’heure de début.");
   const requestRef = db.collection("teacherAvailabilityRequests").doc(request.id);
   return db.runTransaction(async transaction => {
-    const [existing, yearSnapshot, teacherSnapshot, userSnapshot, directorsSnapshot] = await Promise.all([
+    const [existing, yearSnapshot, teacherSnapshot, userSnapshot, directorsSnapshot, schoolSnapshot] = await Promise.all([
       transaction.get(requestRef),
       transaction.get(db.collection("schoolYears").doc(request.schoolYearId)),
       transaction.get(db.collection("teachers").doc(request.teacherId)),
       transaction.get(db.collection("users").doc(caller.uid)),
       transaction.get(db.collection("users").where("schoolId", "==", caller.schoolId).where("role", "==", "study_director")),
+      transaction.get(db.collection("schools").doc(caller.schoolId)),
     ]);
+    const school = schoolSnapshot?.exists ? schoolSnapshot.data() : {};
     if (existing.exists) fail(409, "already-exists", "Une demande identique existe déjà.");
     const year = yearSnapshot.data(); const teacher = teacherSnapshot.data(); const user = userSnapshot.data();
     if (!yearSnapshot.exists || year?.schoolId !== caller.schoolId || year?.status !== "active" || year.id !== request.schoolYearId) fail(403, "permission-denied", "Année scolaire invalide.");
@@ -43,11 +45,11 @@ export async function createAvailabilityRequest({ db, caller, request }) {
       const director = item.data();
       return activeUser(director) && director.schoolId === caller.schoolId;
     });
-    // Lot R2 : seuls les comptes dont les sections couvrent l'enseignant sont prévenus (sans section : toujours).
+    // Lot R2 : seuls les comptes dont les sections couvrent l'enseignant sont prévenus (toute l'école : toujours).
     // Si aucun compte ne couvre l'enseignant, tous sont prévenus, comme avant.
     const coveringDirectors = [];
     for (const directorSnapshot of activeDirectors) {
-      const sections = profileSections(directorSnapshot.data());
+      const sections = authoritySections(directorSnapshot.data(), school);
       if (!sections.length || await teacherInSectionsWithReads({ db, read: (target) => transaction.get(target), sections,
         schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher, teacherUser: user })) coveringDirectors.push(directorSnapshot);
     }
@@ -82,19 +84,20 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     const request = requestSnapshot.data();
     if (request.schoolId !== caller.schoolId) fail(403, "permission-denied", "Demande hors établissement.");
     if (request.status !== "PENDING") fail(409, "failed-precondition", "Cette demande a déjà été traitée.");
-    const [yearSnapshot, teacherSnapshot, userSnapshot, directorSnapshot] = await Promise.all([
+    const [yearSnapshot, teacherSnapshot, userSnapshot, directorSnapshot, schoolSnapshot] = await Promise.all([
       transaction.get(db.collection("schoolYears").doc(request.schoolYearId)),
       transaction.get(db.collection("teachers").doc(request.teacherId)),
       transaction.get(db.collection("users").doc(request.userId)),
       transaction.get(db.collection("users").doc(caller.uid)),
+      transaction.get(db.collection("schools").doc(caller.schoolId)),
     ]);
     const year = yearSnapshot.data(); const teacher = teacherSnapshot.data(); const teacherUser = userSnapshot.data(); const director = directorSnapshot.data();
     if (!directorSnapshot.exists || director?.role !== "study_director" || director?.schoolId !== caller.schoolId || director?.status === "inactive" || director?.active === false) fail(403, "permission-denied", "Compte Direction des études inactif ou incohérent.");
     if (!yearSnapshot.exists || year?.schoolId !== caller.schoolId || year?.status !== "active") fail(403, "permission-denied", "Année scolaire inactive ou hors établissement.");
     if (!teacherSnapshot.exists || teacher?.schoolId !== caller.schoolId || teacher?.schoolYearId !== request.schoolYearId || teacher?.userId !== request.userId) fail(409, "failed-precondition", "Profil Enseignant incohérent.");
     if (!userSnapshot.exists || teacherUser?.schoolId !== caller.schoolId || teacherUser?.role !== "teacher" || teacherUser?.status === "inactive" || teacherUser?.active === false || teacher?.status === "inactive") fail(409, "failed-precondition", "Un enseignant archivé ne peut recevoir une nouvelle disponibilité.");
-    // Lot R2 : un compte avec sections ne traite que les enseignants de ses sections (sans section : toute l'école).
-    const directorSections = profileSections(director);
+    // Lot R2 + règle unique : un compte limité ne traite que les enseignants de ses sections (toute l'école : tout).
+    const directorSections = authoritySections(director, schoolSnapshot?.exists ? schoolSnapshot.data() : {});
     if (directorSections.length && !(await teacherInSectionsWithReads({ db, read: (target) => transaction.get(target), sections: directorSections,
       schoolId: caller.schoolId, schoolYearId: request.schoolYearId, teacherId: request.teacherId, teacher, teacherUser }))) {
       fail(403, "permission-denied", "Cette demande concerne un enseignant hors de vos sections.");
@@ -134,4 +137,32 @@ export async function reviewAvailabilityRequest({ db, caller, requestId, action,
     transaction.set(db.collection("notifications").doc(notificationId), availabilityNotification({ id: notificationId, schoolId: caller.schoolId, schoolYearId: request.schoolYearId, recipientUserId: request.userId, requestId, title: "Demande d'indisponibilité approuvée", body: "Votre demande d'indisponibilité a été approuvée par la Direction des études. Veuillez consulter votre espace pour prendre connaissance de la décision.", createdAt: now }));
     return { ...request, status: "APPROVED", reviewedAt: now, reviewedBy: caller.uid, reviewComment: decisionComment, appliedAvailabilityIds: [availabilityId] };
   });
+}
+
+/**
+ * Lot B (R2 côté serveur) : liste des demandes de l'année pour la Direction des études.
+ * Règle unique des sections : un compte qui agit pour toute l'école (sans section, ou couvrant
+ * toutes les sections de l'école) voit toutes les demandes ; sinon seulement celles des
+ * enseignants de SES sections (même règle que la décision : section, enseignant sans section, ou affectation).
+ */
+export async function listAvailabilityRequests({ db, caller, schoolYearId }) {
+  if (caller.role !== "study_director" || !caller.schoolId) fail(403, "permission-denied", "Seule la Direction des études peut consulter ces demandes.");
+  if (typeof schoolYearId !== "string" || !schoolYearId) fail(400, "invalid-argument", "Année scolaire invalide.");
+  const [yearSnapshot, directorSnapshot, schoolSnapshot, requestsSnapshot] = await Promise.all([
+    db.collection("schoolYears").doc(schoolYearId).get(),
+    db.collection("users").doc(caller.uid).get(),
+    db.collection("schools").doc(caller.schoolId).get(),
+    db.collection("teacherAvailabilityRequests").where("schoolId", "==", caller.schoolId).where("schoolYearId", "==", schoolYearId).get(),
+  ]);
+  const director = directorSnapshot.data();
+  if (!directorSnapshot.exists || director?.role !== "study_director" || director?.schoolId !== caller.schoolId || !activeUser(director)) fail(403, "permission-denied", "Compte Direction des études inactif ou incohérent.");
+  if (!yearSnapshot.exists || yearSnapshot.data()?.schoolId !== caller.schoolId) fail(403, "permission-denied", "Année scolaire hors établissement.");
+  let requests = (requestsSnapshot.docs ?? []).map((item) => ({ id: item.id, ...item.data() }))
+    .filter((item) => item.schoolId === caller.schoolId && item.schoolYearId === schoolYearId);
+  const sections = authoritySections(director, schoolSnapshot.exists ? schoolSnapshot.data() : {});
+  if (sections.length) {
+    const allowedUserIds = await teacherUserIdsInSections({ db, sections, schoolId: caller.schoolId, schoolYearId });
+    requests = requests.filter((item) => allowedUserIds.has(item.userId));
+  }
+  return requests.sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")));
 }

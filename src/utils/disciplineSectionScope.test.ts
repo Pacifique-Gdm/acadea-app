@@ -18,7 +18,7 @@ describe("périmètre partagé du Directeur de Discipline", () => {
 
   it("retourne uniquement la section attribuée et aucune donnée si le scope est vide", () => {
     expect(disciplineStudentScope(director(["Primaire"]), students).map((item) => item.id)).toEqual(["a"]);
-    expect(disciplineStudentScope(director([]), students)).toEqual([]);
+    expect(disciplineStudentScope(director([]), students).map((item) => item.id)).toEqual(["a", "b"]);
   });
 
   it("réutilise les élèves autorisés pour parents et sanctions", () => {
