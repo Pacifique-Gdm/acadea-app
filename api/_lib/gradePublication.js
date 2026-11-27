@@ -1,3 +1,4 @@
+import { authoritySectionsFor, comparableSection } from "./studySectionScope.js";
 import { createHash } from "node:crypto";
 import { GradingApiError, loadConsolidatedSchoolClass } from "./teacherGrading.js";
 import { calculateConsolidatedReport } from "./consolidatedGrading.js";
@@ -42,8 +43,9 @@ async function authorizedDirectorClass(db, schoolId, schoolYearId, classId, user
   if (!snapshot.exists || snapshot.data()?.schoolId !== schoolId || snapshot.data()?.schoolYearId !== schoolYearId) {
     throw new GradingApiError(403, "permission-denied", "Classe hors établissement.");
   }
-  const permittedSections = Array.isArray(user.sectionIds) ? user.sectionIds : user.section ? [user.section] : [];
-  if (snapshot.data()?.section && permittedSections.length && !permittedSections.includes(snapshot.data().section)) {
+  // Règle unique des sections : un compte qui couvre toute l'école n'est pas limité.
+  const permittedSections = await authoritySectionsFor(db, user, schoolId);
+  if (snapshot.data()?.section && permittedSections.length && !permittedSections.includes(comparableSection(snapshot.data().section))) {
     throw new GradingApiError(403, "permission-denied", "Section hors du périmètre autorisé.");
   }
   return snapshot;

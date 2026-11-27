@@ -2,10 +2,17 @@ import type { AppUser, AttendanceRecord, DisciplineSanction, ParentProfile, Stud
 import { getStudentSection } from "./studentClasses";
 import { userSectionIds } from "./userSections";
 
+/** Le compte a-t-il des sections renseignées (valides ou non) ? */
+export function hasDeclaredSections(user: Pick<AppUser, "section" | "sectionIds">) {
+  return Boolean(user.sectionIds?.length || user.section);
+}
+
 export function disciplineStudentScope(user: Pick<AppUser, "role" | "section" | "sectionIds">, students: readonly Student[]) {
   if (user.role !== "discipline_director") return [...students];
   const assigned = userSectionIds(user);
-  if (assigned.length === 0) return [];
+  // Règle unique des sections (lot B) : sans section = toute l'école.
+  // Sections renseignées mais toutes invalides : aucun élève (jamais élargi).
+  if (assigned.length === 0) return hasDeclaredSections(user) ? [] : [...students];
   return students.filter((student) => assigned.includes(getStudentSection(student)));
 }
 

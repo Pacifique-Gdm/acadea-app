@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { initAdmin } from "./_lib/firebaseAdmin.js";
 import { API_RATE_LIMITS, enforceApiRateLimit, sendRateLimitError } from "./_lib/rateLimit.js";
 import { requireActiveSchoolYear } from "./_lib/schoolYear.js";
+import { authoritySectionsFor, comparableSection } from "./_lib/studySectionScope.js";
 import { allowedRecipientRoles, isRelatedCoordinationRecipient, messagingSenderIdentity, normalizedMessagingRole, requireMessagingCaller } from "./_lib/messageRecipients.js";
 import { personLabel, recipientsLabel, replyRoute, resolveReplyTarget, sendCoordinationReply, sendPlatformReply } from "./_lib/platformMessaging.js";
 
@@ -78,9 +79,10 @@ export async function resolveRecipients(db, caller, recipientRoles, recipientIds
       if (!activeYearStudents.length) {
         throw httpError(403, "invalid-recipient", "Parent sans eleve rattache a l'annee scolaire active.");
       }
-      const callerSections = new Set(Array.isArray(caller.profile?.sectionIds) ? caller.profile.sectionIds : caller.profile?.section ? [caller.profile.section] : []);
+      // Règle unique des sections : un compte qui couvre toute l'école n'est pas limité.
+      const callerSections = new Set(await authoritySectionsFor(db, caller.profile ?? {}, caller.schoolId));
       if (["discipline_director", "study_director"].includes(normalizedRole(caller.role)) && callerSections.size > 0
-        && !activeYearStudents.some((snapshot) => callerSections.has(snapshot.data().section))) {
+        && !activeYearStudents.some((snapshot) => callerSections.has(comparableSection(snapshot.data().section)))) {
         throw httpError(403, "invalid-recipient", "Parent hors du perimetre de sections autorise.");
       }
     }

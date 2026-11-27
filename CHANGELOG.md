@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.35.3] — 2026-11-27 — Correction
+- Règle unique des sections appliquée partout ; demandes d’indisponibilité filtrées par le serveur
+
 ## [1.35.2] — 2026-11-27 — Correction
 - Seul l’administrateur modifie les sections d’un enseignant déjà créé
 

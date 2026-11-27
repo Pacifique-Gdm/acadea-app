@@ -1,4 +1,4 @@
-import { profileSections, teacherUserIdsInSections } from "./studySectionScope.js";
+import { authoritySections, teacherUserIdsInSections } from "./studySectionScope.js";
 
 export class PedagogicalHistoryError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -29,7 +29,7 @@ export async function listPedagogicalActivity({ db, caller, body }) {
   }
   // Lot R2 : un compte Direction des études AVEC sections ne voit que l'activité des enseignants de ses sections.
   // Sans section (ou autre rôle) : rien ne change.
-  const sections = role === "study_director" ? profileSections(user.data()) : [];
+  const sections = role === "study_director" ? authoritySections(user.data(), school.data()) : [];
   if (sections.length) return listScopedActivity({ db, query, schoolId: caller.schoolId, schoolYearId, sections });
   const snapshot = await query.limit(51).get();
   const page = snapshot.docs.slice(0, 50);

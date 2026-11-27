@@ -213,6 +213,36 @@ service cloud.firestore {
               && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.section != null));
     }
 
+    // Lot B (règle unique des sections) : les sections du compte couvrent-elles toutes celles de l'école ?
+    // Même calcul que src/utils/sectionAuthority.ts et que les fonctions du calendrier (R4), utilisable partout.
+    function accountSectionsCoverSchool() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      let ids = user.get("sectionIds", []);
+      let mine = (ids is list && ids.size() > 0) ? ids : (user.get("section", null) is string ? [user.section] : []);
+      let school = get(/databases/$(database)/documents/schools/$(tenantSchoolId())).data;
+      let type = school.get("schoolType", "");
+      let levels = school.get("educationLevels", []);
+      let schoolSections = type == "Primaire uniquement" ? ["Primaire"]
+        : type == "CTEB uniquement" ? ["CTEB"]
+        : type == "Secondaire uniquement" ? ["Secondaire"]
+        : type == "CTEB et Secondaire" ? ["CTEB", "Secondaire"]
+        : (levels is list && levels.size() > 0)
+          ? (levels.hasAny(["Maternelle", "maternelle", "Mixte", "mixte"]) ? ["Maternelle"] : [])
+            .concat(levels.hasAny(["Primaire", "primaire", "Primaire uniquement", "primaire uniquement", "Mixte", "mixte"]) ? ["Primaire"] : [])
+            .concat(levels.hasAny(["CTEB", "cteb", "CETB", "cetb", "CTEB uniquement", "cteb uniquement", "CETB uniquement", "cetb uniquement", "CTEB et Secondaire", "cteb et secondaire", "Mixte", "mixte"]) ? ["CTEB"] : [])
+            .concat(levels.hasAny(["Secondaire", "secondaire", "Secondaire uniquement", "secondaire uniquement", "CTEB et Secondaire", "cteb et secondaire", "Mixte", "mixte"]) ? ["Secondaire"] : [])
+        : (type == null || type == "" || type == "Mixte" || type == "Secondaire") ? ["Maternelle", "Primaire", "CTEB", "Secondaire"]
+        : type == "CTEB" ? ["Maternelle", "Primaire", "CTEB"]
+        : type in ["Maternelle", "maternelle"] ? ["Maternelle"]
+        : type in ["Primaire", "primaire"] ? ["Primaire"]
+        : type in ["cteb", "CETB", "cetb"] ? ["CTEB"]
+        : type == "secondaire" ? ["Secondaire"]
+        : [];
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && user.schoolId == tenantSchoolId()
+        && mine.size() > 0 && schoolSections.size() > 0 && mine.hasAll(schoolSections);
+    }
+
     function studyDirectorHasNoSectionScope() {
       return studyDirector()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
@@ -1060,7 +1090,9 @@ service cloud.firestore {
       allow read: if superAdmin()
         || coordinatorSchool(resource.data.schoolId)
         || (role() in ["school_admin", "cashier", "secretary"] && sameTenantResource())
-        || (studyTenantResource() && (studyDirectorHasNoSectionScope() || (("section" in resource.data) && studyDirectorSectionAllowed(resource.data.section))))
+        // Lot B : un compte dont les sections couvrent toute l'école lit aussi les élèves sans section.
+        || (studyTenantResource() && (studyDirectorHasNoSectionScope() || accountSectionsCoverSchool() || (("section" in resource.data) && studyDirectorSectionAllowed(resource.data.section))))
+        || (disciplineTenantResource() && accountSectionsCoverSchool())
         || (disciplineTenantResource() && ((!("sectionIds" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
               || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.sectionIds.size() == 0)
             && (!("section" in get(/databases/$(database)/documents/users/$(request.auth.uid)).data)
@@ -1731,7 +1763,9 @@ service cloud.firestore {
               && request.resource.data.endTime is string
               && request.resource.data.startTime < request.resource.data.endTime));
       }
-      allow read: if superAdmin() || studyTenantResource() || ownTeacherRequest();
+      // Lot B : la Direction des études lit la liste par le serveur (filtrée par sections) ;
+      // seul un compte sans section garde la lecture directe.
+      allow read: if superAdmin() || (studyTenantResource() && studyDirectorHasNoSectionScope()) || ownTeacherRequest();
       // Submission is server-mediated so request, notification and activity
       // record are committed together.
       allow create: if false;
