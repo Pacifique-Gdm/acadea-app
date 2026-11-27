@@ -46,6 +46,12 @@ function isRole(role: unknown): role is AppUser["role"] | "admin" | "superadmin"
   return ["super_admin", "coordination_admin", "sub_coordination_admin", "school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", "admin", "superadmin", ...ADVISOR_ROLES].includes(String(role));
 }
 
+function recordedSectionIds(user: RawAppUser): string[] {
+  const ids: unknown = user.sectionIds;
+  if (Array.isArray(ids) && ids.length > 0) return ids.map((value) => String(value));
+  return typeof user.section === "string" ? [user.section] : [];
+}
+
 function normalizeUserProfile(user: RawAppUser): AppUser {
   const normalizedRole = user.role === "superadmin" ? "super_admin" : user.role === "admin" ? "school_admin" : user.role;
   const normalizedSchoolId = user.schoolId ?? user.tenantId ?? user.organisationId ?? user.organizationId;
@@ -58,6 +64,8 @@ function normalizeUserProfile(user: RawAppUser): AppUser {
     subCoordinationId: user.subCoordinationId,
     sectionIds: normalizeSectionIds(user.sectionIds ?? []),
     section: normalizeSectionIds(user.section ? [user.section] : [])[0],
+    // Sections telles qu'écrites sur le compte, lues comme la règle Firestore du calendrier (sectionIds, sinon section).
+    recordedSectionIds: recordedSectionIds(user),
   } as AppUser;
 }
 
