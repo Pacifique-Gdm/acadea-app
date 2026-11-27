@@ -14,13 +14,15 @@ import { findProvisioningReceipt, provisioningReceipt, provisioningRequestId } f
 import { createAuthUserOnce } from "./_lib/accountEmailLock.js";
 import { prepareManagerCleanup, setSectionSettingsManager } from "./_lib/sectionSettingsManagers.js";
 
-const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent"]);
+// Lots 10 et 11 : conseillers, créés par l'administrateur de l'école seulement.
+export const ADVISOR_ACCOUNT_ROLES = ["pedagogical_advisor", "orientation_advisor"];
+const allowedRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "parent", ...ADVISOR_ACCOUNT_ROLES]);
 const parentDeleteConfirmation = "SUPPRIMER LE PARENT";
 const parentLinkConfirmation = "LIER À CE PARENT";
 const parentUnlinkConfirmation = "DÉLIER LE PARENT";
 const parentStudentUnlinkConfirmation = "DÉLIER À CET ÉLÈVE";
 const adminRemovalConfirmation = "SUPPRIMER ADMINISTRATEUR";
-const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher"]);
+const internalPersonnelRoles = new Set(["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", ...ADVISOR_ACCOUNT_ROLES]);
 const schoolSections = new Set(["Maternelle", "Primaire", "CTEB", "Secondaire"]);
 const serviceJobTitles = new Set(["Vigile", "Gardien", "Agent de sécurité", "Agent d'entretien", "Personnel de ménage", "Intendant", "Jardinier", "Technicien", "Agent de maintenance"]);
 const privilegedJobTitle = /\b(admin(?:istrateur)?|enseignant|professeur|directeur|caissier|secretaire|parent|coordinateur|coordination)\b/i;
@@ -757,6 +759,7 @@ export async function managePersonnel({ auth, db, caller, body, action }) {
     const email = normalizeEmail(body.email);
     const profile = normalizePersonnelProfile(body.profile);
     if (!name || !phone || !email) throw Object.assign(new Error("Nom, telephone et email sont requis."), { statusCode: 400, code: "invalid-argument" });
+    if (ADVISOR_ACCOUNT_ROLES.includes(target.role) && !sectionIds.length) throw Object.assign(new Error("La section est obligatoire pour un conseiller."), { statusCode: 400, code: "invalid-argument" });
     const schoolSnapshot = await db.doc(`schools/${schoolId}`).get();
     assertSectionsBelongToSchool(sectionIds, schoolSnapshot.data());
     if (caller.role === "study_director") assertStudyDirectorSections(callerProfile, sectionIds, Array.isArray(target.sectionIds) && target.sectionIds.length ? target.sectionIds : (target.section ? [target.section] : []));
@@ -1033,6 +1036,11 @@ export default async function handler(req, res) {
       sendJson(res, 400, { error: "Role a provisionner invalide.", code: "invalid-argument" });
       return;
     }
+    // Lots 10 et 11 : un conseiller a toujours au moins une section (jamais « toute l'école » par défaut).
+    if (ADVISOR_ACCOUNT_ROLES.includes(role) && !sectionIds.length) {
+      sendJson(res, 400, { error: "La section est obligatoire pour un conseiller.", code: "invalid-argument" });
+      return;
+    }
 
     if (!schoolId || !schoolYearId || !name || !email || password.length < 6) {
       sendJson(res, 400, { error: "Ecole, annee scolaire, nom, email et mot de passe valide sont requis.", code: "invalid-argument" });
@@ -1073,7 +1081,7 @@ export default async function handler(req, res) {
     });
     createdAuthUid = authUser.uid;
 
-    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary" || role === "teacher") {
+    if (role === "school_admin" || role === "cashier" || role === "discipline_director" || role === "study_director" || role === "secretary" || role === "teacher" || ADVISOR_ACCOUNT_ROLES.includes(role)) {
       const schoolUser = {
         id: authUser.uid,
         name,

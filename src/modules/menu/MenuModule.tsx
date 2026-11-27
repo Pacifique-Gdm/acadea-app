@@ -12,6 +12,8 @@ import { deleteFeeType } from "../../services/feeTypesRepository";
 import { addFeeKind as persistFeeKind, FeeTypeSaveError, saveFeeTypes, type FeeKindAddRequest, type FeeTypeSaveRequest } from "../../services/feeTypeMutations";
 import { deleteParentAccount, provisionSchoolUser } from "../../services/provisioning";
 import { STUDY_FUNCTION_LABELS, type StudyFunction } from "../../utils/studyFunction";
+import { ClassVisitsContent } from "../advisors/ClassVisitsContent";
+import { OrientationNotesContent } from "../advisors/OrientationNotesContent";
 import { subscribeToStudentMedicalRecords } from "../../services/studentMedicalRecords";
 import { createAuditLog } from "../../utils/audit";
 import { refreshErrorMessage } from "../../utils/refreshErrors";
@@ -42,7 +44,7 @@ import { useSchoolLogo } from "../../hooks/useSchoolLogo";
 import { userFacingError } from "../../utils/userFacingError";
 import { ErrorNotice } from "../../components/ui/ErrorNotice";
 
-type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher";
+type SchoolUserProvisionRole = "cashier" | "discipline_director" | "study_director" | "secretary" | "teacher" | "pedagogical_advisor" | "orientation_advisor";
 
 type MenuYearData = {
   students: Student[];
@@ -84,6 +86,8 @@ const schoolUserProvisionLabels: Record<SchoolUserProvisionRole, string> = {
   study_director: "Directeur des études",
   secretary: "Secrétaire",
   teacher: "Enseignant",
+  pedagogical_advisor: "Conseiller pédagogique",
+  orientation_advisor: "Conseiller d'orientation",
 };
 
 export function MenuModule({
@@ -111,7 +115,7 @@ export function MenuModule({
   onOpenBiometrics,
   initialBiometricsOpen = false,
 }: MenuModuleProps) {
-  type MenuSection = "socialSupport" | "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
+  type MenuSection = "orientationNotes" | "classVisits" | "socialSupport" | "school" | "years" | "accounts" | "personnel" | "fees" | "financial" | "valves" | "library" | "parentsDirectory" | "history" | "biometrics" | "medicalRecords";
   const [schoolForm, setSchoolForm] = useState(school);
   // Logo rangé à part : null = logo inchangé (il n'est pas réécrit).
   const [schoolLogoDraft, setSchoolLogoDraft] = useState<string | null>(null);
@@ -127,6 +131,8 @@ export function MenuModule({
   const schoolSectionSavingRef = useRef(false);
   const [schoolUserRole, setSchoolUserRole] = useState<SchoolUserProvisionRole>("cashier");
   const [schoolUserSections, setSchoolUserSections] = useState<SchoolSection[]>([]);
+  // Lots 10 et 11 : la section est obligatoire pour un conseiller (décision de l'utilisateur).
+  const advisorNeedsSection = (schoolUserRole === "pedagogical_advisor" || schoolUserRole === "orientation_advisor") && schoolUserSections.length === 0;
   const [schoolUserStudyFunction, setSchoolUserStudyFunction] = useState<StudyFunction>("director_of_studies");
   const [cashierName, setCashierName] = useState("");
   const [cashierPhone, setCashierPhone] = useState("");
@@ -205,6 +211,10 @@ export function MenuModule({
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },
     { id: "financial", title: "Rapport financier", description: "Synthèse et exports des rapports financiers.", icon: BarChart3 },
     { id: "personnel", title: "Personnels", description: "Personnel actif, archivage et réactivation des comptes internes.", icon: UsersRound },
+    // Lot 10 : fiches de visite des conseillers pédagogiques, en lecture seule pour l'administrateur.
+    { id: "classVisits", title: "Fiches de visite", description: "Visites de classe des conseillers pédagogiques (lecture seule).", icon: BookOpen },
+    // Lot 11 : notes de suivi confidentielles des conseillers d'orientation, en lecture seule.
+    { id: "orientationNotes", title: "Notes de suivi (orientation)", description: "Notes confidentielles des conseillers d'orientation (lecture seule).", icon: BookOpen },
     { id: "biometrics", title: "Empreintes et Cartes", description: "Préparation des identifiants biométriques des élèves.", icon: Fingerprint },
     { id: "years", title: "Années scolaires", description: "Année active, années archivées et contexte global.", icon: BookOpen },
     { id: "school", title: "Paramètres école", description: "Logo, coordonnées et informations de l'établissement.", icon: Settings },
@@ -527,6 +537,7 @@ export function MenuModule({
   }
 
   async function saveSchoolUser() {
+    if (advisorNeedsSection) { setCashierError("La section est obligatoire pour un conseiller."); return; }
     if (schoolUserSubmitting) return;
     setCashierError("");
     setCashierSuccess("");
@@ -868,6 +879,8 @@ export function MenuModule({
   }
 
   function renderMenuSectionForm(sectionId: MenuSection) {
+    if (sectionId === "orientationNotes" && canReadAdmin) return <OrientationNotesContent scope={{ uid: user.id, schoolId: school.id, schoolYearId: selectedYear.id }} canWrite={false} />;
+    if (sectionId === "classVisits" && canReadAdmin) return <ClassVisitsContent scope={{ uid: user.id, schoolId: school.id, schoolYearId: selectedYear.id }} canWrite={false} />;
     if (sectionId === "socialSupport" && canViewSocialSupport) return <SocialSupportDrawer user={user} school={school} years={years} data={data} readOnly={isArchivedContext} />;
     if (sectionId === "biometrics" && canReadAdmin) {
       return (
@@ -1122,6 +1135,8 @@ export function MenuModule({
               <option value="study_director">Direction des études</option>
               <option value="secretary">Secrétaire</option>
               <option value="teacher">Enseignant</option>
+              <option value="pedagogical_advisor">Conseiller pédagogique</option>
+              <option value="orientation_advisor">Conseiller d'orientation</option>
             </select>
           </label>
           {schoolUserRole === "study_director" && <label className="grid min-w-0 gap-1 text-sm font-medium text-slate-700">
@@ -1144,7 +1159,8 @@ export function MenuModule({
             visible={showCashierPassword}
             onToggle={() => setShowCashierPassword(!showCashierPassword)}
           />
-          <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || (schoolUserRole === "teacher" && !teacherAccountsLoaded) || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
+          {advisorNeedsSection && <p className="text-sm text-amber-800">La section est obligatoire pour un conseiller.</p>}
+          <button onClick={saveSchoolUser} disabled={schoolUserSubmitting || advisorNeedsSection || (schoolUserRole === "teacher" && !teacherAccountsLoaded) || !cashierName.trim() || !cashierEmail.trim() || !cashierPhone.trim() || !cashierPassword} className="primary-button disabled:opacity-50" type="button">
             <UserRound className="h-4 w-4" /> {schoolUserSubmitting ? "Création..." : "Créer le personnel"}
           </button>
           </>}

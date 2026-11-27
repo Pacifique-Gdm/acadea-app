@@ -11,6 +11,8 @@ import { listPrefectStaff } from "./_lib/prefectStaff.js";
 import { loadPrefectPayments } from "./_lib/prefectPayments.js";
 import { listStaffLabels } from "./_lib/staffLabels.js";
 import { executeAttendanceSettings } from "./_lib/attendanceSettingsScope.js";
+import { listAdvisorStudents, listClassVisits, loadAdvisorGrades, loadAdvisorOverview, saveClassVisit } from "./_lib/advisors.js";
+import { listOrientationNotes, loadAdvisorResults, saveOrientationNote } from "./_lib/orientationAdvisor.js";
 import teacherAvailabilityHandler, { TEACHER_AVAILABILITY_ROUTE } from "./_lib/teacherAvailabilityHandler.js";
 export default async function handler(req, res) {
   // Regroupement lot 1 : l’ancienne adresse /api/manage-teacher-availability-request arrive ici (vercel.json).
@@ -69,6 +71,16 @@ export default async function handler(req, res) {
       await requireActiveApiUser(db, caller);
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: action === "attendance-settings-save" ? "discipline.attendance-settings-save" : "discipline.attendance-settings-scope", ...(action === "attendance-settings-save" ? API_RATE_LIMITS.FINANCE_MUTATE : API_RATE_LIMITS.MESSAGE_RECIPIENTS) });
       return send(res, 200, await executeAttendanceSettings({ db, caller, body }));
+    }
+    // Lots 10 et 11 : conseillers (lecture des enseignants, élèves sans argent, cotes ; fiches de visite).
+    const advisorActions = { "advisor-overview": loadAdvisorOverview, "advisor-students": listAdvisorStudents, "advisor-grades": loadAdvisorGrades, "class-visits-list": listClassVisits, "class-visit-save": saveClassVisit,
+      "advisor-results": loadAdvisorResults, "orientation-notes-list": listOrientationNotes, "orientation-note-save": saveOrientationNote };
+    if (Object.hasOwn(advisorActions, action)) {
+      if (Buffer.byteLength(JSON.stringify(body), "utf8") > 32 * 1024) throw new GradingApiError(400, "invalid-argument", "Requête trop volumineuse.");
+      await requireActiveApiUser(db, caller);
+      const saving = action === "class-visit-save" || action === "orientation-note-save";
+      await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: String(caller.schoolId ?? ""), action: `advisors.${action}`, ...(saving ? API_RATE_LIMITS.FINANCE_MUTATE : API_RATE_LIMITS.MESSAGE_RECIPIENTS) });
+      return send(res, 200, await advisorActions[action]({ db, caller, body }));
     }
     const execute = action === "list-pedagogical-history" ? listPedagogicalActivity : action.startsWith("study-period-") || action === "study-class-vacations" ? executeStudyPeriodMutation : action.startsWith("timetable-") ? executeTimetableWorkflow
       : action.startsWith("archive-") ? executeSchoolYearArchive

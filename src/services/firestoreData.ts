@@ -1,3 +1,4 @@
+import { isAdvisorRole } from "../utils/advisorRoles";
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import { deleteField, doc as fieldDoc, updateDoc, type Firestore } from "@firebase/firestore";
 import { db, firebaseReady } from "../firebase";
@@ -426,6 +427,8 @@ export async function loadFirestoreData(
       : schoolFilter;
 
     if (user.role === "study_director" || user.role === "teacher") return scopedData;
+    // Lots 10 et 11 : un conseiller ne lance aucune requête globale ; son module lit par le serveur.
+    if (isAdvisorRole(user.role)) return scopedData;
 
     const omitted = options.omitRealtimeManagedCollections ? new Set(realtimeManagedCollections(user.role)) : new Set<RealtimeManagedCollection>();
     const maybeLoad = <T>(key: RealtimeManagedCollection, operation: () => Promise<T[]>) => omitted.has(key) ? Promise.resolve([] as T[]) : operation();
@@ -603,6 +606,7 @@ export async function loadFirestoreYearData(user: AppUser, schoolYearId: string,
   // Studies and Teacher portals own their scoped listeners. The refresh token
   // reconnects those listeners; neither role may run global school queries.
   if (user.role === "study_director" || user.role === "teacher") return {};
+  if (isAdvisorRole(user.role)) return {};
 
   const annualFilter: [string, unknown][] = [
     ["schoolId", user.schoolId],
