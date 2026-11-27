@@ -5,6 +5,7 @@ import { ArrowLeft, Bell, Download, Edit3, Plus, RotateCcw, Search, Trash2, X } 
 import { AdminDrawer, Field, FormPanel, Metric, MoneyInput, SectionTitle } from "../../components/ui";
 import { PersonnelPaymentForm } from "../../components/personnel/PersonnelPaymentForm";
 import { ALLOCATION_SETUP_BANNER, AllocationRubricSelect, formatRubricAmount, rubricSpendCheck, useAllocationSpendOptions } from "../../components/AllocationRubricSelect";
+import { AllocationSubRubricSelect, subRubricBlocks, subRubricSpendCheck, subRubricSpendError } from "../../components/AllocationSubRubricSelect";
 import { OtherCashInflowForm } from "../../components/finance/OtherCashInflowForm";
 import { FormerStudentPaymentForm } from "../../components/finance/FormerStudentPaymentForm";
 import { isArchivedStudent } from "../../utils/formerStudents";
@@ -93,6 +94,8 @@ export function ControlModule({
   const [expenseCategory, setExpenseCategory] = useState("Fournitures");
   const [expenseDescription, setExpenseDescription] = useState("");
   const [allocationRubricId, setAllocationRubricId] = useState("");
+  // Lots 5 et 6 : sous-rubrique de la dépense (seulement si la rubrique choisie en a).
+  const [allocationSubRubricId, setAllocationSubRubricId] = useState("");
   const [expenseCategoryDetail, setExpenseCategoryDetail] = useState("");
   const [expenseBeneficiary, setExpenseBeneficiary] = useState("");
   const [expensePaymentMethod, setExpensePaymentMethod] = useState("");
@@ -345,7 +348,8 @@ export function ControlModule({
     && (expenseCashBalance.availableCents < 0 || expenseEditDeltaCents > expenseCashBalance.availableCents);
   const isOtherExpenseCategory = expenseCategory === "Autre" || expenseCategory === "Autres";
   const expenseRubric = rubricSpendCheck(expenseSpend, allocationRubricId, expenseDebitCents);
-  const expenseRubricBlocked = expenseRubric.kind === "loading" || expenseRubric.kind === "choose" || (expenseRubric.kind === "ready" && expenseRubric.over);
+  const expenseSubRubric = subRubricSpendCheck(expenseSpend, allocationRubricId, allocationSubRubricId, expenseDebitCents);
+  const expenseRubricBlocked = expenseRubric.kind === "loading" || expenseRubric.kind === "choose" || (expenseRubric.kind === "ready" && expenseRubric.over) || subRubricBlocks(expenseSubRubric);
   const isExpenseEntryIncomplete = !expenseCategory.trim()
     || (isOtherExpenseCategory && expenseCategoryDetail.trim().length < 3)
     || !expenseAmount.trim()
@@ -720,7 +724,10 @@ export function ControlModule({
       setExpenseError("Montant supérieur au disponible de la rubrique : " + formatRubricAmount(expenseRubric.availableMinor, expenseSpend.options?.currency));
       return;
     }
-    const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedCategoryDetail, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference, allocationRubricId]);
+    const subRubricError = subRubricSpendError(expenseSubRubric, expenseSpend.options?.currency);
+    if (subRubricError) { setExpenseError(subRubricError); return; }
+    const sendSubRubric = expenseSubRubric.kind === "ready" ? expenseSubRubric.sub.id : "";
+    const signature = JSON.stringify([year.id, nextAmount, trimmedCategory, trimmedCategoryDetail, trimmedDescription, trimmedBeneficiary, trimmedPaymentMethod, trimmedReference, allocationRubricId, ...(sendSubRubric ? [sendSubRubric] : [])]);
     const requestId = expenseAttemptRef.current?.signature === signature ? expenseAttemptRef.current.requestId : crypto.randomUUID();
     expenseAttemptRef.current = { signature, requestId };
     expenseSubmittingRef.current = true;
@@ -731,7 +738,7 @@ export function ControlModule({
         setExpenseError("Le solde de caisse a changé. Vérifiez les nouveaux montants avant de confirmer à nouveau.");
         return;
       }
-      const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId, ...(isOtherExpenseCategory ? { categoryDetail: trimmedCategoryDetail } : {}), ...(allocationRubricId ? { allocationRubricId } : {}) });
+      const expense = await createExpenseTransaction({ schoolYearId: year.id, amount: nextAmount, category: trimmedCategory, description: trimmedDescription, beneficiary: trimmedBeneficiary, paymentMethod: trimmedPaymentMethod, reference: trimmedReference || undefined, clientRequestId: requestId, ...(isOtherExpenseCategory ? { categoryDetail: trimmedCategoryDetail } : {}), ...(allocationRubricId ? { allocationRubricId } : {}), ...(sendSubRubric ? { allocationSubRubricId: sendSubRubric } : {}) });
       expenseHistory.prependItem(expense);
       expenseAttemptRef.current = null;
       setExpenseAmount("");
@@ -1593,7 +1600,8 @@ export function ControlModule({
             </select>
             {isOtherExpenseCategory && <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Précisez la nature (obligatoire)<input className="input" maxLength={200} value={expenseCategoryDetail} onChange={(event) => { setExpenseCategoryDetail(event.target.value); setExpenseError(""); }} placeholder="Ex. : réparation du portail" aria-required="true" /></label>}
             <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
-            <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={setAllocationRubricId} spend={expenseSpend}/>
+            <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={(value) => { setAllocationRubricId(value); setAllocationSubRubricId(""); }} spend={expenseSpend}/>
+            <AllocationSubRubricSelect spend={expenseSpend} rubricId={allocationRubricId} value={allocationSubRubricId} onChange={setAllocationSubRubricId} debitMinor={expenseDebitCents}/>
             {renderExpenseCashBalance(expenseDebitCents, "Montant à décaisser", true)}
             <textarea value={expenseDescription} onChange={(event) => setExpenseDescription(event.target.value)} className="input min-h-24" placeholder="Description" />
             <button onClick={saveExpense} disabled={isExpenseEntryIncomplete || expenseRubricBlocked || expenseSubmitting || expenseCashLoading || !expenseCashBalance || expenseCashInsufficient} className="primary-button justify-center"><Plus className="h-4 w-4" /> {expenseSubmitting ? "Enregistrement…" : "Enregistrer"}</button>
@@ -1742,7 +1750,8 @@ export function ControlModule({
               </select>
               {isOtherExpenseCategory && <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">Précisez la nature (obligatoire)<input className="input" maxLength={200} value={expenseCategoryDetail} onChange={(event) => { setExpenseCategoryDetail(event.target.value); setExpenseError(""); }} placeholder="Ex. : réparation du portail" aria-required="true" /></label>}
               <MoneyInput value={expenseAmount} onChange={setExpenseAmount} />
-              <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={(value) => { setAllocationRubricId(value); setExpenseError(""); }} spend={expenseSpend}/>
+              <AllocationRubricSelect schoolId={school.id} schoolYearId={year.id} value={allocationRubricId} onChange={(value) => { setAllocationRubricId(value); setAllocationSubRubricId(""); setExpenseError(""); }} spend={expenseSpend}/>
+              <AllocationSubRubricSelect spend={expenseSpend} rubricId={allocationRubricId} value={allocationSubRubricId} onChange={(value) => { setAllocationSubRubricId(value); setExpenseError(""); }} debitMinor={expenseDebitCents}/>
               {renderExpenseCashBalance(expenseDebitCents, "Montant à décaisser", true)}
               <label className="grid min-w-0 gap-1 text-sm font-semibold text-slate-700">
                 Description
