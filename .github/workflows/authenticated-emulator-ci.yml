@@ -56,10 +56,19 @@ jobs:
           ACADEA_E2E_PORT=4187 node scripts/serveEmulatorBundle.mjs > /tmp/acadea-fee-preview.log 2>&1 &
           npx vite --mode test --host 127.0.0.1 --port 4173 > /tmp/acadea-preview.log 2>&1 &
           for attempt in $(seq 1 40); do
-            if curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null && curl --fail --silent http://127.0.0.1:4187/version.json > /dev/null; then exit 0; fi
+            if curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null && curl --fail --silent http://127.0.0.1:4187/version.json > /dev/null; then break; fi
             sleep 1
           done
-          exit 1
+          curl --fail --silent http://127.0.0.1:4173/version.json > /dev/null && curl --fail --silent http://127.0.0.1:4187/version.json > /dev/null || exit 1
+          # Préparation à l'avance : l'écran de connexion demande l'image de connexion (/api/manage-school).
+          # Le serveur Vite de test prépare alors firebase-admin à la volée et recharge la page en plein essai
+          # (« Teacher documents » instable). On déclenche cette préparation ici, avant le premier essai.
+          curl --silent --output /dev/null "http://127.0.0.1:4173/api/manage-school?action=login-image" || true
+          for attempt in $(seq 1 120); do
+            if grep -q '"firebase-admin/app"' node_modules/.vite/deps/_metadata.json 2>/dev/null; then echo "Préparation à l'avance terminée."; exit 0; fi
+            sleep 1
+          done
+          echo "::warning::Préparation à l'avance de firebase-admin non constatée après 120 s."
       - name: Recette des vrais composants et handlers sur émulateurs
         run: >-
           npx --yes firebase-tools@15.25.0 emulators:exec
