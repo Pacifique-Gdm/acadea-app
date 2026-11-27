@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.39.0] — 2026-11-27 — Fonctionnalité
+- Lots 10 et 11 : Conseiller pédagogique et Conseiller d'orientation (section obligatoire, règles des conseillers)
+
 ## [1.38.0] — 2026-11-27 — Fonctionnalité
 - Sous-rubriques de la répartition : pourcentage ou montant fixe, soldes, blocage des sorties, proposition dans la paie
 
