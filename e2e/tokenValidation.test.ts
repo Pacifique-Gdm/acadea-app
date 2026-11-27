@@ -17,7 +17,7 @@ vi.mock("../api/_lib/rateLimit.js", async (importOriginal) => ({
 }));
 
 import coordinationRecipients from "../api/coordination-message-recipients.js";
-import coordinationYears from "../api/manage-coordination-school-years.js";
+import coordinationYears from "../api/_lib/coordinationSchoolYearsHandler.js";
 import manageCoordination from "../api/manage-coordination.js";
 import manageFinance from "../api/manage-financial-transaction.js";
 import manageSchool from "../api/manage-school.js";

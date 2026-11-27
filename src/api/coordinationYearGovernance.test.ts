@@ -10,7 +10,7 @@ vi.mock("../../api/_lib/coordination.js", async (original) => ({
   ...await original<Record<string, unknown>>(),
   requireActiveCoordinationActor: async () => ({ uid: "coordinator", role: state.role, coordinationId: "coord-a", profile: { name: "Coordinateur" }, coordination: state.records.get("coordinations/coord-a") }),
 }));
-import handler from "../../api/manage-coordination-school-years.js";
+import handler from "../../api/_lib/coordinationSchoolYearsHandler.js";
 
 function snapshot(path: string): Snapshot { return { id: path.split("/").at(-1)!, ref: ref(path), exists: state.records.has(path), data: () => structuredClone(state.records.get(path)) }; }
 function ref(path: string): Ref { return { path, id: path.split("/").at(-1)!, get: async () => snapshot(path) }; }
