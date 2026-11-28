@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import {
-  DESKTOP_PHOTO_BLEED_MASK,
+  DESKTOP_PHOTO_FADE_MASK,
   LOGIN_PHOTO_BLUR_SRC,
   LoginScreen,
   loginBackgroundBlurSrc,
@@ -34,13 +34,10 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
 
   it("la photo nette se fond dans le flou : à droite sur ordinateur, en bas sur téléphone", () => {
     const html = login();
-    expect(html).toContain(`mask-image:${DESKTOP_PHOTO_BLEED_MASK}`);
-    expect(html).toContain("login-photo-fade");
+    expect(html).toContain("login-photo-fade login-photo-fade-desktop");
     expect(html).toContain("login-blur-fade");
-    expect(DESKTOP_PHOTO_BLEED_MASK).toContain("transparent 150px");
-    // Ordinateur : aucun fil clair à la jonction (le reflet net recouvre les 4 derniers points de la photo, axe décalé d'autant).
-    expect(html).toContain("absolute inset-y-0 left-[calc(55%-4px)] z-[2] w-[55%] -scale-x-100 overflow-hidden");
-    expect(html).toContain("login-photo-zoom absolute inset-y-0 left-[4px] h-full w-full origin-[50%_40%]");
+    // Ordinateur : la photo nette s'efface directement dans la copie floue, sur 220 points (fondu plus long).
+    expect(DESKTOP_PHOTO_FADE_MASK).toBe("linear-gradient(to right,#000 calc(100% - 220px),transparent)");
     expect(PHONE_PHOTO_FADE_MASK).toBe("linear-gradient(to bottom,#000 calc(100% - 96px),transparent)");
     expect(PHONE_BLUR_FADE_MASK).toBe("linear-gradient(to bottom,#000 calc(100% - 56px),transparent)");
     // Le fondu du téléphone ne touche pas l'ordinateur.
@@ -77,10 +74,29 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
     expect(html).not.toMatch(/(?<!max-)lg:-mt-/);
   });
 
-  it("légende « Photo : … Pexels » petite et pâle", () => {
+  it("plus aucune légende « Photo : … Pexels » (ordinateur et téléphone, avec ou sans fond flou)", () => {
+    for (const html of [login(), login({ loginImageUrl: IMAGE }), login({ loginImageUrl: IMAGE, loginImageBlurUrl: BLUR })]) {
+      expect(html).not.toContain("Katerina Holmes");
+      expect(html).not.toContain("Pexels");
+    }
+    expect(readFileSync("src/components/auth/LoginScreen.tsx", "utf8")).not.toContain("LOGIN_PHOTO_CREDIT");
+  });
+
+  it("ordinateur : AUCUN élément en miroir ; la copie floue n'est étirée qu'à partir du bord de la photo", () => {
     const html = login();
-    expect(html).toContain('class="absolute bottom-2 left-3.5 hidden text-[9px] text-white/55 lg:block">Photo : Katerina Holmes · Pexels');
-    expect(html).not.toContain("absolute right-3 top-2 hidden text-[10px] text-white/70");
+    expect(html).not.toMatch(/-scale-x-|scaleX\(-|rotate/);
+    const desktop = html.slice(html.indexOf('data-testid="login-blur-desktop"'), html.indexOf("<aside"));
+    expect(desktop).toContain("origin-[calc(100%-24px)_50%] scale-x-[30]");
+    // Une seule photo nette sur la page : rien n'est répété.
+    expect(html.match(/src="\/connexion-enseignante\.jpg"/g)?.length).toBe(1);
+  });
+
+  it("logo posé à plat sur le blanc : aucune ombre, fond presque blanc ramené au blanc", () => {
+    const html = login();
+    const logo = html.slice(html.indexOf('alt="Logo de l&#x27;application"'));
+    const logoClass = logo.slice(logo.indexOf('class="'), logo.indexOf('"', logo.indexOf('class="') + 7));
+    expect(logoClass).not.toContain("drop-shadow");
+    expect(logoClass).toContain("brightness-[1.02]");
   });
 
   it("image choisie avec sa copie floue : la copie floue enregistrée est utilisée", () => {
@@ -112,8 +128,8 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
     expect(belowBox).toContain(`src="${LOGIN_PHOTO_BLUR_SRC}"`);
     expect(belowBox).toContain("object-cover object-[50%_50%]");
     expect(belowBox).not.toMatch(/scale|rotate/);
-    // Le seul reflet est celui de l'ordinateur (bord droit), jamais sur téléphone.
-    expect(html.match(/-scale-x-100/g)?.length).toBe(2);
+    // Aucun reflet, ni sur téléphone ni sur ordinateur.
+    expect(html.match(/-scale-x-100/g)).toBeNull();
     expect(html.match(/scale-y/g)).toBeNull();
   });
 
@@ -134,6 +150,6 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
     const source = readFileSync("src/components/auth/LoginScreen.tsx", "utf8");
     expect(source).toContain(".login-photo-zoom { animation: loginPhotoZoom 4s ease-in-out infinite alternate; will-change: transform; }");
     expect(source).toContain(".login-advantage { opacity: 0; animation: loginAdvantageCycle 6s ease-in-out infinite; }");
-    expect(login().match(/class="login-photo-zoom /g)?.length).toBe(2);
+    expect(login().match(/class="login-photo-zoom /g)?.length).toBe(1);
   });
 });

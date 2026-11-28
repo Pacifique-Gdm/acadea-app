@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.41.1] — 2026-11-28 — Correction
+- Écran de connexion : légende de la photo retirée, plus de miroir sur ordinateur (fondu direct dans le flou), logo sans halo
+
 ## [1.41.0] — 2026-11-28 — Fonctionnalité
 - Écran de connexion : fond flou tiré de la photo, sur ordinateur et téléphone (sans miroir)
 

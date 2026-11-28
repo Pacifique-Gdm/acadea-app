@@ -10,8 +10,8 @@ describe("écran de connexion : maquette téléphone validée le 25/11/2026", ()
     expect(source).toContain("min-h-[120px] flex-[0_1_50%] overflow-hidden [border-radius:0_0_50%_50%/0_0_22px_22px]");
   });
 
-  it("n'affiche plus le crédit de la photo sur téléphone (gardé sur ordinateur)", () => {
-    expect(screen()).toContain('className="absolute right-3 top-2 hidden text-[10px] text-white/70 lg:block">{LOGIN_PHOTO_CREDIT}');
+  it("n'affiche plus le crédit de la photo (retiré aussi sur ordinateur le 28/11/2026 : Pexels n'exige pas de citation)", () => {
+    expect(screen()).not.toContain("{LOGIN_PHOTO_CREDIT}");
   });
 
   it("le grand titre n'est plus visible sur téléphone (le slogan est dans le logo)", () => {

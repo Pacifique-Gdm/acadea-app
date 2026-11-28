@@ -21,7 +21,8 @@ describe("image de l'écran de connexion (lot 9) : écran et drawer", () => {
     expect(login("")).toBe(html);
     expect(html).toContain('src="/connexion-enseignante.jpg"');
     expect(html).toContain("Enseignante souriante qui interroge ses élèves");
-    expect(html).toContain("Photo : Katerina Holmes · Pexels");
+    // Légende de la photo retirée le 28/11/2026 (Pexels n'exige pas de citation).
+    expect(html).not.toContain("Photo : Katerina Holmes · Pexels");
   });
 
   it("avec une image choisie, seule la photo change : même mise en page", () => {
