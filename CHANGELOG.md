@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.40.2] — 2026-11-28 — Correction
+- Calendrier : une section confiée à un responsable désigné n'est modifiable que par lui (vérifié aussi par la règle de sécurité) ; un compte aux sections inconnues de l'école reste en lecture seule
+
 ## [1.40.1] — 2026-11-27 — Correction
 - Dashboards en lignes complètes de 3 cartes : « Visites de classe » pour le Conseiller pédagogique, 3 cartes de priorités pour le Conseiller d'orientation, 2 cartes (fiches de visite, notes de suivi) dans le Pilotage du Préfet d'études
 
