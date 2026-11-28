@@ -87,6 +87,6 @@ describe("F2 — part de l'ouverture d'une sous-rubrique qui baisse après une m
 
   it("tableaux : un disponible négatif d'une ligne « ↳ » s'affiche en rouge (colonne Solde disponible seulement)", () => {
     const drawer = readFileSync(new URL("../../src/modules/menu/FeeAllocationDrawer.tsx", import.meta.url), "utf8");
-    expect(drawer).toContain('<span className={i === 2 && value < 0 ? "text-red-700" : undefined} data-negative-available={i === 2 && value < 0 ? "" : undefined}>{formatCurrencyMoney(value / 100, row.currency)}</span>');
+    expect(drawer).toContain('<span className={i === 2 && value < 0 ? "text-red-700" : undefined} data-negative-available={i === 2 && value < 0 ? "" : undefined}>{formatSignedCurrencyMoney(value / 100, row.currency)}</span>');
   });
 });

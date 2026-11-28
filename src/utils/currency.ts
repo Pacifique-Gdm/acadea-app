@@ -25,6 +25,11 @@ export function formatCurrencyMoney(value: number, currency: SchoolCurrency) {
   return currency === "CDF" ? `${formatted} FC` : `$${formatted}`;
 }
 
+/** F2 (28/11/2026) : montant négatif avec le signe devant, même format partout : « −$16,67 », « −16 670,00 FC ». */
+export function formatSignedCurrencyMoney(value: number, currency: SchoolCurrency) {
+  return value < 0 ? `−${formatCurrencyMoney(-value, currency)}` : formatCurrencyMoney(value, currency);
+}
+
 export function formatSchoolMoney(value: number, school: Pick<School, "currency">) {
   return formatCurrencyMoney(value, resolveSchoolCurrency(school));
 }

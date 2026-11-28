@@ -38,7 +38,7 @@ describe("F2 — disponible négatif en rouge (Caissier et PDF)", () => {
     const html = feeAllocationPdfSections([row], "Frais : Tous les frais", "École · 2026-2027").join("");
     // Une fois dans le tableau 1, une fois dans le tableau 3 (ensemble).
     expect(html.match(/data-negative-available/g)?.length).toBe(2);
-    expect(html).toMatch(/<span class="cell-inner" style="color: #b91c1c" data-negative-available>\$-16,67<\/span>/);
+    expect(html).toMatch(/<span class="cell-inner" style="color: #b91c1c" data-negative-available>−\$16,67<\/span>/);
     expect(html).not.toContain("\u2063");
   });
 });
