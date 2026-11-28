@@ -188,9 +188,9 @@ export async function readAllocationForecast({ db, schoolId, yearId, currency, f
  * readAllocationForecast (même clé : signal, frais, configurations, état ; même âge maximal ; complet) ; sinon il est
  * recalculé par readAllocationForecast, puis relu dans la transaction de l'appelant quand il y en a une. */
 export async function readFreshForecastRows({ reader = null, db, schoolId, yearId, currency, now = Date.now() }) {
-  const get = reader ?? { get: (ref) => ref.get() };
+  const plain = { get: (ref) => ref.get() };
   const cacheRef = db.doc(`feeAllocationForecastCaches/${forecastCacheId(schoolId, yearId, currency)}`);
-  const keptRows = async () => {
+  const keptRows = async (get) => {
     const annual = (collection) => db.collection(collection).where('schoolId', '==', schoolId).where('schoolYearId', '==', yearId);
     const [fees, configs, state, signal, cache] = await Promise.all([readAllocationPages(annual('feeTypes'), get), readAllocationPages(annual('feeAllocationConfigs'), get),
       get.get(db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`)), get.get(db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`)), get.get(cacheRef)]);
@@ -201,11 +201,13 @@ export async function readFreshForecastRows({ reader = null, db, schoolId, yearI
       && Number.isFinite(Date.parse(kept.savedAt)) && now - Date.parse(kept.savedAt) < FORECAST_CACHE_MAX_AGE_MS
       && kept.forecast?.status === 'complete' && Array.isArray(kept.forecast.rows) ? kept.forecast.rows : null;
   };
-  const kept = await keptRows();
-  if (kept) return kept;
+  // 1.42.3 : contrôle d'abord SANS la transaction de l'appelant. Une lecture dans la transaction verrouille le prévu gardé ;
+  // le recalcul ci-dessous, qui l'enregistre, attendrait alors ce verrou, et la transaction attendrait le recalcul : blocage.
+  const kept = await keptRows(plain);
+  if (kept) return (reader ? await keptRows(reader) : null) ?? kept;
   // Absent ou périmé : même calcul que les tableaux (il enregistre aussi le prévu gardé quand c'est possible).
   let forecast;
   try { ({ forecast } = await readAllocationForecast({ db, schoolId, yearId, currency, now })); } catch { return null; }
-  // Dans une transaction : le prévu gardé, s'il vient d'être enregistré, est relu ici (la transaction est rejouée s'il change).
-  return (reader ? await keptRows() : null) ?? (forecast?.status === 'complete' && Array.isArray(forecast.rows) ? forecast.rows : null);
+  // Dans une transaction : le prévu gardé, enregistré juste avant, est relu ici seulement (la transaction est rejouée s'il change).
+  return (reader ? await keptRows(reader) : null) ?? (forecast?.status === 'complete' && Array.isArray(forecast.rows) ? forecast.rows : null);
 }
