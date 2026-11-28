@@ -6,6 +6,9 @@ Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/vers
 ## [1.43.0] — 2026-11-28 — Fonctionnalité
 - Bouton « Répartir le Reste » : l'administrateur répartit une seule fois le Reste d'une rubrique entre ses sous-rubriques (phrase de confirmation, aperçu, même chiffres dans les tableaux, le PDF et chez le Caissier)
 
+## [1.42.2] — 2026-11-28 — Correction
+- F2 : part de l'ouverture des sous-rubriques toujours calculée avec le prévu à jour (Caissier, contrôle des dépenses, tableaux)
+
 ## [1.42.1] — 2026-11-28 — Correction
 - Écran de connexion : légende de la photo retirée ; sur ordinateur, photo nette entière à gauche et même photo floue à l'endroit à droite (plus de miroir) ; logo sans halo
 

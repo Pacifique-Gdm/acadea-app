@@ -9,6 +9,10 @@ const justified = (text: string) => `<p style="text-align: justify">${escapePdfH
 const shortLine = (text: string) => `<p class="fee-allocation-pdf-note" style="margin: 0 18px 6px; font-size: 8pt">${escapePdfHtml(text)}</p>`;
 
 /** Part de la largeur (en %) de chaque colonne : assez pour le plus long mot de chaque en-tête (« Disponible », « Ouverture »). */
+/** F2 (28/11/2026) : disponible négatif d'une ligne « ↳ » en rouge. Une marque invisible posée sur la cellule
+ * (le texte des cellules est échappé) devient un style rouge une fois le tableau construit. */
+const NEGATIVE_MARK = "⁣";
+const redNegatives = (html: string) => html.replaceAll(`<span class="cell-inner">${NEGATIVE_MARK}`, '<span class="cell-inner" style="color: #b91c1c" data-negative-available>');
 export const FEE_ALLOCATION_PDF_WEIGHTS = { operational: [22, 12, 16, 12, 12, 12, 14], preparatory: [52, 22, 26] } as const;
 
 export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: string, context: string, periodSelected = false, options: { onlyTableThree?: boolean; configured?: boolean; canAdd?: boolean; filtered?: boolean } = {}) {
@@ -32,7 +36,7 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
     { header: receivedLabel, weight: weights[2], render: (row: AllocationRow) => subOf(row) ? (subMoney.receivedMinor(subOf(row)!) === null ? "—" : money(subMoney.receivedMinor(subOf(row)!)!, row.currency)) : row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
     ...(operational ? globalFields.map((field: AllocationFinancialField, i) => ({ header: globalLabels[i], weight: weights[3 + i], render: (row: AllocationRow) => {
       const sub = subOf(row);
-      if (sub) { const value = subMoney[field](sub); return value === null ? "—" : money(value, row.currency); }
+      if (sub) { const value = subMoney[field](sub); return value === null ? "—" : field === "availableMinor" && value < 0 ? `${NEGATIVE_MARK}−${money(-value, row.currency)}` : money(value, row.currency); }
       return row.financial ? money(row.financial[field], row.currency) : "Non disponible"; } })) : []),
   ];
   const totalLine = (table: AllocationRow[]) => allocationTotals(table).map(total => `Total ${total.currency} : prévu ${money(total.amountMinor, total.currency)}${operational ? ` · ${globalLabels.map((label, i) => {
@@ -44,7 +48,7 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   const parts = (table: AllocationRow[]) => {
     const current = table.filter((row) => !row.arrearsYearName);
     const years = [...new Set(table.filter((row) => row.arrearsYearName).map((row) => row.arrearsYearName!))];
-    return `${current.length ? pdfTable<AllocationRow>(columns, withSubs(current), "Aucun montant dans ce tableau.") : ""}${years.map((year) =>
+    return `${current.length ? redNegatives(pdfTable<AllocationRow>(columns, withSubs(current), "Aucun montant dans ce tableau.")) : ""}${years.map((year) =>
       `<h3 style="margin: 10px 0 4px; font-size: 9pt">Arriérés ${escapePdfHtml(year)}</h3>${pdfTable<AllocationRow>(columns, table.filter((row) => row.arrearsYearName === year), "Aucun montant.")}`).join("")}`;
   };
   // Le premier tableau suit l'en-tête ; chacun des suivants commence sur une nouvelle page.
