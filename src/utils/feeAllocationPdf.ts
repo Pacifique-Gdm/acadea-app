@@ -21,7 +21,8 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   const receivedLabel = periodSelected ? 'Encaissé (période)' : 'Encaissé (filtre)';
   const multipleSchools = new Set(rows.map(r => r.schoolId)).size > 1;
   // F2 (28/11/2026) : montants insécables, jamais coupés sur deux lignes.
-  const money = (minor: number, currency: "CDF" | "USD") => unbreakableMoney(minor, currency);
+  // 1.43.0 : un montant négatif s'écrit « −$16,67 » / « −16 670,00 FC » partout dans le PDF (lignes de rubrique et totaux aussi).
+  const money = (minor: number, currency: "CDF" | "USD") => minor < 0 ? `−${unbreakableMoney(-minor, currency)}` : unbreakableMoney(minor, currency);
   const name = (row: AllocationRow) => `${row.rubricName}${row.percentLabel ? ` (${row.percentLabel})` : ""}${multipleSchools ? ` · ${row.schoolName}` : ""}${row.percentDetail ? ` — ${row.percentDetail}` : ""}${row.financial ? "" : ` · ${row.feeName} · ${row.classLabel}`}${row.stale ? " · tarif à revérifier" : ""}`;
   const globalFields = ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const;
   const globalLabels = ["Ouverture", "Encaissé (cumul)", "Dépensé (cumul)", "Disponible"];
