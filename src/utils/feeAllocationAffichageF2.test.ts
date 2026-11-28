@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { SUB_LINES_LEGEND, allocationSubLines, perStudentLabel, unbreakableMoney, type AllocationRow } from "./feeAllocationView";
 import { feeAllocationPdfSections } from "./feeAllocationPdf";
 import { getPdfLayout } from "./pdfSettings";
+import { subRubricLabel, subRubricSpendCheck, subRubricSpendError } from "../components/AllocationSubRubricSelect";
 
 const drawer = readFileSync(new URL("../modules/menu/FeeAllocationDrawer.tsx", import.meta.url), "utf8");
 const pdfSource = readFileSync(new URL("./pdf.ts", import.meta.url), "utf8");
@@ -68,5 +69,17 @@ describe("F2 — affichage des soldes des sous-rubriques", () => {
     expect(call).not.toMatch(/pdfSettings|orientation|innerWidth|matchMedia/);
     // Les sections ne dépendent pas de la largeur de l'écran : même contenu quel que soit l'appareil.
     expect(feeAllocationPdfSections.toString()).not.toMatch(/innerWidth|matchMedia|navigator/);
+  });
+  it("Caissier : la ligne du reste s'appelle « Reste », comme dans les tableaux ; une rubrique d'école garde son nom", () => {
+    const options = { required: true, currency: "USD", rubrics: [{ id: "r", name: "Fonctionnement", availableMinor: 900, subRubrics: [
+      { id: "1".repeat(16), name: "Craies", availableMinor: 500 }, { id: "UNALLOCATED", name: "Non affecté (Fonctionnement)", availableMinor: 100 }] },
+      { id: "UNALLOCATED", name: "Non affecté", availableMinor: 50 }] };
+    expect(subRubricLabel({ id: "UNALLOCATED", name: "Non affecté (Fonctionnement)" })).toBe("Reste");
+    expect(subRubricLabel({ id: "1".repeat(16), name: "Craies" })).toBe("Craies");
+    expect(subRubricSpendError(subRubricSpendCheck({ options }, "r", "UNALLOCATED", 200), "USD")).toContain("Solde insuffisant sur « Reste »");
+    const select = readFileSync(new URL("../components/AllocationSubRubricSelect.tsx", import.meta.url), "utf8");
+    expect(select).toContain("{subRubricLabel(sub)} — disponible");
+    // La rubrique « Non affecté » de l'école (1er champ) n'est jamais renommée.
+    expect(readFileSync(new URL("../components/AllocationRubricSelect.tsx", import.meta.url), "utf8")).not.toContain("subRubricLabel");
   });
 });
