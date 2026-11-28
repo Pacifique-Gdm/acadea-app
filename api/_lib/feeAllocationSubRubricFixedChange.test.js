@@ -52,6 +52,20 @@ describe("F2 — montant fixe changé pendant que l'élève paie encore", () => 
     expect(row.subView.map((r) => [r.name, r.receivedMinor])).toEqual([["Ouvrier", 1500], ["Non affecté (Personnel)", 2500]]);
   });
 
+  it("élève payé en partie AVANT la correction (cumul sans « served ») : le fixe changé n'est servi qu'une fois, rien n'est réécrit", async () => {
+    const db = await activeSchool();
+    const { rubric } = await saveSubs(db, [{ name: "Ouvrier", mode: "fixed", fixedMinor: 1000 }]);
+    await pay(db, 7.5, "fixed-change-pay-0007"); // rubrique : 6 $, tout au fixe
+    // Cumul écrit par l'ancienne version (lot 5) : seulement { key, baseMinor }.
+    const [path, total] = [...db.records].find(([p]) => p.startsWith("feeAllocationRequests/obligation_"));
+    db.records.set(path, { ...total, subBase: Object.fromEntries(Object.entries(total.subBase).map(([id, { key, baseMinor }]) => [id, { key, baseMinor }])) });
+    const written = movements(db);
+    await saveSubs(db, [{ ...rubric.subRubrics[0], fixedMinor: 1500 }]);
+    await pay(db, 42.5, "fixed-change-pay-0008");
+    expect(await view(db)).toEqual({ Ouvrier: 1500, "Non affecté (Personnel)": 2500 });
+    for (const [p, value] of written) expect(db.records.get(p)).toEqual(value);
+  });
+
   it("un fixe baissé sous ce qui est déjà servi ne sert plus rien ; un paiement suivant garde le compte", async () => {
     const db = await activeSchool();
     const { rubric } = await saveSubs(db, [{ name: "Ouvrier", mode: "fixed", fixedMinor: 1000 }, { name: "Enseignant", mode: "percent", basisPoints: 5000 }]);

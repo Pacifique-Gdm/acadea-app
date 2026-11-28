@@ -92,6 +92,7 @@ export function subRubricBalanceView(balance, subs, rubricName = "") {
  * les parts de chaque sous-rubrique, plus la base gardée dans le cumul de l'ancre. */
 export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoolYearId, lines, priorLines, nextLines, total, social = false }) {
   const byRubric = new Map();
+  let movements = null;
   const subBase = { ...(total?.subBase && typeof total.subBase === "object" ? total.subBase : {}) };
   for (let index = 0; index < lines.length; index += 1) {
     const rubricId = lines[index].rubricId;
@@ -109,7 +110,17 @@ export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoo
     const same = stored && stored.key === key && safe(stored.baseMinor);
     const baseMinor = same ? stored.baseMinor : before;
     // F2 : au changement des montants, ce que chaque sous-rubrique a déjà reçu pour cet élève (`served`) devient `carry`.
-    const carry = cleanAmounts(same ? stored.carry : stored?.served);
+    let previous = stored?.served;
+    if (!same && stored && previous === undefined && typeof total?.anchorId === "string") {
+      // Cumul écrit avant cette correction (sans `served`) : relu dans les mouvements déjà enregistrés de cet élève et de
+      // ce frais (lecture seule, une fois par encaissement) ; rien n'est réécrit.
+      movements ??= (await transaction.get(db.collection("feeAllocationMovements").where("anchorId", "==", total.anchorId))).docs.map((doc) => doc.data());
+      previous = {};
+      for (const movement of movements) if (movement?.schoolId === schoolId) for (const line of movement.subLines ?? []) {
+        if (line?.rubricId === rubricId && isSubRubricId(line.subRubricId) && Number.isSafeInteger(line.amountMinor)) previous[line.subRubricId] = (previous[line.subRubricId] ?? 0) + line.amountMinor;
+      }
+    }
+    const carry = cleanAmounts(same ? stored.carry : previous);
     const deltas = subRubricDeltas(subs, before, after, baseMinor, carry);
     const served = { ...carry };
     for (const [id, amount] of splitSubRubricCumulative(subs, after - baseMinor, carry)) served[id] = (served[id] ?? 0) + amount;
