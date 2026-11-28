@@ -928,24 +928,41 @@ service cloud.firestore {
             && request.resource.data.sectionStatus.get("CTEB", "draft") in ["draft", "validated"]
             && request.resource.data.sectionStatus.get("Secondaire", "draft") in ["draft", "validated"]);
       }
+      // Responsable désigné (lot R6, `sectionSettingsManagers`, écrit par le serveur seul) : pour un
+      // compte limité à ses sections, une section (CTEB ou Secondaire) confiée à un autre compte reste
+      // fermée. Le chemin « toute l'école » ne passe pas par ce contrôle. Sans désignation : rien ne change.
+      function calendarSectionFree(managers, section) {
+        return !(managers.get(section, null) is map)
+          || !(managers.get(section, {}).get("userId", "") is string)
+          || managers.get(section, {}).get("userId", "") in ["", request.auth.uid];
+      }
+      function calendarSectionsFree(sections) {
+        let path = /databases/$(database)/documents/sectionSettingsManagers/$(tenantSchoolId());
+        return (!sections.hasAny(["CTEB", "Secondaire"]) || !exists(path))
+          || ((!sections.hasAny(["CTEB"]) || calendarSectionFree(get(path).data.get("managers", {}), "CTEB"))
+            && (!sections.hasAny(["Secondaire"]) || calendarSectionFree(get(path).data.get("managers", {}), "Secondaire")));
+      }
       // Compte d'une partie des sections : seulement l'heure, l'auteur et le statut de SES sections.
       // Le cas « mes sections » est vérifié d'abord (peu coûteux), puis le calcul complet.
       function calendarMetadataCreateScopeAllowed() {
         return (request.resource.data.status == "draft"
             && !request.resource.data.keys().hasAny(["sourcePdf"])
-            && request.resource.data.get("sectionStatus", {}).keys().hasOnly(calendarUserSections()))
+            && request.resource.data.get("sectionStatus", {}).keys().hasOnly(calendarUserSections())
+            && calendarSectionsFree(request.resource.data.get("sectionStatus", {}).keys()))
           || calendarWholeSchoolWrite(request.resource.data);
       }
       function calendarMetadataUpdateScopeAllowed() {
         return (request.resource.data.diff(resource.data).affectedKeys().hasOnly(["updatedAt", "updatedBy", "sectionStatus", "updatedScope"])
-            && request.resource.data.get("sectionStatus", {}).diff(resource.data.get("sectionStatus", {})).affectedKeys().hasOnly(calendarUserSections()))
+            && request.resource.data.get("sectionStatus", {}).diff(resource.data.get("sectionStatus", {})).affectedKeys().hasOnly(calendarUserSections())
+            && calendarSectionsFree(request.resource.data.get("sectionStatus", {}).diff(resource.data.get("sectionStatus", {})).affectedKeys()))
           || calendarWholeSchoolWrite(request.resource.data);
       }
       // Événement sans sections = toute l'école : réservé à un compte qui règle toute l'école.
       function calendarEventInScope(data) {
         return (data.get("sectionIds", []) is list
             && data.get("sectionIds", []).size() > 0
-            && data.get("sectionIds", []).hasOnly(calendarUserSections()))
+            && data.get("sectionIds", []).hasOnly(calendarUserSections())
+            && calendarSectionsFree(data.get("sectionIds", [])))
           || calendarWholeSchoolWrite(getAfter(/databases/$(database)/documents/schoolCalendars/$(yearId)).data);
       }
 
