@@ -6,10 +6,13 @@ import { LoginScreen } from "../auth/LoginScreen";
 import { LoginImageDesktopPreview, LoginImageDrawer, LoginImagePhonePreview } from "./LoginImageDrawer";
 
 const IMAGE = "data:image/webp;base64,AAAA";
-const login = (loginImageUrl?: string) => renderToStaticMarkup(createElement(LoginScreen, {
+// Copie floue enregistrée avec l'image choisie (fond flou, accord de l'utilisateur du 28/11/2026).
+const BLUR = "data:image/jpeg;base64,BBBB";
+const login = (loginImageUrl?: string, loginImageBlurUrl?: string) => renderToStaticMarkup(createElement(LoginScreen, {
   onLogin: async () => undefined,
   platformLogoUrl: "",
   ...(loginImageUrl === undefined ? {} : { loginImageUrl }),
+  ...(loginImageBlurUrl === undefined ? {} : { loginImageBlurUrl }),
 }));
 
 describe("image de l'écran de connexion (lot 9) : écran et drawer", () => {
@@ -18,19 +21,21 @@ describe("image de l'écran de connexion (lot 9) : écran et drawer", () => {
     expect(login("")).toBe(html);
     expect(html).toContain('src="/connexion-enseignante.jpg"');
     expect(html).toContain("Enseignante souriante qui interroge ses élèves");
-    expect(html).toContain("Photo : Katerina Holmes · Pexels");
+    // Légende de la photo retirée le 28/11/2026 (Pexels n'exige pas de citation).
+    expect(html).not.toContain("Photo : Katerina Holmes · Pexels");
   });
 
   it("avec une image choisie, seule la photo change : même mise en page", () => {
-    const html = login(IMAGE);
+    const html = login(IMAGE, BLUR);
     expect(html).toContain(`src="${IMAGE}"`);
     expect(html).not.toContain("/connexion-enseignante.jpg");
     // Le crédit de la photo d'origine n'a plus lieu d'être.
     expect(html).not.toContain("Katerina Holmes");
     const layout = (markup: string) => markup
       .replace(/<link rel="preload" as="image" href="[^"]*"\/>/g, "")
-      .replace(/<img src="[^"]*" alt="[^"]*"/, "<img")
-      .replace(/<p class="absolute right-3 top-2[^"]*">[^<]*<\/p>/, "");
+      .replace(/<img src="[^"]*" alt="[^"]*"/g, "<img")
+      .replace(/<p class="absolute right-3 top-2[^"]*">[^<]*<\/p>/, "")
+      .replace(/<p class="absolute bottom-2 left-3\.5[^"]*">[^<]*<\/p>/, "");
     expect(layout(html)).toBe(layout(login()));
   });
 

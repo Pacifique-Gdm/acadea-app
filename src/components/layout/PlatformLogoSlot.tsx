@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
-export function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string; compact?: boolean }) {
+// shadow={false} : logo posé à plat sur le blanc, sans ombre (écran de connexion) ; éclairci de 2 % pour que
+// son fond presque blanc (253) devienne blanc pur : aucun carré visible autour du logo.
+export function PlatformLogoSlot({ logoUrl, compact = false, shadow = true }: { logoUrl: string; compact?: boolean; shadow?: boolean }) {
   const [logoShape, setLogoShape] = useState<"horizontal" | "vertical" | "balanced">("balanced");
   useEffect(() => {
     setLogoShape("balanced");
@@ -39,7 +41,7 @@ export function PlatformLogoSlot({ logoUrl, compact = false }: { logoUrl: string
       <img
         src={logoSource}
         alt="Logo de l'application"
-        className={`h-auto w-auto max-w-full object-contain drop-shadow-[0_14px_28px_rgba(15,23,42,0.10)] ${imageClass}`}
+        className={`h-auto w-auto max-w-full object-contain${shadow ? " drop-shadow-[0_14px_28px_rgba(15,23,42,0.10)]" : " brightness-[1.02]"} ${imageClass}`}
         decoding="async"
         onError={(event) => {
           const image = event.currentTarget;

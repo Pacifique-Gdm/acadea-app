@@ -192,7 +192,7 @@ export default async function handler(req, res) {
       await enforceApiRateLimit({ db, actorId: caller.uid, schoolId: "platform", action: "platform.login-image", ...API_RATE_LIMITS.SCHOOL_ADMIN });
       const validation = validateLoginImageRequest(body);
       if (validation.error) return sendJson(res, 400, { error: validation.error, code: "invalid-argument" });
-      sendJson(res, 200, { image: await saveLoginImage(db, caller, validation.imageDataUrl) });
+      sendJson(res, 200, { image: await saveLoginImage(db, caller, validation.imageDataUrl, { blurDataUrl: validation.blurDataUrl }) });
       return;
     }
     if (requestedAction === "search-schools") {
