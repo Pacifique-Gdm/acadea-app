@@ -182,3 +182,30 @@ export async function readAllocationForecast({ db, schoolId, yearId, currency, f
   }
   return response;
 }
+
+/** F2 (28/11/2026) — prévu À JOUR pour la part de l'ouverture des sous-rubriques (Caissier, contrôle des dépenses,
+ * liste des rubriques, tableaux). Le prévu gardé n'est repris que s'il passe exactement le contrôle de
+ * readAllocationForecast (même clé : signal, frais, configurations, état ; même âge maximal ; complet) ; sinon il est
+ * recalculé par readAllocationForecast, puis relu dans la transaction de l'appelant quand il y en a une. */
+export async function readFreshForecastRows({ reader = null, db, schoolId, yearId, currency, now = Date.now() }) {
+  const get = reader ?? { get: (ref) => ref.get() };
+  const cacheRef = db.doc(`feeAllocationForecastCaches/${forecastCacheId(schoolId, yearId, currency)}`);
+  const keptRows = async () => {
+    const annual = (collection) => db.collection(collection).where('schoolId', '==', schoolId).where('schoolYearId', '==', yearId);
+    const [fees, configs, state, signal, cache] = await Promise.all([readAllocationPages(annual('feeTypes'), get), readAllocationPages(annual('feeAllocationConfigs'), get),
+      get.get(db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`)), get.get(db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`)), get.get(cacheRef)]);
+    const data = (result) => result.docs.map((d) => ({ ...d.data(), id: d.id }));
+    const revision = signal.data()?.revision ?? null, kept = cache.data();
+    return revision && kept?.key === forecastCacheKey({ signal: revision, fees: data(fees), configs: data(configs), state: state.data()?.status ?? null })
+      && kept.schoolId === schoolId && kept.schoolYearId === yearId && kept.currency === currency
+      && Number.isFinite(Date.parse(kept.savedAt)) && now - Date.parse(kept.savedAt) < FORECAST_CACHE_MAX_AGE_MS
+      && kept.forecast?.status === 'complete' && Array.isArray(kept.forecast.rows) ? kept.forecast.rows : null;
+  };
+  const kept = await keptRows();
+  if (kept) return kept;
+  // Absent ou périmé : même calcul que les tableaux (il enregistre aussi le prévu gardé quand c'est possible).
+  let forecast;
+  try { ({ forecast } = await readAllocationForecast({ db, schoolId, yearId, currency, now })); } catch { return null; }
+  // Dans une transaction : le prévu gardé, s'il vient d'être enregistré, est relu ici (la transaction est rejouée s'il change).
+  return (reader ? await keptRows() : null) ?? (forecast?.status === 'complete' && Array.isArray(forecast.rows) ? forecast.rows : null);
+}
