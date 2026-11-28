@@ -168,12 +168,10 @@ export function LoginScreen({
       `}{LOGIN_PHOTO_ANIMATIONS}{LOGIN_BLUR_STYLES}</style>
       <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
       {blurred && (
-        // Ordinateur (aucun miroir) : la copie floue, cadrée comme la photo, est étirée seulement à partir de ses
-        // 24 derniers points (bandes floues, aucun élément de la photo répété) ; la photo nette s'y efface directement.
+        // Ordinateur (aucun miroir, aucun étirement) : toute la copie floue couvre le fond sur toute la largeur
+        // (object-fit: cover), sous la photo nette, qui s'y efface directement par un fondu long.
         <div aria-hidden="true" data-testid="login-blur-desktop" className="pointer-events-none absolute inset-0 hidden overflow-hidden bg-[#F5F7FB] lg:block">
-          <div className="absolute inset-y-0 left-0 w-[55%] origin-[calc(100%-24px)_50%] scale-x-[30]">
-            <img src={blurSrc} alt="" onError={onBlurError} className="absolute inset-0 h-full w-full object-cover object-[50%_30%]" />
-          </div>
+          <img src={blurSrc} alt="" onError={onBlurError} className="absolute inset-0 h-full w-full object-cover object-[50%_30%]" />
           <div className="absolute inset-0 bg-gradient-to-t from-[#14213d]/90 via-[#14213d]/45 to-transparent" style={withMask(DESKTOP_DARK_BRIDGE_MASK)} />
           <div className="absolute inset-0" style={{ background: DESKTOP_BLUR_VEIL }} />
         </div>

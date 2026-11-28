@@ -82,11 +82,12 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
     expect(readFileSync("src/components/auth/LoginScreen.tsx", "utf8")).not.toContain("LOGIN_PHOTO_CREDIT");
   });
 
-  it("ordinateur : AUCUN élément en miroir ; la copie floue n'est étirée qu'à partir du bord de la photo", () => {
+  it("ordinateur : AUCUN miroir ni étirement ; toute la copie floue couvre le fond sur toute la largeur", () => {
     const html = login();
     expect(html).not.toMatch(/-scale-x-|scaleX\(-|rotate/);
     const desktop = html.slice(html.indexOf('data-testid="login-blur-desktop"'), html.indexOf("<aside"));
-    expect(desktop).toContain("origin-[calc(100%-24px)_50%] scale-x-[30]");
+    expect(desktop).not.toMatch(/scale|origin-/);
+    expect(desktop).toContain(`<img src="${LOGIN_PHOTO_BLUR_SRC}" alt="" class="absolute inset-0 h-full w-full object-cover object-[50%_30%]"/>`);
     // Une seule photo nette sur la page : rien n'est répété.
     expect(html.match(/src="\/connexion-enseignante\.jpg"/g)?.length).toBe(1);
   });
