@@ -25,7 +25,7 @@ export function SubRubricDetail({ row, sub, filterLabel, schoolId, canRedistribu
   restAvailableMinor: number; redistributedAt?: string; onClose: () => void; onDone: () => void;
 }) {
   const rest = sub.id === "UNALLOCATED";
-  const money = (minor: number | null | undefined) => minor === null || minor === undefined ? "—" : unbreakableMoney(minor, row.currency);
+  const money = (minor: number | null | undefined) => minor === null || minor === undefined ? "—" : minor < 0 ? `−${unbreakableMoney(-minor, row.currency)}` : unbreakableMoney(minor, row.currency);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState("");
