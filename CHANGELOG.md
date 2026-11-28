@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.41.0] — 2026-11-28 — Fonctionnalité
+- Écran de connexion : fond flou tiré de la photo, sur ordinateur et téléphone (sans miroir)
+
 ## [1.40.2] — 2026-11-28 — Correction
 - Calendrier : une section confiée à un responsable désigné n'est modifiable que par lui (vérifié aussi par la règle de sécurité) ; un compte aux sections inconnues de l'école reste en lecture seule
 
