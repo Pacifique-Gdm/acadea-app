@@ -196,12 +196,16 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
     const subReceived = { 1: new Map<string, number>(), 2: new Map<string, number>() }, subSpent = new Map<string, number>();
     // F2 : encaissé des sous-rubriques selon le filtre (mêmes filtres que la rubrique).
     const subFiltered = { 1: new Map<string, number>(), 2: new Map<string, number>() };
+    // « Répartir le Reste » : argent passé de « Reste » aux sous-rubriques (total de la rubrique inchangé).
+    const subTransfer = new Map<string, number>();
     for (const m of ledger.movements) {
       const day = m.postedAt.slice(0, 10), amount = m.lines.find(l => l.rubricId === rubric.id)?.amountMinor ?? 0;
       if (period?.to && day > period.to) continue;
       // End-of-period availability is cumulative, not the period's cash variation.
       availableMinor += amount;
       if (m.sourceType === "opening") { openingMinor += amount; continue; }
+      // Compté dans « Encaissé (cumul) » des sous-rubriques (− pour « Reste »), jamais dans « Encaissé (filtre) ».
+      if (m.sourceType === "transfer") { for (const line of m.subLines ?? []) if (line.rubricId === rubric.id) subTransfer.set(line.subRubricId, (subTransfer.get(line.subRubricId) ?? 0) + line.amountMinor); continue; }
       const table = m.socialCase ? 2 : 1;
       for (const line of m.subLines ?? []) if (line.rubricId === rubric.id) {
         if (m.sourceType === "expense") subSpent.set(line.subRubricId, (subSpent.get(line.subRubricId) ?? 0) - line.amountMinor);
@@ -232,6 +236,12 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
     const spent = prorataShares(spentMinor, cumulative[1], cumulative[2]);
     const cumSpent = prorataShares(cumulativeSpentMinor, cumulative[1], cumulative[2]);
     const labels = percentLabels(workspace, forecast, rubric.id);
+    // « Répartir le Reste » : partagé entre les tableaux 1 et 2 avec la règle de la rubrique (somme exacte).
+    if (subTransfer.size) {
+      const ids = [...subTransfer.keys()], parts = ids.map((id) => subTransfer.get(id)!);
+      const two = splitLikeRubric(parts, prorataShares(parts.reduce((n, x) => n + x, 0), cumulative[1], cumulative[2])[1], cumulative[1], cumulative[2]);
+      ids.forEach((id, i) => { subReceived[2].set(id, (subReceived[2].get(id) ?? 0) + two[i]); subReceived[1].set(id, (subReceived[1].get(id) ?? 0) + parts[i] - two[i]); });
+    }
     // F2 : chaque tableau a ses propres lignes « ↳ » ; les dépenses de la rubrique (sous-rubriques et « Non affecté »)
     // sont partagées entre les tableaux 1 et 2 avec la même règle que la rubrique, au centime près : jamais négatives.
     const spentByTable = [new Map<string, number>(), new Map<string, number>()] as const;

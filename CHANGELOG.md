@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.43.0] — 2026-11-28 — Fonctionnalité
+- Bouton « Répartir le Reste » : l'administrateur répartit une seule fois le Reste d'une rubrique entre ses sous-rubriques (phrase de confirmation, aperçu, même chiffres dans les tableaux, le PDF et chez le Caissier)
+
 ## [1.42.2] — 2026-11-28 — Correction
 - F2 : part de l'ouverture des sous-rubriques toujours calculée avec le prévu à jour (Caissier, contrôle des dépenses, tableaux)
 
