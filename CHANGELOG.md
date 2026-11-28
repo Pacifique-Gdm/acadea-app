@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.42.2] — 2026-11-28 — Correction
+- F2 : part de l'ouverture des sous-rubriques toujours calculée avec le prévu à jour (Caissier, contrôle des dépenses, tableaux)
+
 ## [1.42.1] — 2026-11-28 — Correction
 - Écran de connexion : légende de la photo retirée ; sur ordinateur, photo nette entière à gauche et même photo floue à l'endroit à droite (plus de miroir) ; logo sans halo
 

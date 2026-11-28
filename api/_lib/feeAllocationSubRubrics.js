@@ -1,6 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
 import { FeeAllocationError } from "./feeAllocationMath.js";
-import { allocationHash } from "./feeAllocationRuntime.js";
 
 /** Lots 5 et 6 — sous-rubriques d'une rubrique du catalogue (décisions de l'utilisateur, 25 et 27/11/2026).
  * - Une seule répartition par rubrique, valable pour tous les frais qui l'alimentent.
@@ -131,13 +130,13 @@ export function subRubricViewOptions(entry, balance, forecastRows) {
   return { planned: plan, openingShares: subRubricOpeningShares(balance?.openingMinor ?? 0, plan) };
 }
 
-/** Lignes du prévu gardées (dernier prévu calculé par l'application) : lecture d'un seul document, aussi dans une
- * transaction. Le Caissier et le contrôle des dépenses lisent ainsi le même prévu que les tableaux. */
+/** Lignes du prévu À JOUR (le même que les tableaux), aussi dans une transaction. Le Caissier, le contrôle des dépenses
+ * et la liste des rubriques calculent ainsi la part de l'ouverture avec le bon prévu. F2 (28/11/2026) : le prévu gardé
+ * n'est repris que s'il est à jour (même contrôle que readAllocationForecast) ; sinon il est recalculé. */
 export async function readKeptForecastRows(reader, db, schoolId, yearId, currency) {
-  // Même identifiant que forecastCacheId (feeAllocationForecast.js), recalculé ici pour éviter une boucle d'imports.
-  const ref = db.doc(`feeAllocationForecastCaches/${allocationHash(["forecast-cache", schoolId, yearId, currency])}`);
-  const kept = (await (reader ? reader.get(ref) : ref.get())).data();
-  return kept?.forecast?.status === "complete" && Array.isArray(kept.forecast.rows) ? kept.forecast.rows : null;
+  // Import au moment de l'appel : évite une boucle d'imports au chargement (feeAllocationForecast → … → ce fichier).
+  const { readFreshForecastRows } = await import("./feeAllocationForecast.js");
+  return readFreshForecastRows({ reader, db, schoolId, yearId, currency });
 }
 
 /** Soldes affichés : chaque sous-rubrique, puis « Non affecté (rubrique) » = rubrique moins la somme des sous-rubriques.

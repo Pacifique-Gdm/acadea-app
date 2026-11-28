@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { allocationRequest } from "../services/feeAllocation";
 import { userFacingError } from "../utils/userFacingError";
 import { ErrorNotice } from "./ui/ErrorNotice";
+import { formatSignedCurrencyMoney } from "../utils/currency";
 
 export type SpendRubric = { id: string; name: string; availableMinor?: number };
 export type SpendOptions = { required: boolean; paused?: boolean; rubrics: SpendRubric[]; currency?: string; setupInProgress?: boolean };
@@ -46,7 +47,9 @@ export function rubricSpendCheck(state: Pick<SpendOptionsState, "options" | "err
   return { kind: "ready", rubric, availableMinor, over: debitMinor > 0 && debitMinor > availableMinor };
 }
 
-const amount = (minor: number, currency?: string) => `${(minor / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency ?? ""}`.trim();
+// F2 (28/11/2026) : même format que les tableaux (« $18,40 », « −$16,67 », « 18 400,00 FC »), jamais « USD » ni « CDF ».
+const amount = (minor: number, currency?: string) => currency === "USD" || currency === "CDF" ? formatSignedCurrencyMoney(minor / 100, currency)
+  : `${(minor / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency ?? ""}`.trim();
 
 export function AllocationRubricSelect({ schoolId, schoolYearId, value, onChange, spend }: {
   schoolId: string; schoolYearId: string; value: string; onChange: (value: string) => void; spend?: SpendOptionsState;

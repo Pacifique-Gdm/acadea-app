@@ -13,7 +13,7 @@ import { useAllocationShares } from "./feeAllocationSharingState";
 import { loadMySharedRubrics } from "../../services/feeAllocation";
 import { validateFeeAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
 import { SUB_LINES_LEGEND, allocationClassLabel, allocationConfigured, noAllocationConfigured, allocationFilterChoices, allocationTotals, allocationFinancialTotals, buildAllocationTables, projectAllocations, unavailableAllocation, type AllocationFilter, type AllocationRow } from "../../utils/feeAllocationView";
-import { formatCurrencyMoney } from "../../utils/currency";
+import { formatCurrencyMoney, formatSignedCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { renderAcadPdfPreview } from "../../utils/pdf";
 import { feeAllocationPdfSections } from "../../utils/feeAllocationPdf";
@@ -246,7 +246,7 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       ...(row.financial ? row.subLines ?? [] : []).map((sub) => <tr key={`${row.key}/${sub.id}`} data-sub-rubric-row className={`bg-indigo-50/40 text-xs ${sub.id === "UNALLOCATED" ? "italic text-slate-600" : ""}`}>
         <td className="border-b p-2 pl-6">↳ {sub.name}</td>{([sub.plannedMinor, sub.receivedMinor]).map((value, i) => <td key={`p${i}`} className="border-b p-2 whitespace-nowrap">{value === null || value === undefined ? "—" : formatCurrencyMoney(value / 100, row.currency)}</td>)}
         {operational && <><td className="border-b border-l p-2 whitespace-nowrap">{sub.openingMinor === null ? "—" : formatCurrencyMoney(sub.openingMinor / 100, row.currency)}</td>
-          {([sub.cumulativeReceivedMinor, sub.cumulativeSpentMinor, sub.availableMinor]).map((value, i) => <td key={i} className={`border-b p-2 whitespace-nowrap ${i === 2 ? "font-semibold" : ""}`}>{formatCurrencyMoney(value / 100, row.currency)}</td>)}</>}
+          {([sub.cumulativeReceivedMinor, sub.cumulativeSpentMinor, sub.availableMinor]).map((value, i) => <td key={i} className={`border-b p-2 whitespace-nowrap ${i === 2 ? "font-semibold" : ""}`}><span className={i === 2 && value < 0 ? "text-red-700" : undefined} data-negative-available={i === 2 && value < 0 ? "" : undefined}>{formatSignedCurrencyMoney(value / 100, row.currency)}</span></td>)}</>}
       </tr>)])}</tbody><tfoot>{allocationTotals(rows).map(total => <tr key={total.currency} className="font-semibold"><td className="p-2">Total {total.currency}</td><td className="p-2 whitespace-nowrap">{formatCurrencyMoney(total.amountMinor / 100, total.currency)}</td>{(["receivedMinor", ...(operational ? ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const : [])] as const).map(field => { const value = allocationFinancialTotals(rows, field).find(t => t.currency === total.currency)?.value; return <td key={field} className="p-2 whitespace-nowrap">{value === null || value === undefined ? unavailableAllocation : formatCurrencyMoney(value / 100, total.currency)}</td>; })}</tr>)}</tfoot></table></div> : <p className="text-sm text-slate-500">Aucun montant dans ce tableau.</p>}{rows.some((row) => row.financial && row.subLines?.length) && <p className="text-xs text-slate-500" data-sub-lines-legend>{SUB_LINES_LEGEND}</p>}</section>)}
     {ready && !configured && <p role="status" data-no-allocation>{noAllocationConfigured(configurable)}</p>}
     {ready && hasConfiguration && !projection.rows.length && <p role="status">Aucun résultat pour ce filtre. Les autres répartitions sont conservées.</p>}

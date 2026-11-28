@@ -16,7 +16,7 @@ describe("dépense avec répartition des frais active", () => {
     expect(rubricSpendCheck({ options, error: "" }, "ecole", 22601)).toMatchObject({ kind: "ready", over: true });
     expect(rubricSpendCheck({ options, error: "" }, "UNALLOCATED", 1)).toMatchObject({ kind: "ready", over: true });
   });
-  it("message lisible : 226,00 USD", () => {
-    expect(formatRubricAmount(22600, "USD").replace(/\s/g, " ")).toBe("226,00 USD");
+  it("message lisible : $226,00 (même format que les tableaux)", () => {
+    expect(formatRubricAmount(22600, "USD").replace(/\s/g, " ")).toBe("$226,00");
   });
 });
