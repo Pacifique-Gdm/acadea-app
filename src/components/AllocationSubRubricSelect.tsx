@@ -64,7 +64,7 @@ export function AllocationSubRubricSelect({ spend, rubricId, value, onChange, de
     <label className="grid gap-1 text-sm font-semibold">Sous-rubrique obligatoire
       <select required className="input" value={value} onChange={(event) => onChange(event.target.value)}>
         <option value="">Choisir une sous-rubrique</option>
-        {subs.map((sub) => <option key={sub.id} value={sub.id} style={sub.availableMinor < 0 ? { color: "#b91c1c" } : undefined}>{subRubricLabel(sub)} — disponible {sub.availableMinor < 0 ? formatSignedCurrencyMoney(sub.availableMinor / 100, currency === "CDF" ? "CDF" : "USD") : formatRubricAmount(sub.availableMinor, currency)}</option>)}
+        {subs.map((sub) => <option key={sub.id} value={sub.id} style={sub.availableMinor < 0 ? { color: "#b91c1c" } : undefined}>{subRubricLabel(sub)} — disponible {formatRubricAmount(sub.availableMinor, currency)}</option>)}
       </select>
     </label>
     {proposed && value === proposed && proposedFor && <p className="text-xs text-emerald-700" data-sub-rubric-proposed>Proposée selon la fonction « {personnelJobTitleLabel(proposedFor.jobTitle, proposedFor.hasAccount)} ». Vous pouvez la changer.</p>}
