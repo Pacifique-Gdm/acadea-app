@@ -163,7 +163,7 @@ describe("F2 — lignes « ↳ » propres à chaque tableau (vrais mouvements)",
   it("libellé dans la devise du document : un PDF en francs écrit « FC/élève », jamais « $ »", () => {
     const lines = allocationSubLines({ openingMinor: 0, subView: [{ id: "1".repeat(16), name: "Entretien", mode: "fixed", fixedMinor: 500000, receivedMinor: 0, spentMinor: 0, availableMinor: 0 },
       { id: "UNALLOCATED", name: "Non affecté (Bibliothèque)", receivedMinor: 0, spentMinor: 0, availableMinor: 0 }] }, "CDF")!;
-    expect(lines[0].name).toMatch(/^Entretien \(5.000 FC\/⁠élève\)$/);
+    expect(lines[0].name).toMatch(/^Entretien \(5.000\u00a0FC\/⁠élève\)$/);
     expect(lines[0].name).not.toContain("$");
   });
 });

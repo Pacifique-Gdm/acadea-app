@@ -24,7 +24,7 @@ describe("F2 — affichage des soldes des sous-rubriques", () => {
   it("libellé court : « 30 % » reste, un montant fixe devient « $2/élève » (« 2 000 FC/élève » en francs)", () => {
     expect(perStudentLabel(200, "USD")).toBe("$2/⁠élève");
     expect(perStudentLabel(250, "USD")).toBe("$2,50/⁠élève");
-    expect(perStudentLabel(200000, "CDF")).toMatch(/^2.000 FC\/⁠élève$/);
+    expect(perStudentLabel(200000, "CDF")).toMatch(/^2.000\u00a0FC\/⁠élève$/);
     const lines = allocationSubLines({ openingMinor: 0, subView: subView(1) }, "USD")!;
     expect(lines.map((l) => l.name)).toEqual(["Craies (30 %)", "Entretien ($2/⁠élève)", "Non affecté (Fonctionnement)"]);
     // Ni espace ordinaire ni passage à la ligne possible à l'intérieur de « $2/élève » (U+2060 après « / »).
@@ -47,7 +47,7 @@ describe("F2 — affichage des soldes des sous-rubriques", () => {
       const amounts = cells(pdf(currency, k)).filter((text) => /\d,\d\d/.test(text));
       expect(amounts.length).toBeGreaterThan(20);
       // Aucun espace ordinaire à l'intérieur d'un montant (chiffres, séparateurs, devise).
-      for (const text of amounts) for (const amount of text.match(/\$?\d[\d   ]*,\d\d(?:[  ]FC)?/g) ?? []) expect(amount, `« ${amount} »`).not.toMatch(/ /);
+      for (const text of amounts) for (const amount of text.match(/\$?\d[\d\u00a0\u202f ]*,\d\d(?:[\u00a0 ]FC)?/g) ?? []) expect(amount, `« ${amount} »`).not.toMatch(/ /);
     }
     expect(pdfSource).toContain(".acadea-pdf .fee-allocation-table-pdf-section td:not(:first-child), .acadea-pdf .fee-allocation-table-pdf-section td:not(:first-child) * { overflow-wrap: normal; word-break: keep-all; }");
     // Écran : cellules de montants « whitespace-nowrap » ; « Dont arriérés » et « Dont anciens élèves » aussi.
