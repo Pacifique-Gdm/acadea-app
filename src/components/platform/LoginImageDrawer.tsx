@@ -12,7 +12,7 @@ import {
   saveLoginImage,
 } from "../../services/loginImage";
 
-type Draft = { dataUrl: string; bytes: number };
+type Draft = { dataUrl: string; bytes: number; blurDataUrl: string };
 type Pending = "save" | "reset" | null;
 
 /** Aperçu ordinateur : photo à gauche (55 %), carte de connexion à droite, comme le vrai écran. */
@@ -113,7 +113,7 @@ export function LoginImageDrawer({ platformLogoUrl, refreshToken = 0 }: { platfo
     setError("");
     try {
       const image = pending === "save"
-        ? await saveLoginImage(draft!.dataUrl, LOGIN_IMAGE_SAVE_CONFIRMATION)
+        ? await saveLoginImage(draft!.dataUrl, LOGIN_IMAGE_SAVE_CONFIRMATION, draft!.blurDataUrl)
         : await saveLoginImage("", LOGIN_IMAGE_RESET_CONFIRMATION);
       setSavedImage(image.imageDataUrl);
       setDraft(null);
