@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.42.0] — 2026-11-28 — Fonctionnalité
+- Sous-rubriques : pour toute rubrique (bouton « Ajouter sous-rubriques »), dans la Partie 2 des cas sociaux, et leurs soldes dans les tableaux 1-2-3, le PDF et la vue partagée ; bouton « Partie 2 » en double retiré ; même règle partout pour les sous-rubriques (montant fixe converti en %, paiements suivants seulement), ligne « Reste », colonnes remplies
+
 ## [1.41.0] — 2026-11-28 — Fonctionnalité
 - Écran de connexion : fond flou tiré de la photo, sur ordinateur et téléphone (sans miroir)
 

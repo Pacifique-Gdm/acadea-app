@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { FeeAllocationError } from "./feeAllocationMath.js";
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
-import { SUB_RUBRICS_PHRASE, subRubricAmountsKey, subRubricBalanceView, validateSubRubrics } from "./feeAllocationSubRubrics.js";
-import { allocationBalanceId } from "./feeAllocationRuntime.js";
+import { SUB_RUBRICS_PHRASE, keptSocialSubOverrides, subRubricAmountsKey, subRubricBalanceView, subRubricViewOptions, readKeptForecastRows, validateSubRubrics } from "./feeAllocationSubRubrics.js";
+import { allocationBalanceId, allocationStateId } from "./feeAllocationRuntime.js";
 
 /** Lot 27b — catalogue des rubriques de la répartition des frais (décision du propriétaire, 16/11/2026).
  * - Propre à chaque école ET à chaque année scolaire (une nouvelle année commence avec une liste vide).
@@ -66,8 +66,10 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
     // Lots 5 et 6 : soldes des sous-rubriques (Administrateur), dans la devise de l'année.
     const withSubs = isAdmin(caller.role) ? catalog.rubrics.filter((r) => Array.isArray(r.subRubrics) && r.subRubrics.length) : [];
     const subBalances = new Map(await Promise.all(withSubs.map(async (r) => [r.id, (await db.doc(`feeAllocationBalances/${allocationBalanceId(schoolId, yearId, currency, r.id)}`).get()).data()])));
+    // F2 (28/11/2026) : part de l'ouverture des sous-rubriques, avec le même prévu gardé que les tableaux.
+    const forecastRows = withSubs.length ? await readKeptForecastRows(null, db, schoolId, yearId, currency) : null;
     return { operational: false, schoolId, schoolYearId: yearId, currency, ...catalog, rubrics: catalog.rubrics.map((r) => ({ ...r, used: used.has(r.id),
-      ...(subBalances.has(r.id) ? { subView: subRubricBalanceView(subBalances.get(r.id), r.subRubrics, r.name) } : {}) })) };
+      ...(subBalances.has(r.id) ? { subView: subRubricBalanceView(subBalances.get(r.id), r.subRubrics, r.name, subRubricViewOptions(r, subBalances.get(r.id), forecastRows)) } : {}) })) };
   }
   if (!isAdmin(caller.role) || caller.schoolId !== schoolId) fail(403, "permission-denied", "Seul l'Administrateur gère les rubriques.");
   if (!id(body.requestId) || body.requestId.length < 12) fail(400, "invalid-argument", "Clé de requête invalide.");
@@ -113,6 +115,9 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
       } else if (body.action === "save-sub-rubrics") {
         // Lots 5 et 6 : une seule répartition par rubrique, pour tous les frais. Phrase tapée à la main avant tout
         // changement de pourcentage ou de montant ; une sous-rubrique qui a servi ne peut pas être retirée.
+        // F2 : rien ne s'enregistre tant que la répartition n'est pas activée.
+        const state = (await transaction.get(db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`))).data();
+        if (!["ACTIVE", "PAUSED"].includes(state?.status)) fail(409, "failed-precondition", "Les sous-rubriques seront disponibles quand la répartition sera activée.");
         const saved = Array.isArray(rubric.subRubrics) ? rubric.subRubrics : [];
         const subRubrics = validateSubRubrics(body.subRubrics);
         if (subRubrics.some((sub) => !saved.some((old) => old.id === sub.id) && body.subRubrics.some((input) => input?.id === sub.id))) fail(400, "invalid-argument", "Sous-rubrique inconnue pour cette rubrique.");
@@ -123,8 +128,10 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
           const usedSub = removed.find((old) => balances.docs.some((doc) => { const own = doc.data().rubricId === rubric.id ? doc.data().subBalances?.[old.id] : null; return !!own && ((own.receivedMinor ?? 0) !== 0 || (own.spentMinor ?? 0) !== 0); }));
           if (usedSub) fail(409, "conflict", `La sous-rubrique « ${usedSub.name} » a déjà servi : elle ne peut pas être retirée.`);
         }
-        transaction.update(ref, { subRubrics, updatedAt: now, updatedBy: caller.uid });
-        result = { rubric: { ...rubric, subRubrics } };
+        // F2 : les écarts des cas sociaux (partie 2) suivent ; ceux d'une sous-rubrique retirée sont oubliés.
+        const socialSubRubrics = keptSocialSubOverrides(rubric.socialSubRubrics, subRubrics);
+        transaction.update(ref, { subRubrics, ...(socialSubRubrics ? { socialSubRubrics } : {}), updatedAt: now, updatedBy: caller.uid });
+        result = { rubric: { ...rubric, subRubrics, ...(socialSubRubrics ? { socialSubRubrics } : {}) } };
       } else fail(400, "invalid-argument", "Action inconnue sur les rubriques.");
     }
     // Lot « répartition rapide » : chaque changement de rubrique change la révision du catalogue,

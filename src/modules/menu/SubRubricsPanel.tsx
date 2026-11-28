@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { allocationRequest } from "../../services/feeAllocation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { allocationRequest, loadRubricCatalog } from "../../services/feeAllocation";
 import { personnelJobTitleLabel } from "../../services/personnel";
 import { formatRubricAmount } from "../../components/AllocationRubricSelect";
 import { userFacingError } from "../../utils/userFacingError";
@@ -89,7 +89,7 @@ export function SubRubricsPanel({ schoolId, rubric, currency, onSaved }: { schoo
         <label className="grid gap-1 text-sm">{line.mode === "percent" ? "Pourcentage (%)" : `Montant par élève et par frais payé${currency ? ` (${currency})` : ""}`}
           <input className="input" inputMode="decimal" value={line.value} onChange={(event) => edit(index, { value: event.target.value })}/></label>
       </div>
-      <fieldset className="grid gap-1 text-sm"><legend className="font-semibold">Fonctions concernées (proposition dans la paie)</legend>
+      <fieldset className="grid gap-1 text-sm"><legend className="font-semibold">Fonctions concernées (facultatif, sert seulement à proposer la sous-rubrique dans la paie)</legend>
         <span className="flex flex-wrap gap-2">{SUB_RUBRIC_FUNCTIONS.map((role) => <label key={role} className="flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs">
           <input type="checkbox" checked={line.functions.includes(role)} onChange={(event) => edit(index, { functions: event.target.checked ? [...line.functions, role] : line.functions.filter((f) => f !== role) })}/>{functionLabel(role)}</label>)}</span>
       </fieldset>
@@ -111,7 +111,24 @@ export function SubRubricsSection({ schoolId, rubric, currency, open, onToggle, 
 }) {
   const count = rubric.subRubrics?.length ?? 0;
   return <>
-    <span className={BUTTON_ROW}><button type="button" className="secondary-button w-full justify-center" aria-expanded={open} onClick={onToggle}>{open ? "Fermer les sous-rubriques" : `Sous-rubriques${count ? ` (${count})` : ""}`}</button></span>
+    <span className={BUTTON_ROW}><button type="button" className="secondary-button w-full justify-center" aria-expanded={open} onClick={onToggle}>{open ? "Fermer les sous-rubriques" : count ? `Sous-rubriques (${count})` : "Ajouter sous-rubriques"}</button></span>
     {open && <SubRubricsPanel key={JSON.stringify(rubric.subRubrics ?? [])} schoolId={schoolId} rubric={rubric} currency={currency} onSaved={onSaved} />}
   </>;
+}
+
+/** F2 (27/11/2026) : accès aux sous-rubriques depuis le drawer d'une rubrique (clic sur la rubrique dans la Répartition).
+ * Toute rubrique peut en avoir. Bouton seul sur sa ligne, pleine largeur ; rien tant que la répartition n'est pas activée. */
+export function RubricSubRubricsAccess({ schoolId, rubricId, active, onChanged }: { schoolId: string; rubricId: string; active: boolean; onChanged: () => void }) {
+  const [rubric, setRubric] = useState<RubricWithSubs | null>(null), [currency, setCurrency] = useState<string>();
+  const [open, setOpen] = useState(false), [error, setError] = useState("");
+  const refresh = useCallback(async () => {
+    try { const catalog = await loadRubricCatalog(schoolId); setRubric((catalog.rubrics as RubricWithSubs[]).find((item) => item.id === rubricId) ?? null); setCurrency(catalog.currency); setError(""); }
+    catch (cause) { setError(userFacingError(cause, "Sous-rubriques indisponibles.")); }
+  }, [schoolId, rubricId]);
+  useEffect(() => { if (active) void refresh(); }, [active, refresh]);
+  if (!active) return <p className="rounded bg-slate-100 p-2 text-xs text-slate-600" data-sub-rubrics-inactive>Les sous-rubriques seront disponibles quand la répartition sera activée.</p>;
+  return <div className="grid gap-2" data-rubric-sub-rubrics>
+    <ErrorNotice error={error} onRetry={() => void refresh()} />
+    {rubric && <SubRubricsSection schoolId={schoolId} rubric={rubric} currency={currency} open={open} onToggle={() => setOpen(!open)} onSaved={() => { void refresh(); onChanged(); }} />}
+  </div>;
 }

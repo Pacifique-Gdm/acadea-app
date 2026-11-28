@@ -1023,6 +1023,8 @@ function pdfStyles(pdfSettings: PdfGenerationSettings, renderWidth: number) {
     .acadea-pdf .fee-allocation-table-pdf-section th { padding: 5px; font-size: 9.5px; }
     .acadea-pdf .fee-allocation-table-pdf-section th, .acadea-pdf .fee-allocation-table-pdf-section th * { overflow-wrap: normal; word-break: keep-all; }
     .acadea-pdf .fee-allocation-table-pdf-section td, .acadea-pdf .fee-allocation-table-pdf-section td * { overflow-wrap: break-word; }
+    /* F2 (28/11/2026) : colonnes de montants — passage à la ligne seulement entre deux mots, jamais au milieu d'un montant. */
+    .acadea-pdf .fee-allocation-table-pdf-section td:not(:first-child), .acadea-pdf .fee-allocation-table-pdf-section td:not(:first-child) * { overflow-wrap: normal; word-break: keep-all; }
     .medical-record-pdf .pdf-section { margin-bottom: 6px; }
     .medical-record-pdf .pdf-section h2 { margin-bottom: 4px; padding-bottom: 3px; font-size: 9.5pt; }
     .medical-record-pdf .info-grid { gap: 5px 7px; margin-bottom: 3px; }

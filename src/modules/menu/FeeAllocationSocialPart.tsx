@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AdminDrawer } from "../../components/ui";
 import type { FeeAllocationRubric } from "../../types/feeAllocation";
-import { AllocationApiError, loadSocialParts, publishSocialParts, type PublishSocialParts, type SocialPartItem } from "../../services/feeAllocation";
+import { AllocationApiError, loadRubricCatalog, loadSocialParts, publishSocialParts, type PublishSocialParts, type SocialPartItem, type SocialSubOverrides } from "../../services/feeAllocation";
+import { SocialSubRubricsBlock, sameSocialSubOverrides, socialSubLines, socialSubPayload, type CatalogRubricWithSocial, type SocialSubLine } from "./SocialSubRubrics";
 import { sameAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
 import { applySocialLinesToAll, sameSocialLines, socialPartLines, socialPartPreview, socialPartRubrics, socialPartTotalText, type SocialPartLine as Line } from "./feeAllocationSocialPartPreview";
 import { formatCurrencyMoney } from "../../utils/currency";
@@ -35,8 +36,10 @@ export function TypedConfirmation({ value, onChange, disabled, label = `Pour pub
 
 /** Lignes de la partie 2 (cas sociaux) : rubriques de la partie 1, « Retirer la ligne » / « Remettre la ligne », « Non affecté » automatique.
  * Version 1.20.1 : « Retirer la ligne » sur la même ligne que le pourcentage ; « Recopier… » et un second bouton éventuel, moitié-moitié. */
-export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyPartOne, copyLabel = "Recopier la partie 1", secondAction }: {
+export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyPartOne, copyLabel = "Recopier la partie 1", secondAction, afterLine }: {
   lines: Line[]; currency: "USD" | "CDF"; disabled?: boolean; onChange: (lines: Line[]) => void; onCopyPartOne: () => void; copyLabel?: string; secondAction?: ReactNode;
+  /** F2 : contenu affiché sous une rubrique (ses sous-rubriques pour les cas sociaux). */
+  afterLine?: (line: Line) => ReactNode;
 }) {
   const entered = socialPartRubrics(lines);
   const update = (index: number, changes: Partial<Line>) => onChange(lines.map((row, i) => i === index ? { ...row, ...changes } : row));
@@ -51,7 +54,7 @@ export function SocialLinesEditor({ lines, currency, disabled, onChange, onCopyP
         <div className="grid min-w-0 gap-1 text-sm sm:col-span-2" data-value-row><label htmlFor={`valeur-${line.id}`}>{line.mode === "percent" ? "Pourcentage (%)" : `Montant (${currency})`}</label>
           <div className="flex min-w-0 items-stretch gap-2"><input id={`valeur-${line.id}`} className="input min-w-0 flex-1" inputMode="decimal" aria-label={`Valeur ${line.name}`} value={line.value} onChange={(event) => update(index, { value: event.target.value })}/>
             <button type="button" className="secondary-button shrink-0 px-3" aria-label={`Retirer la ligne ${line.name}`} onClick={() => update(index, { removed: true })}>Retirer la ligne</button></div></div>
-      </div>)}
+      </div>).map((row, index) => afterLine && !lines[index].removed ? <div key={lines[index].id} className="grid gap-2">{row}{afterLine(lines[index])}</div> : row)}
     {/* « Non affecté » ne se retire pas : il reçoit toujours le reste, automatiquement. */}
     <div className="grid gap-2 rounded border bg-slate-50 p-2 sm:grid-cols-4" data-unallocated-line>
       <span className="self-center text-sm font-medium">Non affecté</span>
@@ -79,10 +82,18 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
   const errorLoadRetry = useLoadRetry(Boolean(errorLoad), () => setErrorLoad(""));
   const request = useRef<PublishSocialParts | null>(null);
   const [reload, setReload] = useState(0);
+  // F2 : sous-rubriques des rubriques (catalogue) et leurs lignes pour les cas sociaux, une répartition par rubrique.
+  const [catalog, setCatalog] = useState<CatalogRubricWithSocial[]>([]);
+  const [subDrafts, setSubDrafts] = useState<Record<string, SocialSubLine[]>>({});
   useEffect(() => {
     let alive = true;
-    void loadSocialParts(schoolId).then((result) => {
+    // Sans le catalogue, la partie 2 s'ouvre comme avant (sans les sous-rubriques).
+    const rubricCatalogLoad = Promise.resolve().then(() => loadRubricCatalog(schoolId)).catch(() => ({ rubrics: [] }));
+    void Promise.all([loadSocialParts(schoolId), rubricCatalogLoad]).then(([result, rubricCatalog]) => {
       if (!alive) return;
+      const withSubs = (rubricCatalog.rubrics as CatalogRubricWithSocial[]).filter((rubric) => rubric.subRubrics?.length);
+      setCatalog(withSubs);
+      setSubDrafts(Object.fromEntries(withSubs.map((rubric) => [rubric.id, socialSubLines(rubric.subRubrics ?? [], rubric.socialSubRubrics)])));
       setItems(result);
       setDrafts(Object.fromEntries(result.map((item) => [item.feeTypeId, socialPartLines(item.partOne.rubrics, item.social?.rubrics)])));
       setNets(Object.fromEntries(result.map((item) => [item.feeTypeId, String(item.partOne.feeAmountMinor / 200)])));
@@ -105,6 +116,10 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
   }, [item, entered, net]);
   // Les frais modifiés qui ont une erreur bloquent la publication (on les nomme).
   const invalid = modified.filter((entry) => socialPartRubrics(drafts[entry.feeTypeId]).error);
+  const subPayloads = useMemo(() => new Map(catalog.map((rubric) => [rubric.id, socialSubPayload(subDrafts[rubric.id] ?? [], rubric.subRubrics ?? [])])), [catalog, subDrafts]);
+  const modifiedSubs = catalog.filter((rubric) => { const payload = subPayloads.get(rubric.id); return !payload || !("overrides" in payload) || !sameSocialSubOverrides(payload.overrides, rubric.socialSubRubrics); });
+  const invalidSubs = modifiedSubs.filter((rubric) => { const payload = subPayloads.get(rubric.id); return !payload || "error" in payload; });
+  const setSubLines = (rubricId: string, next: SocialSubLine[]) => { changed(); setSubDrafts((all) => ({ ...all, [rubricId]: next })); };
   const changed = () => { request.current = null; setNotice(""); };
   const setLines = (feeTypeId: string, next: Line[]) => { changed(); setDrafts((all) => ({ ...all, [feeTypeId]: next })); };
   function applyToAll() {
@@ -117,14 +132,16 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
     setNotice(`Réglages de « ${feeLabel(item)} » recopiés sur ${others.length} autre${others.length > 1 ? "s" : ""} frais, rubrique par rubrique.`);
   }
   async function publish() {
-    if (busy || (!request.current && (!modified.length || invalid.length || confirmation !== SOCIAL_PUBLISH_PHRASE))) return;
+    if (busy || (!request.current && ((!modified.length && !modifiedSubs.length) || invalid.length || invalidSubs.length || confirmation !== SOCIAL_PUBLISH_PHRASE))) return;
     setBusy(true); setError("");
     request.current ??= { requestId: newId(), confirmation, items: modified.map((entry) => ({ feeTypeId: entry.feeTypeId, expectedPartOneVersionId: entry.partOne.id,
-      expectedSocialVersionId: entry.social?.id ?? null, rubrics: toInput(socialPartRubrics(drafts[entry.feeTypeId]).rubrics) })) };
+      expectedSocialVersionId: entry.social?.id ?? null, rubrics: toInput(socialPartRubrics(drafts[entry.feeTypeId]).rubrics) })),
+      ...(modifiedSubs.length ? { socialSubRubrics: Object.fromEntries(modifiedSubs.map((rubric) => { const payload = subPayloads.get(rubric.id); return [rubric.id, payload && "overrides" in payload ? payload.overrides : {} as SocialSubOverrides]; })) } : {}) };
     try {
       const published = await publishSocialParts(request.current);
+      const subCount = Object.keys(request.current.socialSubRubrics ?? {}).length;
       request.current = null; setUncertain(false); setConfirmation(""); setMissing([]);
-      setNotice(`Partie 2 publiée pour ${published.length} frais. Elle s'applique aux prochains paiements des cas sociaux ; les paiements déjà répartis ne changent pas.`);
+      setNotice(`Partie 2 publiée pour ${published.length} frais${subCount ? `, sous-rubriques des cas sociaux de ${subCount} rubrique(s)` : ""}. Elle s'applique aux prochains paiements des cas sociaux ; les paiements déjà répartis ne changent pas.`);
       setReload((n) => n + 1); onPublished();
     } catch (cause) {
       const pending = !(cause instanceof AllocationApiError && cause.confirmedRejection);
@@ -132,7 +149,7 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
     } finally { setBusy(false); }
   }
   const locked = !canPublish || busy || uncertain;
-  const ready = !!modified.length && !invalid.length && confirmation === SOCIAL_PUBLISH_PHRASE;
+  const ready = (!!modified.length || !!modifiedSubs.length) && !invalid.length && !invalidSubs.length && confirmation === SOCIAL_PUBLISH_PHRASE;
   return <AdminDrawer title="Partie 2 — cas sociaux" closeLabel="Fermer la partie 2" width="wide" onClose={() => { if (!busy) onClose(); }}><div className="text-justify" data-justified>
     {loading && <div aria-hidden className="h-40 animate-pulse rounded bg-slate-100" />}
     <ErrorNotice error={errorLoad} onRetry={errorLoadRetry.retry} />
@@ -151,7 +168,10 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
       <h3 className="mb-1 text-sm font-semibold">Partie 2 — cas sociaux · {feeLabel(item)}</h3>
       <SocialLinesEditor lines={lines} currency={currency} disabled={locked} onChange={(next) => setLines(item.feeTypeId, next)}
         onCopyPartOne={() => setLines(item.feeTypeId, socialPartLines(item.partOne.rubrics))}
-        secondAction={items.length > 1 && <button type="button" className="secondary-button w-full whitespace-normal px-2 text-center" disabled={locked || !!entered.error} onClick={applyToAll}>Appliquer à tous les frais</button>} />
+        secondAction={items.length > 1 && <button type="button" className="secondary-button w-full whitespace-normal px-2 text-center" disabled={locked || !!entered.error} onClick={applyToAll}>Appliquer à tous les frais</button>}
+        afterLine={(line) => { const rubric = catalog.find((entry) => entry.id === line.id); if (!rubric) return null; const payload = subPayloads.get(rubric.id);
+          return <SocialSubRubricsBlock rubricName={rubric.name} lines={subDrafts[rubric.id] ?? []} currency={currency} error={payload && "error" in payload ? payload.error : ""}
+            onChange={(next) => setSubLines(rubric.id, next)} onCopyPartOne={() => setSubLines(rubric.id, socialSubLines(rubric.subRubrics ?? []))} />; }} />
       {missing.length > 0 && <div role="note" className="mt-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" data-missing-rubrics>
         <p className="font-semibold">Rubriques absentes de certains frais : leur part ira dans « Non affecté ».</p>
         <ul className="mt-1 list-disc pl-5">{missing.map((row) => <li key={row.feeLabel}>« {row.feeLabel} » n'a pas {row.names.length > 1 ? "les rubriques" : "la rubrique"} {row.names.map((name) => `« ${name} »`).join(", ")}.</li>)}</ul></div>}
@@ -166,8 +186,8 @@ export function SocialPartEditor({ schoolId, initialFeeTypeId, currency, canPubl
     {notice && <p role="status" className="my-3 text-sm text-emerald-700">{notice}</p>}
     {uncertain && <p className="my-2 text-sm">La publication a peut-être abouti. La vérification renvoie exactement la même demande.</p>}
     {canPublish && items.length > 0 && <div className="mt-4 grid gap-2 rounded border border-amber-200 bg-amber-50 p-3 text-sm" data-social-publish>
-      <p>La partie 2 s'appliquera aux paiements des cas sociaux arrivés après la publication, y compris à ceux qui ont déjà payé une partie de ce frais. Aucun paiement déjà réparti ne change. {modified.length ? `${modified.length} frais modifié${modified.length > 1 ? "s" : ""} ser${modified.length > 1 ? "ont" : "a"} publié${modified.length > 1 ? "s" : ""} en une seule fois.` : "Aucun frais modifié pour l'instant."}</p>
-      {invalid.length > 0 && <p role="alert" className="text-amber-900">À corriger avant de publier : {invalid.map(feeLabel).join(", ")}.</p>}
+      <p>La partie 2 s'appliquera aux paiements des cas sociaux arrivés après la publication, y compris à ceux qui ont déjà payé une partie de ce frais. Aucun paiement déjà réparti ne change. {modified.length ? `${modified.length} frais modifié${modified.length > 1 ? "s" : ""} ser${modified.length > 1 ? "ont" : "a"} publié${modified.length > 1 ? "s" : ""} en une seule fois.` : "Aucun frais modifié pour l'instant."}{modifiedSubs.length ? ` Sous-rubriques des cas sociaux modifiées : ${modifiedSubs.map((rubric) => `« ${rubric.name} »`).join(", ")} (valables pour tous les frais).` : ""}</p>
+      {(invalid.length > 0 || invalidSubs.length > 0) && <p role="alert" className="text-amber-900">À corriger avant de publier : {[...invalid.map(feeLabel), ...invalidSubs.map((rubric) => `sous-rubriques de « ${rubric.name} »`)].join(", ")}.</p>}
       <TypedConfirmation value={confirmation} onChange={(value) => { request.current = null; setConfirmation(value); }} disabled={busy || uncertain} />
       {/* Version 1.20.1 : « Annuler » (ferme sans rien publier) et « Publier la partie 2 », moitié-moitié. */}
       <div className="grid w-full grid-cols-2 gap-2" data-social-publish-actions>

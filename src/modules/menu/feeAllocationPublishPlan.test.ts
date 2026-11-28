@@ -29,9 +29,11 @@ describe("correction 1.20.1 : frais à préparer et publier", () => {
     expect(pendingPublications([withSocial], [], "EN_PREPARATION").items[0].hasSocialPart).toBe(true);
     expect(pendingPublications([config("b", 1)], [version("b", 1, "prepared", { hasSocialPart: true })], "ACTIVE").items[0].hasSocialPart).toBe(true);
   });
-  it("le drawer a un bouton direct « Partie 2 — cas sociaux », sans passer par le détail d'une rubrique", () => {
+  // F2 (décision de l'utilisateur du 27/11/2026) : le bouton direct, doublon, est retiré ; la partie 2 s'ouvre depuis le détail d'une rubrique.
+  it("le drawer n'a plus le bouton direct « Partie 2 — cas sociaux » en double", () => {
     const drawer = readFileSync(new URL("./FeeAllocationDrawer.tsx", import.meta.url), "utf8");
-    expect(drawer).toContain("data-social-part-direct");
+    expect(drawer).not.toContain("data-social-part-direct");
+    expect(drawer).toContain("data-social-part-detail");
     const activation = readFileSync(new URL("./FeeAllocationActivation.tsx", import.meta.url), "utf8");
     expect(activation).toContain("pendingPublications(");
     expect(activation).not.toContain("workspace.configs.find(c => c.draft");
