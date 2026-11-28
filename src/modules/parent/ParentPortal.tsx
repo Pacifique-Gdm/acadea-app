@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppVersion } from "../../components/ui/AppVersion";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
 import type { FormEvent, ReactNode } from "react";
-import { ArrowLeft, BookOpen, CalendarRange, Clock3, Download, GraduationCap, HeartPulse, LogOut, MessageSquare, UserRound } from "lucide-react";
+import { ArrowLeft, BookOpen, CalendarRange, Clock3, Download, GraduationCap, HeartPulse, LogOut, MessageSquare, UserRound, Library } from "lucide-react";
 import { AdminDrawer, BlockSkeleton, FormPanel, Metric } from "../../components/ui";
 import { ValvesDrawerContent } from "../../components/valves/ValvesDrawerContent";
 import { db } from "../../firebase";
@@ -640,7 +640,7 @@ export function ParentPortal({
                 type="button"
               >
                 <div className="flex min-w-0 items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><BookOpen className="h-5 w-5" /></div>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Library className="h-5 w-5" /></div>
                   <div className="min-w-0"><h2 className="break-words font-bold text-ink">Bibliothèque</h2><p className="mt-1 break-words text-sm text-slate-500">Ressources pour aider votre enfant à apprendre et à réviser.</p></div>
                 </div>
               </button>

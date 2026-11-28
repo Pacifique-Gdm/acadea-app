@@ -68,7 +68,7 @@ describe("Menu : « Enfants » est le 3e bouton de la liste", () => {
     const app = read("src/App.tsx");
     const adminMenu = app.slice(app.indexOf('{!standaloneAdminRoute && activeTab === "menu" && ('));
     expect(increasing(order(adminMenu, ["<PublishedTimetableDrawerEntry", "<MenuModule"]))).toBe(true);
-    expect(app).toContain('renderStaffChildren={() => <>{user.role === "school_admin" && <StaffChildrenEntry school={school} />}</>}');
+    expect(app).toContain('renderStaffChildren={() => <>{user.role === "school_admin" && <StaffChildrenEntry school={school} menu="admin" />}</>}');
     const menu = read("src/modules/menu/MenuModule.tsx");
     expect(menu).toContain("      <OwnPayrollEntry user={user} school={school} />\n      {renderStaffChildren?.()}\n      <FeeAllocationEntry user={user} schools={[school]} />\n      {visibleMenuSections");
   });
@@ -79,7 +79,7 @@ describe("Menu : « Enfants » est le 3e bouton de la liste", () => {
     expect(menu).toContain("      {renderPublishedTimetable?.()}\n      {renderStaffChildren?.()}\n");
     // Toujours 3e, même quand « Répartition » est partagée : elle vient après « Enfants ».
     expect(increasing(order(menu, ["{renderStaffChildren?.()}", "<FeeAllocationEntry user={user} schools={[school]} />"]))).toBe(true);
-    expect(read("src/App.tsx")).toContain('renderStaffChildren={() => <StaffChildrenEntry school={school} />}');
+    expect(read("src/App.tsx")).toContain('renderStaffChildren={() => <StaffChildrenEntry school={school} menu="secretary" />}');
   });
 
   // Accord de l'utilisateur (26/11/2026) : Directeur des études = Enfants 3e puis Répartition ;

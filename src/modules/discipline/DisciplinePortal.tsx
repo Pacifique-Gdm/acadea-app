@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppVersion } from "../../components/ui/AppVersion";
 import type { ComponentType, ReactNode } from "react";
-import { BarChart3, BookOpen, CalendarRange, CheckCircle2, Clock3, LogOut, Settings } from "lucide-react";
+import { BarChart3, BookOpen, CalendarRange, CheckCircle2, Clock3, LogOut, Settings, Library } from "lucide-react";
 import { DisciplineAttendanceDrawer } from "../../components/discipline/DisciplineAttendanceDrawer";
 import { AttendanceSettingsDrawer } from "../../components/discipline/AttendanceSettingsDrawer";
 import { DisciplineHistoryDrawer } from "../../components/discipline/DisciplineHistoryDrawer";
@@ -668,7 +668,7 @@ export function DisciplinePortal({
       id: "library",
       title: "Bibliothèque",
       description: "Cours et ressources éducatives externes.",
-      icon: BookOpen,
+      icon: Library,
       onClick: () => setLibraryOpen(true),
     },
     {

@@ -4,7 +4,7 @@
 // Retiré : Enseignants, Horaires, création d'enseignant, publication des cotes, périodes, écriture du calendrier,
 // demandes d'indisponibilité. AUCUN accès à l'argent. Rechargement par la flèche ronde de l'en-tête.
 import { useMemo, useState, type ReactNode } from "react";
-import { BellRing, BookOpen, CalendarDays, GraduationCap, LogOut, MessageSquare, NotebookPen, TrendingDown, UsersRound } from "lucide-react";
+import { BellRing, BookOpen, CalendarDays, GraduationCap, LogOut, MessageSquare, NotebookPen, TrendingDown, UsersRound, Library } from "lucide-react";
 import { AppVersion } from "../../components/ui/AppVersion";
 import { AdminDrawer, DashboardCard, ErrorNotice } from "../../components/ui";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
@@ -82,7 +82,7 @@ export function OrientationAdvisorPortal({ user, school, year, appData, updateDa
       <StaffChildrenEntry school={school} />
       <FeeAllocationEntry user={user} schools={[school]} />
       <PushNotificationSettings user={user} />
-      <button type="button" className={menuButton} onClick={() => setDrawer("library")}><BookOpen className="h-5 w-5 shrink-0"/><strong>Bibliothèque</strong></button>
+      <button type="button" className={menuButton} onClick={() => setDrawer("library")}><Library className="h-5 w-5 shrink-0"/><strong>Bibliothèque</strong></button>
       <button type="button" className={menuButton} onClick={() => setDrawer("messages")}><MessageSquare className="h-5 w-5 shrink-0"/><strong>Message</strong></button>
       <button type="button" className={menuButton} onClick={() => setDrawer("calendar")}><CalendarDays className="h-5 w-5 shrink-0"/><strong>Calendrier scolaire</strong></button>
       <button type="button" className={menuButton + " w-full"} onClick={() => setDrawer("school-years")}><CalendarDays className="h-5 w-5 shrink-0"/><strong>Année scolaire</strong></button>
