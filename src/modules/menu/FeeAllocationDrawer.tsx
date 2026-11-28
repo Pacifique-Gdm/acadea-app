@@ -6,13 +6,14 @@ import type { FeeAllocationConfig, FeeAllocationRubric, FeeAllocationVersion } f
 import { AllocationApiError, allocationRequest, createRubric, loadAllocationVersions, loadAllocationWorkspace, loadRubricCatalog, saveAllocationDrafts, type AllocationCatalogRubric, type AllocationWorkspace, type SaveAllocationDrafts } from "../../services/feeAllocation";
 import { RubricCatalogPanel } from "./RubricCatalogPanel";
 import { RubricSubRubricsAccess } from "./SubRubricsPanel";
+import { SubRubricDetail } from "./SubRubricDetail";
 import { BUTTON_ROW } from "./FeeAllocationSharing";
 import { allocationSnapshotIsCurrent, loadAllocationSnapshot, markAllocationAccess, peekAllocationSnapshot, pendingAllocationSnapshot, rememberAllocationUse } from "../../services/feeAllocationStore";
 import { SharingTab } from "./FeeAllocationSharing";
 import { useAllocationShares } from "./feeAllocationSharingState";
 import { loadMySharedRubrics } from "../../services/feeAllocation";
 import { validateFeeAllocationRubrics } from "../../../api/_lib/feeAllocationMath.js";
-import { SUB_LINES_LEGEND, allocationClassLabel, allocationConfigured, noAllocationConfigured, allocationFilterChoices, allocationTotals, allocationFinancialTotals, buildAllocationTables, projectAllocations, unavailableAllocation, type AllocationFilter, type AllocationRow } from "../../utils/feeAllocationView";
+import { SUB_LINES_LEGEND, allocationClassLabel, allocationConfigured, noAllocationConfigured, allocationFilterChoices, allocationTotals, allocationFinancialTotals, buildAllocationTables, projectAllocations, unavailableAllocation, type AllocationFilter, type AllocationRow, type AllocationSubLine } from "../../utils/feeAllocationView";
 import { formatCurrencyMoney } from "../../utils/currency";
 import { toMoneyMinor } from "../../utils/money";
 import { renderAcadPdfPreview } from "../../utils/pdf";
@@ -82,6 +83,8 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
   const [filter, setFilter] = useState<AllocationFilter>({ kind: "fee", value: "", from: "", to: "" });
   const [editor, setEditor] = useState<{ workspace: AllocationWorkspace; config?: FeeAllocationConfig } | null>(null);
   const [detail, setDetail] = useState<AllocationRow | null>(null);
+  // « Répartir le Reste » (28/11/2026) : détail d'une ligne « ↳ », ouvert par un clic sur son nom.
+  const [subDetail, setSubDetail] = useState<{ row: AllocationRow; sub: AllocationSubLine } | null>(null);
   const [versions, setVersions] = useState<FeeAllocationVersion[] | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -242,8 +245,11 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       <tr><th rowSpan={2} scope="col" className="border-b p-2 text-left">Rubrique</th><th colSpan={2} scope="colgroup" className="border-b p-2">Selon le filtre</th>{operational && <th colSpan={4} scope="colgroup" className="border-b border-l p-2">Situation globale de la rubrique à la fin de la période</th>}</tr>
       <tr>{["Prévu total de l’année", filter.kind === 'period' ? "Encaissé sur la période" : "Encaissé selon le filtre", ...(operational ? ["Ouverture", "Encaissements cumulés", "Dépenses nettes cumulées", "Solde disponible"] : [])].map(title => <th key={title} scope="col" className="border-b p-2 text-left">{title}</th>)}</tr>
     </thead><tbody>{rows.flatMap((row, index) => [...(row.arrearsYearName && row.arrearsYearName !== rows[index - 1]?.arrearsYearName ? [<tr key={`arrieres-${row.arrearsYearName}`} data-arrears-group><th colSpan={operational ? 7 : 3} scope="rowgroup" className="border-b bg-amber-50 p-2 text-left text-sm font-bold text-amber-900">Arriérés {row.arrearsYearName}</th></tr>] : []), <tr key={row.key}><td className="border-b p-2">{staffView ? <span className="font-medium">{row.rubricName}</span> : <button type="button" className="text-left text-blue-700 underline" onClick={() => { setDetail(row); setVersions(null); }}>{row.rubricName}{row.percentLabel ? ` (${row.percentLabel})` : ""}</button>}{row.percentDetail && <p className="text-xs text-slate-500">{row.percentDetail}</p>}<p className="text-xs text-slate-500">{multipleSchools ? row.schoolName + " · " + row.yearName + " · " + row.currency : ""}{!row.financial && ` · ${row.feeName} · ${row.classLabel} · v${row.config.draftRevision}`}</p>{row.financial && <p className="text-xs">Dont arriérés selon le filtre : <span className="whitespace-nowrap">{formatCurrencyMoney(row.financial.arrearsMinor / 100, row.currency)}</span></p>}{row.financial && row.financial.formerMinor !== 0 && <p className="text-xs">Dont anciens élèves (prévu et encaissé) : <span className="whitespace-nowrap">{formatCurrencyMoney(row.financial.formerMinor / 100, row.currency)}</span></p>}{row.stale && <p className="text-xs text-amber-800">Tarif ou cible modifié : brouillon à reprendre.</p>}</td><td className="border-b p-2 whitespace-nowrap">{formatCurrencyMoney(row.amountMinor / 100, row.currency)}</td>{(["receivedMinor", ...(operational ? ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const : [])] as const).map(field => <td key={field} className={`border-b p-2 text-xs whitespace-nowrap ${field === "openingMinor" ? "border-l" : ""}`}>{row.financial ? formatCurrencyMoney(row.financial[field] / 100, row.currency) : "Non disponible"}</td>)}</tr>,
-      // Lignes « ↳ » : sous-rubriques de ce tableau (F2 : toutes les colonnes remplies), jamais dans le total, non cliquables.
-      ...(row.financial ? row.subLines ?? [] : []).map((sub) => <tr key={`${row.key}/${sub.id}`} data-sub-rubric-row className={`bg-indigo-50/40 text-xs ${sub.id === "UNALLOCATED" ? "italic text-slate-600" : ""}`}>
+      // Lignes « ↳ » : sous-rubriques de ce tableau (F2 : toutes les colonnes remplies), jamais dans le total.
+      // « Répartir le Reste » (28/11/2026) : le nom est cliquable comme celui d'une rubrique et ouvre son détail.
+      ...(row.financial ? row.subLines ?? [] : []).map((sub) => <tr key={`${row.key}/${sub.id}`} data-sub-rubric-row {...(staffView ? {} : { role: "button", tabIndex: 0, "aria-label": `Détail de ↳ ${sub.name}`,
+        onClick: () => setSubDetail({ row, sub }), onKeyDown: (event: React.KeyboardEvent) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSubDetail({ row, sub }); } } })}
+        className={`bg-indigo-50/40 text-xs ${sub.id === "UNALLOCATED" ? "italic text-slate-600" : ""} ${staffView ? "" : "cursor-pointer [&>td:first-child]:text-blue-700 [&>td:first-child]:underline"}`}>
         <td className="border-b p-2 pl-6">↳ {sub.name}</td>{([sub.plannedMinor, sub.receivedMinor]).map((value, i) => <td key={`p${i}`} className="border-b p-2 whitespace-nowrap">{value === null || value === undefined ? "—" : formatCurrencyMoney(value / 100, row.currency)}</td>)}
         {operational && <><td className="border-b border-l p-2 whitespace-nowrap">{sub.openingMinor === null ? "—" : formatCurrencyMoney(sub.openingMinor / 100, row.currency)}</td>
           {([sub.cumulativeReceivedMinor, sub.cumulativeSpentMinor, sub.availableMinor]).map((value, i) => <td key={i} className={`border-b p-2 whitespace-nowrap ${i === 2 ? "font-semibold" : ""}`}>{formatCurrencyMoney(value / 100, row.currency)}</td>)}</>}
@@ -261,6 +267,15 @@ export function FeeAllocationContent({ user, schools, institution }: Pick<Props,
       {detailConfigs.map(config => <section key={config.id} className="my-3 rounded border p-3"><h3 className="mb-2 text-sm font-semibold">{detailWorkspace?.fees.find(f => f.id === config.feeTypeId)?.name ?? 'Frais'} · {allocationClassLabel(config.classOptionKey || config.className)}</h3><div className={BUTTON_ROW}><Action className="secondary-button w-full min-w-0 justify-items-center whitespace-normal px-2" busy={detailBusy && detailAction === "versions"} disabled={detailBusy} onClick={() => void showVersions(config)}>Consulter les versions</Action>{socialPartAllowed && config.currentVersionId && <button type="button" className="secondary-button w-full min-w-0 justify-center whitespace-normal px-2" data-social-part-detail onClick={() => setSocialPart(config)}>Partie 2 — cas sociaux{config.socialVersionId ? " (publiée)" : ""}</button>}{configurable && !config.currentVersionId && <><button type="button" className="secondary-button" disabled={!ready} onClick={() => { setEditor({ workspace: workspaces[0], config }); setDetail(null); }}>Reprendre le brouillon</button><Action busy={detailBusy && detailAction === "prepare"} disabled={!ready || detailBusy} onClick={() => void showVersions(config, true)}>Préparer une version</Action></>}</div></section>)}
       {detailBusy && <p role="status">Vérification serveur…</p>}{versions && <ul className="mt-3 grid gap-2">{versions.map((version) => <li key={version.id} className="rounded border p-2 text-sm">Version {version.version} · {version.status} · {version.createdAt.slice(0, 10)} · {version.currency}<ul>{version.rubrics.map((rubric) => <li key={rubric.id}>{rubric.name} : {rubric.mode === "fixed" ? formatCurrencyMoney((rubric.fixedMinor ?? 0) / 100, version.currency) : `${(rubric.basisPoints ?? 0) / 100} %`}</li>)}</ul></li>)}{!versions.length && <li>Aucune version préparée.</li>}</ul>}
     </div></AdminDrawer>}
+    {subDetail && (() => {
+      const { row, sub } = subDetail;
+      const catalogRubric = workspaces.find((w) => w.school.id === row.schoolId)?.rubricCatalog?.find((r) => r.id === row.rubricId);
+      // Disponible de « Reste » pour toute l'école (tableau 3) : c'est ce que le serveur répartit.
+      const restAvailableMinor = tables.three.find((r) => r.schoolId === row.schoolId && r.rubricId === row.rubricId)?.subLines?.find((l) => l.id === "UNALLOCATED")?.availableMinor ?? 0;
+      return <SubRubricDetail row={row} sub={sub} filterLabel={filterLabel} schoolId={row.schoolId} redistributedAt={catalogRubric?.restRedistributedAt} restAvailableMinor={restAvailableMinor}
+        canRedistribute={configurable && current && !!row.rubricId && /^[a-f0-9]{32}$/.test(row.rubricId) && !row.arrearsYearName && !!catalogRubric}
+        onClose={() => setSubDetail(null)} onDone={() => { setSubDetail(null); setNotice("Reste réparti : un mouvement daté a été enregistré. Le total de la rubrique n'a pas changé."); void refresh("reload"); }} />;
+    })()}
     {/* Version 1.19.0 : un seul formulaire pour tous les frais, ouvert sur le frais d'où l'on a cliqué. */}
     {socialPart && socialPartAllowed && <SocialPartEditor schoolId={socialPart.schoolId} initialFeeTypeId={socialPart.feeTypeId} currency={socialPart.currency}
       canPublish={configurable && current} onClose={() => setSocialPart(null)} onPublished={() => void refresh("reload")} />}

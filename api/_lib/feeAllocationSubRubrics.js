@@ -9,6 +9,10 @@ import { allocationHash } from "./feeAllocationRuntime.js";
  * - Les encaissements reçus avant la création restent dans « Non affecté (rubrique) » ; l'historique n'est pas réécrit. */
 export const SUB_UNALLOCATED = "UNALLOCATED";
 export const SUB_RUBRICS_PHRASE = "ENREGISTRER LES SOUS-RUBRIQUES";
+/** Bouton « Répartir le Reste » (décision de l'utilisateur du 28/11/2026) : phrase à taper exactement. */
+export const SUB_REST_PHRASE = "RÉPARTIR CE RESTE";
+/** Type du mouvement daté qui fait passer l'argent de « Reste » aux sous-rubriques (total de la rubrique inchangé). */
+export const SUB_REST_MOVEMENT_TYPE = "sub-rest-redistribution";
 /** « Fonctions concernées » : rôles du personnel avec compte, et « service » pour le personnel sans compte. */
 export const SUB_RUBRIC_FUNCTIONS = ["school_admin", "cashier", "discipline_director", "study_director", "secretary", "teacher", "service"];
 const SUB_ID = /^[a-f0-9]{16}$/;
@@ -138,6 +142,21 @@ export async function readKeptForecastRows(reader, db, schoolId, yearId, currenc
   const ref = db.doc(`feeAllocationForecastCaches/${allocationHash(["forecast-cache", schoolId, yearId, currency])}`);
   const kept = (await (reader ? reader.get(ref) : ref.get())).data();
   return kept?.forecast?.status === "complete" && Array.isArray(kept.forecast.rows) ? kept.forecast.rows : null;
+}
+
+/** « Répartir le Reste » : part de chaque sous-rubrique dans le disponible de « Reste ». Un pourcentage garde son
+ * pourcentage ; un montant fixe est converti en % comme pour l'ouverture (son prévu ÷ prévu de la rubrique).
+ * Arrondi vers le bas ; ce qui reste demeure dans « Reste ». La somme ne dépasse jamais le disponible de « Reste ». */
+export function subRestShares(subs, restMinor, planned) {
+  const rubric = planned ? planned.rubric[1] + planned.rubric[2] : 0;
+  let left = Math.max(0, restMinor);
+  return (subs ?? []).map((sub) => {
+    const share = sub.mode === "percent" ? (BigInt(Math.max(0, restMinor)) * BigInt(sub.basisPoints)) / 10000n
+      : rubric > 0 ? (BigInt(Math.max(0, restMinor)) * BigInt((planned.planned[1].get(sub.id) ?? 0) + (planned.planned[2].get(sub.id) ?? 0))) / BigInt(rubric) : 0n;
+    const amountMinor = Math.min(Number(share), left);
+    left -= amountMinor;
+    return { subRubricId: sub.id, name: sub.name, amountMinor };
+  }).filter((line) => line.amountMinor > 0);
 }
 
 /** Soldes affichés : chaque sous-rubrique, puis « Non affecté (rubrique) » = rubrique moins la somme des sous-rubriques.

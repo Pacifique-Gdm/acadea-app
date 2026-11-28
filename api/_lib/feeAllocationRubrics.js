@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { FeeAllocationError } from "./feeAllocationMath.js";
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
-import { SUB_RUBRICS_PHRASE, keptSocialSubOverrides, subRubricAmountsKey, subRubricBalanceView, subRubricViewOptions, readKeptForecastRows, validateSubRubrics } from "./feeAllocationSubRubrics.js";
+import { SUB_REST_MOVEMENT_TYPE, SUB_REST_PHRASE, SUB_RUBRICS_PHRASE, keptSocialSubOverrides, nextSubBalances, subRestShares, subRubricAmountsKey, subRubricBalanceView, subRubricViewOptions, readKeptForecastRows, validateSubRubrics } from "./feeAllocationSubRubrics.js";
 import { allocationBalanceId, allocationStateId } from "./feeAllocationRuntime.js";
 
 /** Lot 27b — catalogue des rubriques de la répartition des frais (décision du propriétaire, 16/11/2026).
@@ -56,6 +56,24 @@ async function usedRubricIds(db, schoolId, schoolYearId) {
     ...versions.docs.flatMap((d) => (d.data().rubrics ?? []).map((r) => r.id)), ...balances.docs.map((d) => d.data().rubricId)]);
 }
 
+/** « Répartir le Reste » (décision de l'utilisateur du 28/11/2026) : ce qui serait réparti, même calcul pour l'aperçu
+ * et l'enregistrement (soldes des sous-rubriques et part de l'ouverture comme chez le Caissier). Une seule fois par rubrique. */
+async function readSubRest(db, reader, schoolId, yearId, currency, rubric) {
+  const subs = Array.isArray(rubric.subRubrics) && rubric.subRubrics.length
+    ? validateSubRubrics(rubric.subRubrics, { newId: () => fail(409, "allocation-reconciliation-required", "Sous-rubrique enregistrée sans identifiant.") }) : [];
+  if (!subs.length) fail(409, "failed-precondition", "Cette rubrique n'a pas de sous-rubriques.");
+  if (rubric.restRedistribution) fail(409, "conflict", "Le Reste de cette rubrique a déjà été réparti : cette action ne se fait qu'une fois.");
+  const balanceRef = db.doc(`feeAllocationBalances/${allocationBalanceId(schoolId, yearId, currency, rubric.id)}`);
+  const balance = (await (reader ? reader.get(balanceRef) : balanceRef.get())).data();
+  if (!balance || balance.schoolId !== schoolId || balance.collectionSchoolYearId !== yearId || balance.currency !== currency || balance.rubricId !== rubric.id) fail(409, "failed-precondition", "Rien à répartir : « Reste » est vide.");
+  const options = subRubricViewOptions({ ...rubric, subRubrics: subs }, balance, await readKeptForecastRows(reader, db, schoolId, yearId, currency));
+  const restMinor = subRubricBalanceView(balance, subs, rubric.name, options).at(-1).availableMinor;
+  const lines = restMinor > 0 ? subRestShares(subs, restMinor, options.planned) : [];
+  if (!lines.length) fail(409, "failed-precondition", "Rien à répartir : « Reste » est vide.");
+  const totalMinor = lines.reduce((n, line) => n + line.amountMinor, 0);
+  return { balanceRef, balance, restMinor, lines, totalMinor, remainingMinor: restMinor - totalMinor };
+}
+
 export async function manageFeeAllocationRubrics({ db, caller, body, now = new Date().toISOString() }) {
   const { school, schoolId } = await readFeeAllocationScope(db, caller, body.schoolId ?? caller.schoolId);
   const { yearId, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
@@ -72,11 +90,18 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
       ...(subBalances.has(r.id) ? { subView: subRubricBalanceView(subBalances.get(r.id), r.subRubrics, r.name, subRubricViewOptions(r, subBalances.get(r.id), forecastRows)) } : {}) })) };
   }
   if (!isAdmin(caller.role) || caller.schoolId !== schoolId) fail(403, "permission-denied", "Seul l'Administrateur gère les rubriques.");
+  if (body.action === "preview-sub-rest") {
+    // Aperçu de « Répartir le Reste » : lecture seule, rien n'est écrit.
+    const rubric = (await readRubricCatalog(db, schoolId, yearId)).rubrics.find((item) => item.id === body.rubricId);
+    if (!rubric) fail(404, "not-found", "Rubrique introuvable pour cette école et cette année.");
+    const plan = await readSubRest(db, null, schoolId, yearId, currency, rubric);
+    return { operational: false, currency, preview: { restMinor: plan.restMinor, totalMinor: plan.totalMinor, remainingMinor: plan.remainingMinor, lines: plan.lines } };
+  }
   if (!id(body.requestId) || body.requestId.length < 12) fail(400, "invalid-argument", "Clé de requête invalide.");
   const receiptRef = db.doc(`feeAllocationRequests/rubric_${hash([caller.uid, schoolId, body.requestId])}`);
   // Lots 5 et 6 : l'empreinte d'un enregistrement de sous-rubriques comprend la liste et la phrase (ancienne empreinte inchangée sinon).
   const fingerprint = hash([body.action, body.rubricId ?? null, body.name ?? null, body.hidden ?? null,
-    ...(body.action === "save-sub-rubrics" ? [body.subRubrics ?? null, body.confirmation ?? null] : [])]);
+    ...(body.action === "save-sub-rubrics" ? [body.subRubrics ?? null, body.confirmation ?? null] : []), ...(body.action === "redistribute-sub-rest" ? [body.confirmation ?? null] : [])]);
   return db.runTransaction(async (transaction) => {
     const receipt = await transaction.get(receiptRef);
     if (receipt.exists) {
@@ -132,6 +157,24 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
         const socialSubRubrics = keptSocialSubOverrides(rubric.socialSubRubrics, subRubrics);
         transaction.update(ref, { subRubrics, ...(socialSubRubrics ? { socialSubRubrics } : {}), updatedAt: now, updatedBy: caller.uid });
         result = { rubric: { ...rubric, subRubrics, ...(socialSubRubrics ? { socialSubRubrics } : {}) } };
+      } else if (body.action === "redistribute-sub-rest") {
+        // « Répartir le Reste » : une seule fois par rubrique, phrase tapée exactement, mouvement daté. Le total de la
+        // rubrique ne change pas ; les anciens mouvements ne sont pas réécrits.
+        if (body.confirmation !== SUB_REST_PHRASE) fail(400, "invalid-argument", `Tapez exactement « ${SUB_REST_PHRASE} » pour confirmer.`);
+        const state = (await transaction.get(db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`))).data();
+        if (!["ACTIVE", "PAUSED"].includes(state?.status)) fail(409, "failed-precondition", "La répartition n'est pas activée.");
+        const plan = await readSubRest(db, transaction, schoolId, yearId, currency, rubric);
+        const movementId = `subrest_${hash([schoolId, yearId, currency, rubric.id]).slice(0, 40)}`;
+        const movementRef = db.doc(`feeAllocationMovements/${movementId}`);
+        if ((await transaction.get(movementRef)).exists) fail(409, "conflict", "Le Reste de cette rubrique a déjà été réparti : cette action ne se fait qu'une fois.");
+        const subLines = plan.lines.map(({ subRubricId, amountMinor }) => ({ rubricId: rubric.id, subRubricId, amountMinor }));
+        transaction.create(movementRef, { id: movementId, schoolId, collectionSchoolYearId: yearId, originSchoolYearId: yearId, currency, sourceType: "transfer",
+          sourceId: rubric.id, sourceRevision: body.requestId, type: SUB_REST_MOVEMENT_TYPE, amountMinor: 0, lines: [{ rubricId: rubric.id, amountMinor: 0 }], subLines,
+          postedAt: now, collectedAt: now, actorId: caller.uid, socialCase: false, ...(state.testOnly ? { testOnly: true } : {}) });
+        transaction.update(plan.balanceRef, { subBalances: nextSubBalances(plan.balance, subLines), updatedAt: now });
+        const restRedistribution = { at: now, by: caller.uid, movementId, amountMinor: plan.totalMinor };
+        transaction.update(ref, { restRedistribution, updatedAt: now, updatedBy: caller.uid });
+        result = { rubric: { ...rubric, restRedistribution }, redistributed: { restMinor: plan.restMinor, totalMinor: plan.totalMinor, remainingMinor: plan.remainingMinor, lines: plan.lines } };
       } else fail(400, "invalid-argument", "Action inconnue sur les rubriques.");
     }
     // Lot « répartition rapide » : chaque changement de rubrique change la révision du catalogue,
@@ -142,4 +185,4 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
   });
 }
 
-export const rubricActions = new Set(["list-rubrics", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "save-sub-rubrics"]);
+export const rubricActions = new Set(["list-rubrics", "create-rubric", "rename-rubric", "set-rubric-hidden", "delete-rubric", "save-sub-rubrics", "preview-sub-rest", "redistribute-sub-rest"]);

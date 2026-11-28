@@ -160,7 +160,9 @@ export async function buildAllocationWorkspace({ db, caller, school, schoolId, b
     configs: configs.docs.map((row) => row.data()),
     ...(forecast ? { forecast } : {}),
     // Lot 27b : noms à jour (un renommage s'affiche partout) ; masquées incluses pour l'historique.
-    ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (catalogRubrics = (await readRubricCatalog(db, schoolId, yearId)).rubrics).map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true })) } : {}),
+    ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (catalogRubrics = (await readRubricCatalog(db, schoolId, yearId)).rubrics).map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true,
+      // « Répartir le Reste » : date de la répartition (une seule fois par rubrique).
+      ...(r.restRedistribution?.at ? { restRedistributedAt: r.restRedistribution.at } : {}) })) } : {}),
     ledger: withSubRubricViews(await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }), catalogRubrics,
       // F2 (28/11/2026) : prévu et part de l'ouverture des sous-rubriques ; le prévu gardé si cette page n'a pas de prévu.
       forecast?.rows ?? await readKeptForecastRows(null, db, schoolId, yearId, currency)),

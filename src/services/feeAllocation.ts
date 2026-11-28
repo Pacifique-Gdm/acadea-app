@@ -8,7 +8,7 @@ export type AllocationWorkspace = {
   year: { id: string; schoolId: string; name: string; status: string; startsAt: string | null; endsAt: string | null };
   currency: "USD" | "CDF"; canConfigure: boolean; operational: false; pendingAllocations?: number;
   /** Lot « Deux onglets » : présent seulement dans la vue du personnel (rubriques partagées avec lui). */
-  sharedRubricIds?: string[]; rubricCatalog?: { id: string; name: string; hidden: boolean }[];
+  sharedRubricIds?: string[]; rubricCatalog?: { id: string; name: string; hidden: boolean; restRedistributedAt?: string }[];
   fees: AllocationFee[]; configs: FeeAllocationConfig[];
   forecast?: { status: 'complete'; revision: string | null; calculatedAt: string; studentCount: number;
     /** Version 1.19.0 : nombre de cas sociaux de l'année (Administrateur seulement ; absent dans la vue du personnel). */
@@ -18,7 +18,7 @@ export type AllocationWorkspace = {
       table?: 1 | 2; rubricShare?: number; tariffMinor?: number; rubricMode?: "percent" | "fixed" | null; basisPoints?: number | null }[] };
   ledger?: null | { status: "ACTIVE" | "PAUSED"; cutoffAt: string; testOnly: boolean; rubrics: { id: string; name: string; arrearsYearName?: string; originSchoolYearId?: string }[];
     pagination?: { page: number; hasNext: boolean; nextCursor: string | null; fingerprint: string };
-    movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
+    movements: { id: string; sourceType: "opening" | "payment" | "expense" | "transfer"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
       originSchoolYearId: string; postedAt: string; socialCase?: boolean; formerStudent?: boolean;
       /** F2 : part de chaque sous-rubrique dans ce mouvement (encaissement, correction, dépense). */

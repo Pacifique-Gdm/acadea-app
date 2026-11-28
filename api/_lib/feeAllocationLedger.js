@@ -22,7 +22,7 @@ export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, curr
     if (balances.docs.length > 82) fail("Nombre de soldes incohérent avec les rubriques autorisées.");
     const rows = movements.docs.slice(0, 100).map(d => ({ ...d.data(), id: d.id }));
     for (const m of rows) {
-      if (!m.postedAt || !Number.isFinite(Date.parse(m.postedAt)) || !Array.isArray(m.lines) || !["payment", "expense", "opening"].includes(m.sourceType)
+      if (!m.postedAt || !Number.isFinite(Date.parse(m.postedAt)) || !Array.isArray(m.lines) || !(["payment", "expense", "opening"].includes(m.sourceType) || m.sourceType === "transfer" && m.type === "sub-rest-redistribution" && m.amountMinor === 0)
         || !Number.isSafeInteger(m.amountMinor) || new Set(m.lines.map(l => l.rubricId)).size !== m.lines.length
         || m.lines.some(l => !Number.isSafeInteger(l.amountMinor)) || m.lines.reduce((n, l) => n + l.amountMinor, 0) !== m.amountMinor) fail("Mouvement incohérent ; export bloqué.");
     }
