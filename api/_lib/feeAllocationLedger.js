@@ -36,7 +36,10 @@ export async function readFeeAllocationLedger({ db, schoolId, schoolYearId, curr
         feeTypeId: m.feeTypeId ?? null, className: m.className ?? null, classOptionKey: m.classOptionKey ?? null,
         originSchoolYearId: m.originSchoolYearId ?? schoolYearId, postedAt: m.postedAt, socialCase: m.socialCase === true,
         // Lot 27c-2 : encaissement d'un ancien élève (marque gardée dans la copie du paiement), compté aussi dans le prévu.
-        formerStudent: m.sourceSnapshot?.formerStudent === true }));
+        formerStudent: m.sourceSnapshot?.formerStudent === true,
+        // F2 (28/11/2026) : part de chaque sous-rubrique, déjà enregistrée ; sert aux chiffres propres à chaque tableau.
+        ...(Array.isArray(m.subLines) && m.subLines.length ? { subLines: m.subLines.filter((l) => l && typeof l.subRubricId === "string" && Number.isSafeInteger(l.amountMinor))
+          .map((l) => ({ rubricId: l.rubricId, subRubricId: l.subRubricId, amountMinor: l.amountMinor })) } : {}) }));
     const digest = allocationHash([state, revision, relevant]);
     if (fingerprint && fingerprint !== digest) fail("Le registre a changé pendant sa lecture : actualisez la consultation complète.");
     const bounded = []; let size = 0;

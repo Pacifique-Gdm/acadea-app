@@ -20,7 +20,9 @@ export type AllocationWorkspace = {
     pagination?: { page: number; hasNext: boolean; nextCursor: string | null; fingerprint: string };
     movements: { id: string; sourceType: "opening" | "payment" | "expense"; type: string; amountMinor: number;
       lines: { rubricId: string; amountMinor: number }[]; feeTypeId: string | null; className: string | null; classOptionKey: string | null;
-      originSchoolYearId: string; postedAt: string; socialCase?: boolean; formerStudent?: boolean }[];
+      originSchoolYearId: string; postedAt: string; socialCase?: boolean; formerStudent?: boolean;
+      /** F2 : part de chaque sous-rubrique dans ce mouvement (encaissement, correction, dépense). */
+      subLines?: { rubricId: string; subRubricId: string; amountMinor: number }[] }[];
     balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number;
       /** Soldes des sous-rubriques, puis « Non affecté (rubrique) » (id UNALLOCATED), seulement si la rubrique en a. */
       subView?: { id: string; name: string; mode?: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number; receivedMinor: number; spentMinor: number; availableMinor: number }[] }[] };
