@@ -31,7 +31,6 @@ import handler from "./manage-school.js";
 import { LOGIN_IMAGE_RESET_CONFIRMATION, LOGIN_IMAGE_SAVE_CONFIRMATION, resetLoginImageCacheForTests } from "./_lib/loginImage.js";
 
 const SMALL_IMAGE = `data:image/webp;base64,${Buffer.alloc(2_000, 7).toString("base64")}`;
-const HEAVY_IMAGE = `data:image/jpeg;base64,${Buffer.alloc(101 * 1024, 7).toString("base64")}`;
 
 function fakeRes() {
   let payload = "";
