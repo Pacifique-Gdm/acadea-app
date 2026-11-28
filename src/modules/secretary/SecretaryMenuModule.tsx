@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppVersion } from "../../components/ui/AppVersion";
 import type { ReactNode } from "react";
-import { BarChart3, BookOpen, CalendarRange, Clock3, Fingerprint, HeartPulse, LogOut, Radio, Upload, UsersRound } from "lucide-react";
+import { BarChart3, BookOpen, CalendarRange, Clock3, Fingerprint, HeartPulse, LogOut, Radio, Upload, UsersRound, Library } from "lucide-react";
 import { ActivityHistoryContent } from "../../components/history/ActivityHistoryContent";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton, ParentFormEditor } from "../../components/parents/ParentFormEditor";
@@ -118,7 +118,7 @@ export function SecretaryMenuModule({ user, data, yearData, school, year, onYear
       {/* « Enfants » reste 3e : « Répartition » (seulement si une rubrique est partagée) vient après. */}
       <FeeAllocationEntry user={user} schools={[school]} />
       <button type="button" onClick={() => setValvesDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Valves</span></button>
-      <button type="button" onClick={() => setLibraryOpen(true)} className={menuButtonClass}><span className={menuIconClass}><BookOpen className="h-5 w-5" /></span><span className="font-bold text-ink">Bibliothèque</span></button>
+      <button type="button" onClick={() => setLibraryOpen(true)} className={menuButtonClass}><span className={menuIconClass}><Library className="h-5 w-5" /></span><span className="font-bold text-ink">Bibliothèque</span></button>
       <button type="button" onClick={() => setMedicalDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><HeartPulse className="h-5 w-5" /></span><span className="font-bold text-ink">Fiches médicales</span></button>
       <button type="button" onClick={() => openBiometricView("menu")} className={menuButtonClass}><span className={menuIconClass}><Fingerprint className="h-5 w-5" /></span><span className="font-bold text-ink">Empreintes et Cartes</span></button>
       <button type="button" onClick={() => setParentsDrawerOpen(true)} className={menuButtonClass}><span className={menuIconClass}><UsersRound className="h-5 w-5" /></span><span className="font-bold text-ink">Parents / Tuteurs</span></button>

@@ -1516,7 +1516,7 @@ export default function App() {
             canAttachFiles
           /></NestedScreen>
         )}
-        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} renderStaffChildren={() => <StaffChildrenEntry school={school} />} /></NestedScreen><PushNotificationSettings user={user} /></div>}
+        renderMenu={() => <div className="grid gap-6"><NestedScreen><SecretaryMenuModule user={user} data={data} yearData={yearData} school={school} year={selectedYear} onYearChange={enterSchoolYear} updateData={updateData} createId={uid} onLogout={logout} valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled} maxValveDocumentBytes={MAX_VALVE_DOCUMENT_BYTES} initialBiometricView={secretaryBiometricView} onBiometricViewChange={(view) => navigate(view === "fingerprints" ? "/secretariat/empreintes" : view === "cards" ? "/secretariat/cartes" : view === "menu" ? "/secretariat/empreintes-cartes" : "/dashboard")} renderPublishedTimetable={() => <PublishedTimetableDrawerEntry user={user} school={school} year={selectedYear} />} renderStaffChildren={() => <StaffChildrenEntry school={school} menu="secretary" />} /></NestedScreen><PushNotificationSettings user={user} /></div>}
         renderStudents={() => secretaryStudentDetailMatch ? (
           <StudentDetailPage
             studentId={secretaryStudentDetailMatch[1]}
@@ -1680,7 +1680,7 @@ export default function App() {
             updateData={updateData}
             onLogout={logout}
             valvesUploadsEnabled={billingControls.controls.valvesUploadsEnabled}
-            renderStaffChildren={() => <>{user.role === "school_admin" && <StaffChildrenEntry school={school} />}</>}
+            renderStaffChildren={() => <>{user.role === "school_admin" && <StaffChildrenEntry school={school} menu="admin" />}</>}
             onCreateParentFromDirectory={() => openParentFormFromDirectory()}
             onEditParentFromDirectory={(parent) => openParentFormFromDirectory(parent.id)}
             createId={uid}

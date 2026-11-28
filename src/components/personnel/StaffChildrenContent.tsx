@@ -126,12 +126,20 @@ export function StaffChildrenContent({ school }: { school: School }) {
 }
 
 /** Lot 3 : bouton du Menu (modules qui ont déjà 5 onglets) qui ouvre le même contenu dans un tiroir. */
-export function StaffChildrenEntry({ school }: { school: School }) {
+// menu : modèle des cartes voisines. « admin » = Menu de l'administrateur d'école (carré gris, titre et texte) ;
+// « secretary » = Menu du secrétariat (carré bleu, titre seul) ; sinon (direction des études, conseillers) : cartes sans carré.
+export function StaffChildrenEntry({ school, menu }: { school: School; menu?: "admin" | "secretary" }) {
   const [open, setOpen] = useState(false);
   return <>
-    <button type="button" data-staff-children-entry className="flex items-center gap-3 rounded border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600" onClick={() => setOpen(true)}>
-      <Baby className="h-5 w-5 shrink-0" /><span className="min-w-0"><strong className="block">Enfants</strong><span className="block text-sm text-slate-500">Enfants à votre charge dans cet établissement</span></span>
+    {menu === "admin" ? <button type="button" data-staff-children-entry className="min-w-0 rounded border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-mint" onClick={() => setOpen(true)}>
+      <span className="flex min-w-0 items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-slate-100 text-ink"><Baby className="h-5 w-5" /></span><span className="min-w-0"><span className="block break-words font-bold text-ink">Enfants</span><span className="mt-1 block break-words text-sm text-slate-500">Enfants à votre charge dans cet établissement</span></span></span>
     </button>
+    : menu === "secretary" ? <button type="button" data-staff-children-entry className="flex min-w-0 items-center gap-3 rounded border border-slate-200 bg-white p-4 text-left transition hover:border-blue-300 hover:bg-blue-50/40" onClick={() => setOpen(true)}>
+      <span className="rounded bg-blue-50 p-2 text-blue-700"><Baby className="h-5 w-5" /></span><span className="font-bold text-ink">Enfants</span>
+    </button>
+    : <button type="button" data-staff-children-entry className="flex items-center gap-3 rounded border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-600" onClick={() => setOpen(true)}>
+      <Baby className="h-5 w-5 shrink-0" /><span className="min-w-0"><strong className="block">Enfants</strong><span className="block text-sm text-slate-500">Enfants à votre charge dans cet établissement</span></span>
+    </button>}
     {open && <AdminDrawer title="Enfants" closeLabel="Fermer Enfants" onClose={() => setOpen(false)}><StaffChildrenContent school={school} /></AdminDrawer>}
   </>;
 }

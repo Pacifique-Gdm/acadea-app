@@ -2,7 +2,7 @@ import { SocialSupportDrawer } from "./SocialSupportDrawer";
 import { schoolYearOpeningDecision } from "../../../api/_lib/schoolYearOpening.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Fragment, type ReactNode } from "react";
-import { Banknote, BarChart3, BookOpen, CalendarRange, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, Trash2, UserRound, UsersRound, X } from "lucide-react";
+import { Banknote, BarChart3, BookOpen, CalendarRange, CheckCircle2, ChevronRight, Clock3, CreditCard, Fingerprint, HeartPulse, Plus, RefreshCw, Settings, Trash2, UserRound, UsersRound, X, Library } from "lucide-react";
 import { AdminDrawer, Field, ImageUploadField, LogoutButton, MoneyInput, MultiSelectDropdown, PasswordField } from "../../components/ui";
 import { ParentsDirectoryDrawer } from "../../components/parents/ParentsDirectoryDrawer";
 import { ParentDrawerBackButton } from "../../components/parents/ParentFormEditor";
@@ -205,7 +205,7 @@ export function MenuModule({
   const menuSections = [
     { id: "socialSupport", title: "Cas sociaux et prises en charge", description: "Décisions administratives et suivi financier des bénéficiaires.", icon: HeartPulse },
     { id: "valves", title: "Valves", description: "Communiqués, palmarès, points, images et documents.", icon: BookOpen },
-    { id: "library", title: "Bibliothèque", description: "Cours et ressources éducatives externes.", icon: BookOpen },
+    { id: "library", title: "Bibliothèque", description: "Cours et ressources éducatives externes.", icon: Library },
     { id: "medicalRecords", title: "Fiches médicales", description: "Création, consultation et suivi des fiches médicales des élèves.", icon: HeartPulse },
     { id: "parentsDirectory", title: "Parents / Tuteurs", description: "Annuaire interne des parents liés aux élèves.", icon: UsersRound },
     { id: "fees", title: "Types de frais", description: "Montants et catégories de frais scolaires.", icon: Banknote },

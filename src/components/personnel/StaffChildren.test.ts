@@ -36,8 +36,8 @@ describe("lot 3 : « Enfants » pour le personnel (écran)", () => {
 
   it("administrateur, secrétaire et direction des études (5 onglets) : bouton « Enfants » dans le Menu", () => {
     const app = read("src/App.tsx");
-    expect(app).toContain('{user.role === "school_admin" && <StaffChildrenEntry school={school} />}');
-    expect(app).toContain('renderStaffChildren={() => <StaffChildrenEntry school={school} />}');
+    expect(app).toContain('{user.role === "school_admin" && <StaffChildrenEntry school={school} menu="admin" />}');
+    expect(app).toContain('renderStaffChildren={() => <StaffChildrenEntry school={school} menu="secretary" />}');
     expect(read("src/modules/studies/StudyDirectorPortal.tsx")).toContain("<StaffChildrenEntry school={school} />");
   });
 });
