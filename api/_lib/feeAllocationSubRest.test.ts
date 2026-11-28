@@ -18,7 +18,16 @@ import type { AllocationWorkspace } from "../../src/services/feeAllocation";
 const admin = { uid: "admin", role: "school_admin", schoolId: "school" }, cashier = { uid: "cashier", role: "cashier", schoolId: "school" };
 const at = "2026-11-13T10:00:00.000Z", rubricId = "a".repeat(32), later = "2026-11-13T12:20:00.000Z";
 let sequence = 0;
-afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
+afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); emptyForecast = false; });
+// Test du refus clair : un prévu sans aucune ligne pour la rubrique (le vrai calcul est utilisé sinon).
+let emptyForecast = false;
+vi.mock("./feeAllocationForecast.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./feeAllocationForecast.js")>();
+  return { ...original, readAllocationForecast: async (input: Parameters<typeof original.readAllocationForecast>[0]) => {
+    const result = await original.readAllocationForecast(input);
+    return emptyForecast ? { ...result, forecast: { ...result.forecast, rows: [] } } : result;
+  } };
+});
 
 /** Même école d'essai que les tests des tableaux F2 : ouverture de 25 $, un paiement avant la création des sous-rubriques
  * (il reste dans « Reste »), puis un élève normal, un cas social et une dépense de sous-rubrique — tous réels. */
@@ -155,5 +164,40 @@ describe("« Répartir le Reste »", () => {
     delete withoutMark.restRedistribution;
     db.records.set(`feeAllocationRubrics/${rubricId}`, withoutMark);
     await expect(call("redistribute-sub-rest", { confirmation: SUB_REST_PHRASE })).rejects.toThrow(/une fois|vide/);
+  });
+
+  // Défaut trouvé sur le staging (28/11/2026) : sans prévu gardé (tableaux jamais ouverts) ou avec un prévu périmé,
+  // le montant fixe recevait 0 en silence. Le prévu est maintenant recalculé comme pour les tableaux.
+  it("sans prévu gardé ou avec un prévu périmé, le montant fixe a sa part ; jamais 0 en silence", async () => {
+    const { db, call, workspace } = await school();
+    const caches = () => [...db.records.keys()].filter((key) => key.startsWith("feeAllocationForecastCaches/"));
+    for (const key of caches()) db.records.delete(key);
+    const { preview: withoutCache } = await call("preview-sub-rest") as unknown as { preview: Plan };
+    expect(withoutCache.lines.map((line) => line.name)).toEqual(["Ouvrier", "Enseignant"]);
+    expect(withoutCache.lines[0].amountMinor).toBeGreaterThan(0);
+    // Même résultat qu'avec le prévu des tableaux.
+    await workspace();
+    expect(caches().length).toBeGreaterThan(0);
+    const { preview: withCache } = await call("preview-sub-rest") as unknown as { preview: Plan };
+    expect(withCache).toEqual(withoutCache);
+    // Prévu gardé périmé (incomplet) : il n'est pas utilisé, la part reste la même.
+    for (const key of caches()) db.records.set(key, { ...db.records.get(key), forecast: { status: "partial", rows: [] }, key: "ancienne-cle" });
+    const { preview: stale } = await call("preview-sub-rest") as unknown as { preview: Plan };
+    expect(stale).toEqual(withoutCache);
+    // La répartition elle-même (sans prévu gardé) donne aussi sa part au montant fixe.
+    for (const key of caches()) db.records.delete(key);
+    const done = await call("redistribute-sub-rest", { confirmation: SUB_REST_PHRASE }) as unknown as { redistributed: Plan };
+    expect(done.redistributed.lines).toEqual(withoutCache.lines);
+  });
+
+  it("montant fixe sans aucun prévu pour la rubrique : refus clair, rien n'est écrit", async () => {
+    const { db, call } = await school();
+    const before = movements(db).length;
+    // Prévu de la rubrique à 0 : le montant fixe ne peut pas être converti en %.
+    emptyForecast = true;
+    await expect(call("preview-sub-rest")).rejects.toThrow("ouvrez d'abord les tableaux pour mettre le prévu à jour");
+    await expect(call("redistribute-sub-rest", { confirmation: SUB_REST_PHRASE })).rejects.toThrow("ouvrez d'abord les tableaux pour mettre le prévu à jour");
+    expect(movements(db)).toHaveLength(before);
+    expect(db.records.get(`feeAllocationRubrics/${rubricId}`).restRedistribution).toBeUndefined();
   });
 });

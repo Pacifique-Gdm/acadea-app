@@ -3,6 +3,7 @@ import { FeeAllocationError } from "./feeAllocationMath.js";
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
 import { SUB_REST_MOVEMENT_TYPE, SUB_REST_PHRASE, SUB_RUBRICS_PHRASE, keptSocialSubOverrides, nextSubBalances, subRestShares, subRubricAmountsKey, subRubricBalanceView, subRubricViewOptions, readKeptForecastRows, validateSubRubrics } from "./feeAllocationSubRubrics.js";
 import { allocationBalanceId, allocationStateId } from "./feeAllocationRuntime.js";
+import { forecastSignalId, readAllocationForecast } from "./feeAllocationForecast.js";
 
 /** Lot 27b — catalogue des rubriques de la répartition des frais (décision du propriétaire, 16/11/2026).
  * - Propre à chaque école ET à chaque année scolaire (une nouvelle année commence avec une liste vide).
@@ -58,7 +59,7 @@ async function usedRubricIds(db, schoolId, schoolYearId) {
 
 /** « Répartir le Reste » (décision de l'utilisateur du 28/11/2026) : ce qui serait réparti, même calcul pour l'aperçu
  * et l'enregistrement (soldes des sous-rubriques et part de l'ouverture comme chez le Caissier). Une seule fois par rubrique. */
-async function readSubRest(db, reader, schoolId, yearId, currency, rubric) {
+async function readSubRest(db, reader, schoolId, yearId, currency, rubric, forecast) {
   const subs = Array.isArray(rubric.subRubrics) && rubric.subRubrics.length
     ? validateSubRubrics(rubric.subRubrics, { newId: () => fail(409, "allocation-reconciliation-required", "Sous-rubrique enregistrée sans identifiant.") }) : [];
   if (!subs.length) fail(409, "failed-precondition", "Cette rubrique n'a pas de sous-rubriques.");
@@ -66,7 +67,11 @@ async function readSubRest(db, reader, schoolId, yearId, currency, rubric) {
   const balanceRef = db.doc(`feeAllocationBalances/${allocationBalanceId(schoolId, yearId, currency, rubric.id)}`);
   const balance = (await (reader ? reader.get(balanceRef) : balanceRef.get())).data();
   if (!balance || balance.schoolId !== schoolId || balance.collectionSchoolYearId !== yearId || balance.currency !== currency || balance.rubricId !== rubric.id) fail(409, "failed-precondition", "Rien à répartir : « Reste » est vide.");
-  const options = subRubricViewOptions({ ...rubric, subRubrics: subs }, balance, await readKeptForecastRows(reader, db, schoolId, yearId, currency));
+  // Prévu sûr et à jour : même calcul que les tableaux (recalculé si le cache manque ou est périmé), lu avant la transaction.
+  const options = subRubricViewOptions({ ...rubric, subRubrics: subs }, balance, forecast?.status === "complete" && Array.isArray(forecast.rows) ? forecast.rows : null);
+  // Un montant fixe est converti en % avec le prévu : sans prévu de la rubrique, on refuse au lieu de lui donner 0 en silence.
+  if (subs.some((sub) => sub.mode === "fixed") && !((options.planned?.rubric[1] ?? 0) + (options.planned?.rubric[2] ?? 0) > 0))
+    fail(409, "failed-precondition", "Le prévu de la rubrique n'est pas disponible : ouvrez d'abord les tableaux pour mettre le prévu à jour, puis réessayez.");
   const restMinor = subRubricBalanceView(balance, subs, rubric.name, options).at(-1).availableMinor;
   const lines = restMinor > 0 ? subRestShares(subs, restMinor, options.planned) : [];
   if (!lines.length) fail(409, "failed-precondition", "Rien à répartir : « Reste » est vide.");
@@ -94,7 +99,8 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
     // Aperçu de « Répartir le Reste » : lecture seule, rien n'est écrit.
     const rubric = (await readRubricCatalog(db, schoolId, yearId)).rubrics.find((item) => item.id === body.rubricId);
     if (!rubric) fail(404, "not-found", "Rubrique introuvable pour cette école et cette année.");
-    const plan = await readSubRest(db, null, schoolId, yearId, currency, rubric);
+    const { forecast } = await readAllocationForecast({ db, schoolId, yearId, currency });
+    const plan = await readSubRest(db, null, schoolId, yearId, currency, rubric, forecast);
     return { operational: false, currency, preview: { restMinor: plan.restMinor, totalMinor: plan.totalMinor, remainingMinor: plan.remainingMinor, lines: plan.lines } };
   }
   if (!id(body.requestId) || body.requestId.length < 12) fail(400, "invalid-argument", "Clé de requête invalide.");
@@ -102,6 +108,8 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
   // Lots 5 et 6 : l'empreinte d'un enregistrement de sous-rubriques comprend la liste et la phrase (ancienne empreinte inchangée sinon).
   const fingerprint = hash([body.action, body.rubricId ?? null, body.name ?? null, body.hidden ?? null,
     ...(body.action === "save-sub-rubrics" ? [body.subRubrics ?? null, body.confirmation ?? null] : []), ...(body.action === "redistribute-sub-rest" ? [body.confirmation ?? null] : [])]);
+  // « Répartir le Reste » : prévu sûr et à jour, calculé avant la transaction (même calcul que les tableaux).
+  const restForecast = body.action === "redistribute-sub-rest" ? (await readAllocationForecast({ db, schoolId, yearId, currency })).forecast : null;
   return db.runTransaction(async (transaction) => {
     const receipt = await transaction.get(receiptRef);
     if (receipt.exists) {
@@ -163,7 +171,9 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
         if (body.confirmation !== SUB_REST_PHRASE) fail(400, "invalid-argument", `Tapez exactement « ${SUB_REST_PHRASE} » pour confirmer.`);
         const state = (await transaction.get(db.doc(`feeAllocationStates/${allocationStateId(schoolId, yearId, currency)}`))).data();
         if (!["ACTIVE", "PAUSED"].includes(state?.status)) fail(409, "failed-precondition", "La répartition n'est pas activée.");
-        const plan = await readSubRest(db, transaction, schoolId, yearId, currency, rubric);
+        if (restForecast?.revision && (await transaction.get(db.doc(`feeAllocationForecastSignals/${forecastSignalId(schoolId, yearId)}`))).data()?.revision !== restForecast.revision)
+          fail(409, "conflict", "Le prévu a changé pendant la répartition : réessayez.");
+        const plan = await readSubRest(db, transaction, schoolId, yearId, currency, rubric, restForecast);
         const movementId = `subrest_${hash([schoolId, yearId, currency, rubric.id]).slice(0, 40)}`;
         const movementRef = db.doc(`feeAllocationMovements/${movementId}`);
         if ((await transaction.get(movementRef)).exists) fail(409, "conflict", "Le Reste de cette rubrique a déjà été réparti : cette action ne se fait qu'une fois.");
