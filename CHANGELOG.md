@@ -3,6 +3,9 @@
 Règle : dernier chiffre = correction, chiffre du milieu = nouvelle fonctionnalité, premier chiffre = grand changement.
 Chaque PR vers `main` ajoute sa section en tête avec `node scripts/release/version-bump.mjs <type> "Changement"`.
 
+## [1.42.4] — 2026-11-28 — Correction
+- Menu : carte « Enfants » au même modèle que ses voisines pour tous les rôles ; « Bibliothèque » a sa propre icône
+
 ## [1.42.3] — 2026-11-28 — Correction
 - Dépense sur une sous-rubrique : plus de blocage quand le prévu gardé est ancien, périmé ou absent (prévu recalculé avant l'enregistrement)
 
