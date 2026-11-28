@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { FeeAllocationError } from "./feeAllocationMath.js";
 import { readFeeAllocationScope, readFeeAllocationYear } from "./feeAllocationPhase1.js";
-import { SUB_RUBRICS_PHRASE, keptSocialSubOverrides, subRubricAmountsKey, subRubricBalanceView, validateSubRubrics } from "./feeAllocationSubRubrics.js";
+import { SUB_RUBRICS_PHRASE, keptSocialSubOverrides, subRubricAmountsKey, subRubricBalanceView, subRubricViewOptions, readKeptForecastRows, validateSubRubrics } from "./feeAllocationSubRubrics.js";
 import { allocationBalanceId, allocationStateId } from "./feeAllocationRuntime.js";
 
 /** Lot 27b — catalogue des rubriques de la répartition des frais (décision du propriétaire, 16/11/2026).
@@ -66,8 +66,10 @@ export async function manageFeeAllocationRubrics({ db, caller, body, now = new D
     // Lots 5 et 6 : soldes des sous-rubriques (Administrateur), dans la devise de l'année.
     const withSubs = isAdmin(caller.role) ? catalog.rubrics.filter((r) => Array.isArray(r.subRubrics) && r.subRubrics.length) : [];
     const subBalances = new Map(await Promise.all(withSubs.map(async (r) => [r.id, (await db.doc(`feeAllocationBalances/${allocationBalanceId(schoolId, yearId, currency, r.id)}`).get()).data()])));
+    // F2 (28/11/2026) : part de l'ouverture des sous-rubriques, avec le même prévu gardé que les tableaux.
+    const forecastRows = withSubs.length ? await readKeptForecastRows(null, db, schoolId, yearId, currency) : null;
     return { operational: false, schoolId, schoolYearId: yearId, currency, ...catalog, rubrics: catalog.rubrics.map((r) => ({ ...r, used: used.has(r.id),
-      ...(subBalances.has(r.id) ? { subView: subRubricBalanceView(subBalances.get(r.id), r.subRubrics, r.name) } : {}) })) };
+      ...(subBalances.has(r.id) ? { subView: subRubricBalanceView(subBalances.get(r.id), r.subRubrics, r.name, subRubricViewOptions(r, subBalances.get(r.id), forecastRows)) } : {}) })) };
   }
   if (!isAdmin(caller.role) || caller.schoolId !== schoolId) fail(403, "permission-denied", "Seul l'Administrateur gère les rubriques.");
   if (!id(body.requestId) || body.requestId.length < 12) fail(400, "invalid-argument", "Clé de requête invalide.");

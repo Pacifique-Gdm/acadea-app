@@ -19,16 +19,16 @@ describe("calcul des sous-rubriques", () => {
     { id: "2".repeat(16), name: "Administratif", mode: "percent", basisPoints: 5000, functions: ["secretary"] },
     { id: "3".repeat(16), name: "Enseignant", mode: "percent", basisPoints: 3000, functions: ["teacher"] },
   ]);
-  it("le montant fixe est servi en premier, les pourcentages se partagent le reste", () => {
-    expect(Object.fromEntries(splitSubRubricCumulative(subs, 4000))).toEqual({ ["1".repeat(16)]: 400, ["2".repeat(16)]: 1800, ["3".repeat(16)]: 1080 });
-    // Paiement en deux fois : le fixe est pris au premier paiement, une seule fois par élève et par frais.
-    const first = subRubricDeltas(subs, 0, 2000), second = subRubricDeltas(subs, 2000, 4000);
-    expect(first).toEqual([{ subRubricId: "1".repeat(16), amountMinor: 400 }, { subRubricId: "2".repeat(16), amountMinor: 800 }, { subRubricId: "3".repeat(16), amountMinor: 480 }]);
-    expect(second).toEqual([{ subRubricId: "2".repeat(16), amountMinor: 1000 }, { subRubricId: "3".repeat(16), amountMinor: 600 }]);
-    // Un paiement plus petit que le fixe : la sous-rubrique fixe reçoit seulement ce qui est payé.
-    expect(subRubricDeltas(subs, 0, 300)).toEqual([{ subRubricId: "1".repeat(16), amountMinor: 300 }]);
+  it("F2 : chaque sous-rubrique reçoit son pourcentage ; un montant fixe est converti en pourcentage (fixe ÷ part de la rubrique pour l'élève)", () => {
+    expect(Object.fromEntries(splitSubRubricCumulative(subs, 4000, {}, 4000))).toEqual({ ["1".repeat(16)]: 400, ["2".repeat(16)]: 2000, ["3".repeat(16)]: 1200 });
+    // Paiement en deux fois : le fixe (400 sur 4 000 = 10 %) est servi à chaque paiement, au total une seule fois par élève et par frais.
+    const first = subRubricDeltas(subs, 0, 2000, 0, {}, 4000), second = subRubricDeltas(subs, 2000, 4000, 0, {}, 4000);
+    expect(first).toEqual([{ subRubricId: "1".repeat(16), amountMinor: 200 }, { subRubricId: "2".repeat(16), amountMinor: 1000 }, { subRubricId: "3".repeat(16), amountMinor: 600 }]);
+    expect(second).toEqual(first);
+    // Un petit paiement : chaque sous-rubrique reçoit son pourcentage de ce qui est payé.
+    expect(subRubricDeltas(subs, 0, 300, 0, {}, 4000)).toEqual([{ subRubricId: "1".repeat(16), amountMinor: 30 }, { subRubricId: "2".repeat(16), amountMinor: 150 }, { subRubricId: "3".repeat(16), amountMinor: 90 }]);
     // Base : la répartition commence au cumul déjà atteint (paiements reçus avant la création).
-    expect(subRubricDeltas(subs, 2000, 4000, 2000)).toEqual(first);
+    expect(subRubricDeltas(subs, 2000, 4000, 2000, {}, 4000)).toEqual(first);
   });
   it("refuse plus de 100 %, un nom réservé, un doublon et une fonction inconnue", () => {
     expect(() => validateSubRubrics([{ name: "A", mode: "percent", basisPoints: 6000 }, { name: "B", mode: "percent", basisPoints: 5000 }])).toThrow("100 %");
@@ -84,7 +84,7 @@ describe("lot 5 — créer les sous-rubriques", () => {
     await pay(db, 25, "sub-payment-after-001"); // rubrique : 2 000 de plus, partagés
     const { rubrics: list } = await rubrics(db, "list-rubrics");
     const view = Object.fromEntries(list[0].subView.map((r) => [r.name, r.receivedMinor]));
-    expect(view).toEqual({ Ouvrier: 500, Enseignant: 750, "Non affecté (Personnel)": 2750 });
+    expect(view).toEqual({ Ouvrier: 125, Enseignant: 1000, "Non affecté (Personnel)": 2875 });
     expect(balance(db).receivedMinor).toBe(4000);
   });
   it("une sous-rubrique qui a servi ne peut pas être retirée", async () => {
@@ -99,9 +99,9 @@ describe("lot 6 — sorties d'argent avec sous-rubrique", () => {
   it("le Caissier voit les sous-rubriques et « Non affecté (rubrique) » avec leur disponible ; sous-rubrique obligatoire ; blocage au-delà du solde", async () => {
     const db = await activeSchool();
     const { rubric } = await saveSubs(db, twoSubs);
-    await pay(db, 50, "sub-payment-spend-001"); // rubrique 4 000 : Ouvrier 500, Enseignant 1 750, Non affecté 1 750
+    await pay(db, 100, "sub-payment-spend-001"); // rubrique 8 000 : Ouvrier 500 (fixe converti en %), Enseignant 4 000, Non affecté 3 500
     const listed = (await options(db)).rubrics.find((r) => r.id === rubricId);
-    expect(listed.subRubrics.map((s) => [s.name, s.availableMinor])).toEqual([["Ouvrier", 500], ["Enseignant", 1750], ["Non affecté (Personnel)", 1750]]);
+    expect(listed.subRubrics.map((s) => [s.name, s.availableMinor])).toEqual([["Ouvrier", 500], ["Enseignant", 4000], ["Non affecté (Personnel)", 3500]]);
     const [ouvrier, enseignant] = rubric.subRubrics.map((s) => s.id);
     await expect(spend(db, 1, "sub-expense-none-0001")).rejects.toThrow("sous-rubrique");
     const before = structuredClone([...db.records]);
@@ -110,7 +110,7 @@ describe("lot 6 — sorties d'argent avec sous-rubrique", () => {
     const { expense } = await spend(db, 5, "sub-expense-ok-00001", { allocationSubRubricId: ouvrier });
     expect(expense.allocationSubRubricId).toBe(ouvrier);
     expect(balance(db).subBalances[ouvrier]).toEqual({ receivedMinor: 500, spentMinor: 500 });
-    await spend(db, 17.5, "sub-expense-na-000001", { allocationSubRubricId: "UNALLOCATED" });
+    await spend(db, 35, "sub-expense-na-000001", { allocationSubRubricId: "UNALLOCATED" });
     await expect(spend(db, 0.01, "sub-expense-na-000002", { allocationSubRubricId: "UNALLOCATED" })).rejects.toThrow("Non affecté (Personnel)");
     // Modification : la sous-rubrique d'origine est reprise ; une hausse au-delà du solde est refusée, une baisse acceptée.
     await expect(executeFinancialOperation({ db, caller: admin, now: "2026-11-13T13:00:00.000Z", body: { action: "update-expense", transactionId: expense.id, amount: 6, category: "Fournitures", description: "Achat", reason: "Correction", clientRequestId: "sub-expense-up-000001" } })).rejects.toThrow("Ouvrier");
@@ -119,7 +119,7 @@ describe("lot 6 — sorties d'argent avec sous-rubrique", () => {
     // Annulation : l'argent revient dans la même sous-rubrique.
     await executeFinancialOperation({ db, caller: admin, now: "2026-11-13T14:00:00.000Z", body: { action: "delete-expense", transactionId: expense.id, reason: "Annulation", clientRequestId: "sub-expense-del-00001" } });
     expect(balance(db).subBalances[ouvrier].spentMinor).toBe(0);
-    expect(balance(db).subBalances[enseignant]).toEqual({ receivedMinor: 1750, spentMinor: 0 });
+    expect(balance(db).subBalances[enseignant]).toEqual({ receivedMinor: 4000, spentMinor: 0 });
   });
   it("une rubrique sans sous-rubrique refuse une sous-rubrique ; sans répartition active, aucune sous-rubrique n'est acceptée", async () => {
     const db = await activeSchool(); await pay(db, 50, "sub-payment-plain-001");
@@ -136,7 +136,7 @@ describe("lot 6 — sorties d'argent avec sous-rubrique", () => {
     const body = { action: "create-personnel-payment", schoolYearId: "year", beneficiaryId: "teacher", kind: "salary", periodMonth: 11, periodYear: 2026, paidAt: "2026-11-13", amount: 10, deduction: 0, deductionReason: "", cnss: 0, tax: 0, recoveries: [], description: "Test", allocationRubricId: rubricId, allocationSubRubricId: enseignant, clientRequestId: "sub-salary-request-01" };
     await createPersonnelPayment({ db, caller: cashier, body, now: "2026-11-13T12:00:00.000Z" });
     expect(balance(db).subBalances[enseignant].spentMinor).toBe(1000);
-    await expect(createPersonnelPayment({ db, caller: cashier, body: { ...body, amount: 8, clientRequestId: "sub-salary-request-02" }, now: "2026-11-13T12:00:00.000Z" })).rejects.toThrow("Enseignant");
+    await expect(createPersonnelPayment({ db, caller: cashier, body: { ...body, amount: 11, clientRequestId: "sub-salary-request-02" }, now: "2026-11-13T12:00:00.000Z" })).rejects.toThrow("Enseignant");
   });
   it("une correction d'encaissement reprend la part des sous-rubriques, jamais sous ce qui a été dépensé", () => {
     const subs = validateSubRubrics(twoSubs.map((s, i) => ({ ...s, id: String(i + 1).repeat(16) })));

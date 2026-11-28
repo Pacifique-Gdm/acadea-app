@@ -2,7 +2,7 @@ import { toMoneyMinor } from "./money.js";
 import { assertFeeAllocationMovement, parseArrearsRubricKey } from "./feeAllocationMath.js";
 import { allocationBalanceId, allocationFail as fail, allocationHash as hash, allocationIdentifier as id,
   allocationMinor as minor, readOperationalAllocation } from "./feeAllocationRuntime.js";
-import { SUB_UNALLOCATED, isSubRubricId, subRubricBalanceView, validateSubRubrics } from "./feeAllocationSubRubrics.js";
+import { SUB_UNALLOCATED, isSubRubricId, readKeptForecastRows, subRubricBalanceView, subRubricViewOptions, validateSubRubrics } from "./feeAllocationSubRubrics.js";
 
 // Lots 5 et 6 : la sous-rubrique n'entre dans l'empreinte que si elle existe (empreintes des anciennes dépenses inchangées).
 const digest = e => hash([e.id, e.schoolId, e.schoolYearId, e.currency, e.amount, e.createdAt, e.updatedAt, e.allocationRubricId ?? null, e.personnelPaymentId ?? null,
@@ -60,8 +60,11 @@ export async function prepareFeeAllocationExpense({ db, transaction, caller, exp
   if (!minor(spentMinor) || !minor(availableMinor)) fail("Solde disponible de la rubrique insuffisant.", "allocation-insufficient-funds");
   // Lots 5 et 6 : une hausse est aussi limitée au solde de la sous-rubrique ; une baisse est toujours acceptée.
   if (subId && delta > 0) {
+    // F2 (28/11/2026) : la part de l'ouverture de chaque sous-rubrique compte dans son disponible, comme chez le Caissier.
+    const forecastRows = await readKeptForecastRows(transaction, db, source.schoolId, source.schoolYearId, source.currency);
     const after = subRubricBalanceView({ ...balance, spentMinor, subBalances: subId === SUB_UNALLOCATED ? balance.subBalances
-      : { ...balance.subBalances, [subId]: { ...(balance.subBalances?.[subId] ?? {}), spentMinor: (balance.subBalances?.[subId]?.spentMinor ?? 0) + delta } } }, subRubrics, catalogEntry.name);
+      : { ...balance.subBalances, [subId]: { ...(balance.subBalances?.[subId] ?? {}), spentMinor: (balance.subBalances?.[subId]?.spentMinor ?? 0) + delta } } }, subRubrics, catalogEntry.name,
+      subRubricViewOptions({ ...catalogEntry, id: rubricId }, balance, forecastRows));
     const row = after.find(r => r.id === subId);
     if (row.availableMinor < 0) fail(`Solde insuffisant sur « ${row.name} » : disponible ${((row.availableMinor + delta) / 100).toFixed(2).replace(".", ",")} ${source.currency}. Rien n'a été enregistré.`, "allocation-insufficient-funds");
   }

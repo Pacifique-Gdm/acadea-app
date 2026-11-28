@@ -19,8 +19,14 @@ export type AllocationRow = { key: string; schoolId: string; schoolName: string;
   subLines?: AllocationSubLine[];
   /** F2 (28/11/2026) : lignes « ↳ » du tableau 3 (tableaux 1 et 2 additionnés), calculées avec la rubrique. */
   subLinesTotal?: AllocationSubLine[] };
-/** Une ligne « ↳ » : ouverture seulement pour « Non affecté (rubrique) » (null = « — »). */
-export type AllocationSubLine = { id: string; name: string; openingMinor: number | null; cumulativeReceivedMinor: number; cumulativeSpentMinor: number; availableMinor: number };
+/** Une ligne « ↳ » (null = « — », donnée absente). F2 (28/11/2026) : prévu, encaissé selon le filtre et ouverture
+ * remplis avec le pourcentage de la sous-rubrique (montant fixe converti en %) ; « Reste » = rubrique moins le reste. */
+export type AllocationSubLine = { id: string; name: string; openingMinor: number | null; cumulativeReceivedMinor: number; cumulativeSpentMinor: number; availableMinor: number;
+  plannedMinor?: number | null; receivedMinor?: number | null;
+  /** Prévu de la sous-rubrique par tableau, frais et classe (calculé par le serveur), avant les filtres de l'écran. */
+  plannedDetail?: { table: 1 | 2; feeTypeId: string; classKey: string; amountMinor: number }[] };
+/** F2 (décision du 28/11/2026) : nom de la ligne « ↳ » du reste, pour ne pas la confondre avec une rubrique « Non affecté ». */
+export const SUB_REST_NAME = "Reste";
 
 /** F2 (28/11/2026) : un montant n'est jamais coupé sur deux lignes, à l'écran comme dans le PDF (espaces insécables). */
 export const unbreakableMoney = (minor: number, currency: "USD" | "CDF") => formatCurrencyMoney(minor / 100, currency).replace(/ /g, " ");
@@ -33,23 +39,30 @@ export const SUB_LINES_LEGEND = "↳ = détail de la rubrique";
 /** Lignes « ↳ » d'une rubrique à partir de son solde (situation globale, commune aux tableaux 1, 2 et 3). */
 export function allocationSubLines(balance: { openingMinor: number; subView?: NonNullable<AllocationWorkspace["ledger"]>["balances"][number]["subView"] } | undefined, currency: "USD" | "CDF"): AllocationSubLine[] | undefined {
   if (!balance?.subView?.length) return undefined;
+  // F2 : la part de l'ouverture de chaque sous-rubrique est retirée de l'ouverture du reste.
+  const restOpening = balance.openingMinor - balance.subView.reduce((n, sub) => n + (sub.id === "UNALLOCATED" ? 0 : sub.openingMinor ?? 0), 0);
   return balance.subView.map((sub) => sub.id === "UNALLOCATED"
-    ? { id: sub.id, name: sub.name, openingMinor: balance.openingMinor, cumulativeReceivedMinor: sub.receivedMinor - balance.openingMinor, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor }
+    ? { id: sub.id, name: sub.name, openingMinor: restOpening, cumulativeReceivedMinor: sub.receivedMinor - restOpening, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor }
     : { id: sub.id, name: `${sub.name} (${sub.mode === "fixed" ? perStudentLabel(sub.fixedMinor ?? 0, currency) : `${((sub.basisPoints ?? 0) / 100).toLocaleString("fr-FR")} %`})`,
-      openingMinor: null, cumulativeReceivedMinor: sub.receivedMinor, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor });
+      openingMinor: sub.openingMinor ?? null, cumulativeReceivedMinor: sub.receivedMinor, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor,
+      ...(sub.plannedMinor ? { plannedDetail: sub.plannedMinor } : {}) });
 }
-/** F2 (28/11/2026) : lignes « ↳ » d'UN tableau, tirées des parts des sous-rubriques enregistrées dans les mouvements.
- * « Non affecté (rubrique) » = la rubrique de ce tableau moins ses sous-rubriques, colonne par colonne :
- * la somme des lignes « ↳ » est donc toujours égale à la rubrique, dans chaque tableau. */
-export function tableSubLines(global: AllocationSubLine[], rubric: { openingMinor: number; cumulativeReceivedMinor: number; cumulativeSpentMinor: number; availableMinor: number },
-  received: Map<string, number>, spent: Map<string, number>): AllocationSubLine[] {
+/** F2 (28/11/2026) : lignes « ↳ » d'UN tableau, tirées des parts des sous-rubriques enregistrées dans les mouvements
+ * (encaissé, dépensé), de leur part de l'ouverture et de leur prévu. « Reste » = la rubrique de ce tableau moins ses
+ * sous-rubriques, colonne par colonne : la somme des lignes « ↳ » est donc toujours égale à la rubrique, dans chaque tableau. */
+export function tableSubLines(global: AllocationSubLine[], rubric: { plannedMinor: number; receivedMinor: number; openingMinor: number; cumulativeReceivedMinor: number; cumulativeSpentMinor: number; availableMinor: number },
+  received: Map<string, number>, spent: Map<string, number>, extra: { opening?: Map<string, number>; planned?: Map<string, number>; filtered?: Map<string, number> } = {}): AllocationSubLine[] {
   const own = global.filter((line) => line.id !== "UNALLOCATED").map((line) => {
     const cumulativeReceivedMinor = received.get(line.id) ?? 0, cumulativeSpentMinor = spent.get(line.id) ?? 0;
-    return { id: line.id, name: line.name, openingMinor: null, cumulativeReceivedMinor, cumulativeSpentMinor, availableMinor: cumulativeReceivedMinor - cumulativeSpentMinor };
+    const openingMinor = line.openingMinor === null ? null : extra.opening?.get(line.id) ?? 0;
+    return { id: line.id, name: line.name, openingMinor, cumulativeReceivedMinor, cumulativeSpentMinor, availableMinor: (openingMinor ?? 0) + cumulativeReceivedMinor - cumulativeSpentMinor,
+      plannedMinor: line.plannedDetail && extra.planned ? extra.planned.get(line.id) ?? 0 : null, receivedMinor: extra.filtered ? extra.filtered.get(line.id) ?? 0 : null };
   });
-  const sum = (field: "cumulativeReceivedMinor" | "cumulativeSpentMinor" | "availableMinor") => own.reduce((n, line) => n + line[field], 0);
-  const name = global.find((line) => line.id === "UNALLOCATED")?.name ?? "Non affecté";
-  return [...own, { id: "UNALLOCATED", name, openingMinor: rubric.openingMinor, cumulativeReceivedMinor: rubric.cumulativeReceivedMinor - sum("cumulativeReceivedMinor"),
+  const sum = (field: "openingMinor" | "plannedMinor" | "receivedMinor" | "cumulativeReceivedMinor" | "cumulativeSpentMinor" | "availableMinor") => own.reduce((n, line) => n + (line[field] ?? 0), 0);
+  return [...own, { id: "UNALLOCATED", name: SUB_REST_NAME, openingMinor: rubric.openingMinor - sum("openingMinor"),
+    plannedMinor: own.some((line) => line.plannedMinor !== null) ? rubric.plannedMinor - sum("plannedMinor") : null,
+    receivedMinor: extra.filtered ? rubric.receivedMinor - sum("receivedMinor") : null,
+    cumulativeReceivedMinor: rubric.cumulativeReceivedMinor - sum("cumulativeReceivedMinor"),
     cumulativeSpentMinor: rubric.cumulativeSpentMinor - sum("cumulativeSpentMinor"), availableMinor: rubric.availableMinor - sum("availableMinor") }];
 }
 export type AllocationFinancialField = keyof NonNullable<AllocationRow["financial"]>;
@@ -181,6 +194,8 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
     const received = { 1: 0, 2: 0 }, cumulative = { 1: 0, 2: 0 }, arrears = { 1: 0, 2: 0 }, former = { 1: 0, 2: 0 };
     // F2 : parts des sous-rubriques par tableau (encaissements) et au total (dépenses), comme la rubrique.
     const subReceived = { 1: new Map<string, number>(), 2: new Map<string, number>() }, subSpent = new Map<string, number>();
+    // F2 : encaissé des sous-rubriques selon le filtre (mêmes filtres que la rubrique).
+    const subFiltered = { 1: new Map<string, number>(), 2: new Map<string, number>() };
     for (const m of ledger.movements) {
       const day = m.postedAt.slice(0, 10), amount = m.lines.find(l => l.rubricId === rubric.id)?.amountMinor ?? 0;
       if (period?.to && day > period.to) continue;
@@ -203,6 +218,7 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
       if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(workspace.school.id, m.feeTypeId ?? "")) continue;
       if (filter.kind === "class" && filter.value && filter.value !== allocationClassKey(workspace.school.id, m.classOptionKey || m.className || "")) continue;
       received[table] += amount;
+      for (const line of m.subLines ?? []) if (line.rubricId === rubric.id) subFiltered[table].set(line.subRubricId, (subFiltered[table].get(line.subRubricId) ?? 0) + line.amountMinor);
       if (m.originSchoolYearId !== workspace.year.id) arrears[table] += amount;
     }
     const reserved = ledger.balances.find(b => b.rubricId === rubric.id)?.reservedMinor ?? 0;
@@ -222,14 +238,33 @@ function projectOperational(workspace: AllocationWorkspace, filter: AllocationFi
     const spentIds = [...subSpent.keys()];
     const spentTwo = splitLikeRubric([...spentIds.map((id) => subSpent.get(id)!), cumulativeSpentMinor - [...subSpent.values()].reduce((n, x) => n + x, 0)], cumSpent[1], cumulative[1], cumulative[2]);
     spentIds.forEach((id, i) => { spentByTable[1].set(id, spentTwo[i]); spentByTable[0].set(id, subSpent.get(id)! - spentTwo[i]); });
-    const perTable = subLines && ([1, 2] as const).map((table, index) => tableSubLines(subLines, { openingMinor: opening[index], cumulativeReceivedMinor: cumulative[table],
-      cumulativeSpentMinor: cumSpent[index], availableMinor: opening[index] + cumulative[table] - cumSpent[index] }, subReceived[table], spentByTable[index]));
-    const bothReceived = new Map([...new Set([...subReceived[1].keys(), ...subReceived[2].keys()])].map((id) => [id, (subReceived[1].get(id) ?? 0) + (subReceived[2].get(id) ?? 0)]));
-    const subLinesTotal = subLines && tableSubLines(subLines, { openingMinor, cumulativeReceivedMinor: cumulative[1] + cumulative[2], cumulativeSpentMinor,
-      availableMinor: openingMinor + cumulative[1] + cumulative[2] - cumulativeSpentMinor }, bothReceived, subSpent);
+    // F2 : part de l'ouverture de chaque sous-rubrique (calculée par le serveur, comme pour le Caissier), partagée entre
+    // les tableaux 1 et 2 avec la règle de la rubrique. Une période qui s'arrête avant l'ouverture laisse tout dans « Reste ».
+    const subOpening = [new Map<string, number>(), new Map<string, number>()] as const, openingShare = new Map<string, number>();
+    const shared = (subLines ?? []).filter((line) => line.id !== "UNALLOCATED" && line.openingMinor !== null && line.openingMinor > 0);
+    if (shared.length && openingMinor === (ledger.balances.find(b => b.rubricId === rubric.id)?.openingMinor ?? 0)) {
+      const parts = shared.map((line) => line.openingMinor!);
+      const two = splitLikeRubric([...parts, openingMinor - parts.reduce((n, x) => n + x, 0)], opening[1], cumulative[1], cumulative[2]);
+      shared.forEach((line, i) => { openingShare.set(line.id, parts[i]); subOpening[1].set(line.id, two[i]); subOpening[0].set(line.id, parts[i] - two[i]); });
+    }
+    // F2 : prévu de chaque sous-rubrique par tableau, avec les filtres de l'écran (frais, classe).
+    const subPlanned = [new Map<string, number>(), new Map<string, number>()] as const;
+    for (const line of subLines ?? []) for (const part of line.plannedDetail ?? []) {
+      if (filter.kind === "fee" && filter.value && filter.value !== allocationFeeKey(workspace.school.id, part.feeTypeId)) continue;
+      if (filter.kind === "class" && filter.value && filter.value !== allocationClassKey(workspace.school.id, part.classKey)) continue;
+      const map = subPlanned[part.table === 2 ? 1 : 0]; map.set(line.id, (map.get(line.id) ?? 0) + part.amountMinor);
+    }
+    const planned = { 1: (expected.get(`1|${rubric.id}`) ?? 0) + former[1], 2: (expected.get(`2|${rubric.id}`) ?? 0) + former[2] };
+    const perTable = subLines && ([1, 2] as const).map((table, index) => tableSubLines(subLines, { plannedMinor: planned[table], receivedMinor: received[table], openingMinor: opening[index], cumulativeReceivedMinor: cumulative[table],
+      cumulativeSpentMinor: cumSpent[index], availableMinor: opening[index] + cumulative[table] - cumSpent[index] }, subReceived[table], spentByTable[index],
+      { opening: subOpening[index], planned: subPlanned[index], filtered: subFiltered[table] }));
+    const both = (x: Map<string, number>, y: Map<string, number>) => new Map([...new Set([...x.keys(), ...y.keys()])].map((id) => [id, (x.get(id) ?? 0) + (y.get(id) ?? 0)]));
+    const subLinesTotal = subLines && tableSubLines(subLines, { plannedMinor: planned[1] + planned[2], receivedMinor: received[1] + received[2], openingMinor, cumulativeReceivedMinor: cumulative[1] + cumulative[2], cumulativeSpentMinor,
+      availableMinor: openingMinor + cumulative[1] + cumulative[2] - cumulativeSpentMinor }, both(subReceived[1], subReceived[2]), subSpent,
+      { opening: openingShare, planned: both(subPlanned[0], subPlanned[1]), filtered: both(subFiltered[1], subFiltered[2]) });
     return ([1, 2] as const).map((table, index): AllocationRow => ({ key: `${workspace.school.id}/${workspace.year.id}/${table}/${rubric.id}`, schoolId: workspace.school.id, schoolName: workspace.school.name,
       yearName: workspace.year.name, feeName: "Rubrique commune · disponible global", classLabel: "Toutes les classes", currency: workspace.currency,
-      rubricName: rubric.name, amountMinor: (expected.get(`${table}|${rubric.id}`) ?? 0) + former[table], percent: 0, config: workspace.configs[0], stale: false,
+      rubricName: rubric.name, amountMinor: planned[table], percent: 0, config: workspace.configs[0], stale: false,
       table, rubricId: rubric.id, ...labels, ...("arrearsYearName" in rubric && rubric.arrearsYearName ? { arrearsYearName: rubric.arrearsYearName } : {}),
       financial: { receivedMinor: received[table], spentMinor: spent[index], openingMinor: opening[index],
         cumulativeReceivedMinor: cumulative[table], cumulativeSpentMinor: cumSpent[index], arrearsMinor: arrears[table], formerMinor: former[table],

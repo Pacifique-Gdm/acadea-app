@@ -25,7 +25,9 @@ export type AllocationWorkspace = {
       subLines?: { rubricId: string; subRubricId: string; amountMinor: number }[] }[];
     balances: { rubricId: string; openingMinor: number; receivedMinor: number; spentMinor: number; reservedMinor: number; availableMinor: number;
       /** Soldes des sous-rubriques, puis « Non affecté (rubrique) » (id UNALLOCATED), seulement si la rubrique en a. */
-      subView?: { id: string; name: string; mode?: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number; receivedMinor: number; spentMinor: number; availableMinor: number }[] }[] };
+      subView?: { id: string; name: string; mode?: "percent" | "fixed"; basisPoints?: number; fixedMinor?: number; receivedMinor: number; spentMinor: number; availableMinor: number;
+        /** F2 (28/11/2026) : part de l'ouverture (comptée dans le disponible) et prévu par tableau, frais et classe. */
+        openingMinor?: number; plannedMinor?: { table: 1 | 2; feeTypeId: string; classKey: string; amountMinor: number }[] }[] }[] };
 };
 export type SaveAllocationDrafts = { schoolYearId: string; baseFeeTypeId: string; requestId: string;
   targets: Array<{ feeTypeId: string; expectedRevision: number }>; rubrics: FeeAllocationRubric[];

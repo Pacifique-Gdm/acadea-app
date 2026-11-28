@@ -39,6 +39,6 @@ describe("lignes « ↳ » des sous-rubriques", () => {
   it("tableaux du drawer (et vue partagée, même tableau) : lignes « ↳ » non cliquables, situation globale seulement", () => {
     const drawer = readFileSync(new URL("../modules/menu/FeeAllocationDrawer.tsx", import.meta.url), "utf8");
     expect(drawer).toContain("...(row.financial ? row.subLines ?? [] : []).map((sub) => <tr key={`${row.key}/${sub.id}`} data-sub-rubric-row");
-    expect(drawer).toContain('<td className="border-b p-2 pl-6">↳ {sub.name}</td><td className="border-b p-2">—</td><td className="border-b p-2">—</td>');
+    expect(drawer).toContain('<td className="border-b p-2 pl-6">↳ {sub.name}</td>{([sub.plannedMinor, sub.receivedMinor]).map((value, i) => <td key={`p${i}`} className="border-b p-2 whitespace-nowrap">{value === null || value === undefined ? "—" : formatCurrencyMoney(value / 100, row.currency)}</td>)}');
   });
 });

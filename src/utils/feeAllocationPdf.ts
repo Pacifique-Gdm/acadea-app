@@ -22,14 +22,14 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   const globalFields = ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const;
   const globalLabels = ["Ouverture", "Encaissé (cumul)", "Dépensé (cumul)", "Disponible"];
   const weights = FEE_ALLOCATION_PDF_WEIGHTS[operational ? "operational" : "preparatory"];
-  // Lignes « ↳ » des sous-rubriques : « — » pour le prévu et l'encaissé selon le filtre, situation globale seulement.
+  // Lignes « ↳ » des sous-rubriques (F2 : toutes les colonnes remplies ; « — » seulement si une donnée manque).
   const subOf = (row: AllocationRow) => (row as AllocationRow & { subLine?: AllocationSubLine }).subLine;
   const subMoney: Record<AllocationFinancialField, (line: AllocationSubLine) => number | null> = { openingMinor: (l) => l.openingMinor, cumulativeReceivedMinor: (l) => l.cumulativeReceivedMinor,
-    cumulativeSpentMinor: (l) => l.cumulativeSpentMinor, availableMinor: (l) => l.availableMinor, receivedMinor: () => null, spentMinor: () => null, arrearsMinor: () => null, formerMinor: () => null };
+    cumulativeSpentMinor: (l) => l.cumulativeSpentMinor, availableMinor: (l) => l.availableMinor, receivedMinor: (l) => l.receivedMinor ?? null, spentMinor: () => null, arrearsMinor: () => null, formerMinor: () => null };
   const columns = [
     { header: "Rubrique", render: (row: AllocationRow) => subOf(row) ? `↳ ${subOf(row)!.name}` : name(row), weight: weights[0] },
-    { header: "Prévu de l’année", render: (row: AllocationRow) => subOf(row) ? "—" : money(row.amountMinor, row.currency), align: "right" as const, weight: weights[1] },
-    { header: receivedLabel, weight: weights[2], render: (row: AllocationRow) => subOf(row) ? "—" : row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
+    { header: "Prévu de l’année", render: (row: AllocationRow) => { const sub = subOf(row); return sub ? (sub.plannedMinor === null || sub.plannedMinor === undefined ? "—" : money(sub.plannedMinor, row.currency)) : money(row.amountMinor, row.currency); }, align: "right" as const, weight: weights[1] },
+    { header: receivedLabel, weight: weights[2], render: (row: AllocationRow) => subOf(row) ? (subMoney.receivedMinor(subOf(row)!) === null ? "—" : money(subMoney.receivedMinor(subOf(row)!)!, row.currency)) : row.financial ? `${money(row.financial.receivedMinor, row.currency)} (dont arriérés : ${money(row.financial.arrearsMinor, row.currency)}${row.financial.formerMinor ? ` ; dont anciens élèves : ${money(row.financial.formerMinor, row.currency)}` : ""})` : "Non disponible" },
     ...(operational ? globalFields.map((field: AllocationFinancialField, i) => ({ header: globalLabels[i], weight: weights[3 + i], render: (row: AllocationRow) => {
       const sub = subOf(row);
       if (sub) { const value = subMoney[field](sub); return value === null ? "—" : money(value, row.currency); }

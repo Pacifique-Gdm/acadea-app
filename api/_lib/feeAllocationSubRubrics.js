@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import { FeeAllocationError } from "./feeAllocationMath.js";
+import { allocationHash } from "./feeAllocationRuntime.js";
 
 /** Lots 5 et 6 — sous-rubriques d'une rubrique du catalogue (décisions de l'utilisateur, 25 et 27/11/2026).
  * - Une seule répartition par rubrique, valable pour tous les frais qui l'alimentent.
- * - Montant fixe : compté PAR ÉLÈVE ET PAR FRAIS PAYÉ (une ancre), servi en premier ; le reste en pourcentage.
+ * - Montant fixe : compté PAR ÉLÈVE ET PAR FRAIS PAYÉ (une ancre), converti en pourcentage (F2, 28/11/2026).
  * - Ce qui n'est pas réparti reste dans « Non affecté (rubrique) », calculé : rubrique moins ses sous-rubriques.
  * - Les encaissements reçus avant la création restent dans « Non affecté (rubrique) » ; l'historique n'est pas réécrit. */
 export const SUB_UNALLOCATED = "UNALLOCATED";
@@ -52,45 +53,114 @@ export function validateSubRubrics(input, { newId = () => randomBytes(8).toStrin
 }
 
 /** Empreinte des seuls pourcentages et montants : un changement exige la phrase et repart des paiements suivants. */
-export const subRubricAmountsKey = (subs) => hash((subs ?? []).map((s) => [s.id, s.mode, s.basisPoints ?? null, s.fixedMinor ?? null]));
+// F2 (28/11/2026, « Même règle partout ») : la marque « montant-fixe-en-pourcentage » fait repartir chaque élève du cumul
+// déjà atteint : la nouvelle règle vaut pour les paiements suivants seulement ; les anciens ne sont pas réécrits.
+export const subRubricAmountsKey = (subs) => hash(["montant-fixe-en-pourcentage", (subs ?? []).map((s) => [s.id, s.mode, s.basisPoints ?? null, s.fixedMinor ?? null])]);
 
-/** Partage d'un montant cumulé d'une rubrique pour une ancre (un élève, un frais) : montants fixes d'abord, dans l'ordre,
- * puis les pourcentages sur le reste (arrondis vers le bas). Le reste non partagé va à « Non affecté (rubrique) ».
- * Chaque part ne baisse jamais quand le cumul monte : un paiement suivant n'enlève rien. */
-export function splitSubRubricCumulative(subs, amountMinor, carry = {}) {
-  let rest = Math.max(0, amountMinor);
+/** F2 (décision du 28/11/2026, « Même règle partout ») — partage d'un montant cumulé d'une rubrique pour une ancre (un
+ * élève, un frais) : chaque sous-rubrique reçoit son pourcentage ; un montant fixe est d'abord converti en pourcentage
+ * (montant fixe ÷ part de la rubrique pour cet élève et ce frais, `fullMinor` ; part réduite pour un cas social).
+ * Un montant fixe ne reçoit jamais plus que lui-même par élève (`carry` = déjà reçu avant le dernier changement).
+ * Si montants fixes convertis et pourcentages dépassent 100 %, les montants fixes se partagent ce qui reste après les
+ * pourcentages. Arrondis vers le bas ; le reste va à « Reste ». Une part ne baisse jamais quand le cumul monte. */
+export function splitSubRubricCumulative(subs, amountMinor, carry = {}, fullMinor = 0) {
+  const cumul = BigInt(Math.max(0, amountMinor)), full = BigInt(Math.max(0, fullMinor));
+  const percent = BigInt(subs.reduce((n, sub) => n + (sub.mode === "percent" ? sub.basisPoints : 0), 0));
+  const fixedTotal = BigInt(subs.reduce((n, sub) => n + (sub.mode === "fixed" ? sub.fixedMinor : 0), 0));
+  const over = full === 0n || fixedTotal * 10000n > (10000n - percent) * full;
   const result = new Map();
-  // F2 : `carry` = déjà reçu par chaque sous-rubrique pour cet élève et ce frais avant le dernier changement des montants ;
-  // il compte dans le montant fixe, qui n'est jamais servi deux fois.
-  for (const sub of subs) if (sub.mode === "fixed") { const take = Math.min(rest, Math.max(0, sub.fixedMinor - (carry[sub.id] ?? 0))); result.set(sub.id, take); rest -= take; }
-  for (const sub of subs) if (sub.mode === "percent") result.set(sub.id, Number((BigInt(rest) * BigInt(sub.basisPoints)) / 10000n));
+  for (const sub of subs) {
+    if (sub.mode === "percent") { result.set(sub.id, Number((cumul * BigInt(sub.basisPoints)) / 10000n)); continue; }
+    const share = fixedTotal === 0n ? 0n : over ? (cumul * BigInt(sub.fixedMinor) * (10000n - percent)) / (fixedTotal * 10000n) : (cumul * BigInt(sub.fixedMinor)) / full;
+    result.set(sub.id, Math.min(Number(share), Math.max(0, sub.fixedMinor - (carry[sub.id] ?? 0))));
+  }
   return result;
 }
 
 /** Différence de partage entre deux cumuls, comptés à partir de la base (cumul atteint quand la répartition actuelle a commencé). */
-export function subRubricDeltas(subs, beforeMinor, afterMinor, baseMinor = 0, carry = {}) {
-  const before = splitSubRubricCumulative(subs, beforeMinor - baseMinor, carry), after = splitSubRubricCumulative(subs, afterMinor - baseMinor, carry);
+export function subRubricDeltas(subs, beforeMinor, afterMinor, baseMinor = 0, carry = {}, fullMinor = 0) {
+  const before = splitSubRubricCumulative(subs, beforeMinor - baseMinor, carry, fullMinor), after = splitSubRubricCumulative(subs, afterMinor - baseMinor, carry, fullMinor);
   return subs.map((sub) => ({ subRubricId: sub.id, amountMinor: after.get(sub.id) - before.get(sub.id) })).filter((line) => line.amountMinor !== 0);
 }
 
-/** Soldes affichés : chaque sous-rubrique, puis « Non affecté (rubrique) » = rubrique moins la somme des sous-rubriques. */
-export function subRubricBalanceView(balance, subs, rubricName = "") {
+/** Sous-rubriques appliquées à chaque tableau (1 : partie 1 ; 2 : cas sociaux, partie 1 si elles dépasseraient 100 %). */
+export function subRubricsByTable(subs, socialOverrides) {
+  const social = effectiveSocialSubRubrics(subs, socialOverrides);
+  return { 1: subs ?? [], 2: social.reduce((n, sub) => n + (sub.mode === "percent" ? sub.basisPoints : 0), 0) > 10000 ? subs ?? [] : social };
+}
+
+/** F2 (28/11/2026) — prévu de chaque sous-rubrique, tableau par tableau, à partir des lignes du prévu de la rubrique
+ * (`rows` : { table, amountMinor, studentsCount }) : un pourcentage s'applique au prévu ; un montant fixe vaut son
+ * montant par élève (c'est sa conversion en pourcentage), avec la même limite à 100 % que les encaissements. */
+export function subRubricPlanned(subsByTable, rows) {
+  const planned = { 1: new Map(), 2: new Map() }, rubric = { 1: 0, 2: 0 }, detail = new Map();
+  for (const row of rows ?? []) {
+    const table = row.table === 2 ? 2 : 1, subs = subsByTable[table] ?? [];
+    const amount = Math.max(0, row.amountMinor ?? 0), count = Math.max(0, row.studentsCount ?? 0);
+    rubric[table] += amount;
+    const percent = BigInt(subs.reduce((n, sub) => n + (sub.mode === "percent" ? sub.basisPoints : 0), 0));
+    const fixedTotal = BigInt(subs.reduce((n, sub) => n + (sub.mode === "fixed" ? sub.fixedMinor : 0), 0));
+    const over = fixedTotal * BigInt(count) * 10000n > (10000n - percent) * BigInt(amount);
+    for (const sub of subs) {
+      const share = sub.mode === "percent" ? (BigInt(amount) * BigInt(sub.basisPoints)) / 10000n
+        : over ? (BigInt(amount) * BigInt(sub.fixedMinor) * (10000n - percent)) / (fixedTotal * 10000n) : BigInt(sub.fixedMinor) * BigInt(count);
+      planned[table].set(sub.id, (planned[table].get(sub.id) ?? 0) + Number(share));
+      // Détail par frais et par classe : l'écran applique ses filtres (frais, classe) au prévu des sous-rubriques.
+      if (!detail.has(sub.id)) detail.set(sub.id, []);
+      detail.get(sub.id).push({ table, feeTypeId: String(row.feeTypeId ?? ""), classKey: String(row.classOptionKey || row.className || ""), amountMinor: Number(share) });
+    }
+  }
+  return { planned, rubric, detail };
+}
+
+/** F2 (28/11/2026) — part de l'ouverture de chaque sous-rubrique : ouverture de la rubrique × (prévu de la sous-rubrique
+ * ÷ prévu de la rubrique), tableaux 1 et 2 ensemble. Un pourcentage garde donc son pourcentage ; un montant fixe y entre
+ * converti en pourcentage. Arrondi vers le bas ; le reste reste dans « Reste ». */
+export function subRubricOpeningShares(openingMinor, { planned, rubric }) {
+  const total = BigInt(rubric[1] + rubric[2]), shares = {};
+  if (!(openingMinor > 0) || total === 0n) return shares;
+  for (const id of new Set([...planned[1].keys(), ...planned[2].keys()])) shares[id] = Number((BigInt(openingMinor) * BigInt((planned[1].get(id) ?? 0) + (planned[2].get(id) ?? 0))) / total);
+  return shares;
+}
+
+/** F2 (28/11/2026) — options de la vue des soldes d'une rubrique du catalogue (`entry`) : prévu par tableau et part de
+ * l'ouverture, à partir des lignes du prévu annuel. Sans prévu lisible : vue sans ces deux colonnes (comme avant). */
+export function subRubricViewOptions(entry, balance, forecastRows) {
+  if (!Array.isArray(forecastRows) || !Array.isArray(entry?.subRubrics) || !entry.subRubrics.length) return {};
+  const plan = subRubricPlanned(subRubricsByTable(entry.subRubrics, entry.socialSubRubrics), forecastRows.filter((row) => row?.rubricId === entry.id && !row.arrearsYearName));
+  return { planned: plan, openingShares: subRubricOpeningShares(balance?.openingMinor ?? 0, plan) };
+}
+
+/** Lignes du prévu gardées (dernier prévu calculé par l'application) : lecture d'un seul document, aussi dans une
+ * transaction. Le Caissier et le contrôle des dépenses lisent ainsi le même prévu que les tableaux. */
+export async function readKeptForecastRows(reader, db, schoolId, yearId, currency) {
+  // Même identifiant que forecastCacheId (feeAllocationForecast.js), recalculé ici pour éviter une boucle d'imports.
+  const ref = db.doc(`feeAllocationForecastCaches/${allocationHash(["forecast-cache", schoolId, yearId, currency])}`);
+  const kept = (await (reader ? reader.get(ref) : ref.get())).data();
+  return kept?.forecast?.status === "complete" && Array.isArray(kept.forecast.rows) ? kept.forecast.rows : null;
+}
+
+/** Soldes affichés : chaque sous-rubrique, puis « Non affecté (rubrique) » = rubrique moins la somme des sous-rubriques.
+ * F2 (28/11/2026) : `openingShares` = part de l'ouverture de chaque sous-rubrique (subRubricOpeningShares), comptée dans
+ * son disponible ; `planned` (subRubricPlanned) = son prévu, par tableau, frais et classe. Même calcul pour les tableaux, le PDF et le Caissier. */
+export function subRubricBalanceView(balance, subs, rubricName = "", { openingShares = {}, planned } = {}) {
   const rubricReceived = (balance?.openingMinor ?? 0) + (balance?.receivedMinor ?? 0);
   const rubricSpent = (balance?.spentMinor ?? 0) + (balance?.reservedMinor ?? 0);
   const rows = (subs ?? []).map((sub) => {
     const own = balance?.subBalances?.[sub.id] ?? {};
-    const receivedMinor = own.receivedMinor ?? 0, spentMinor = own.spentMinor ?? 0;
+    const receivedMinor = own.receivedMinor ?? 0, spentMinor = own.spentMinor ?? 0, openingMinor = openingShares[sub.id] ?? 0;
     return { id: sub.id, name: sub.name, mode: sub.mode, ...(sub.mode === "fixed" ? { fixedMinor: sub.fixedMinor } : { basisPoints: sub.basisPoints }),
-      functions: sub.functions ?? [], receivedMinor, spentMinor, availableMinor: receivedMinor - spentMinor };
+      functions: sub.functions ?? [], receivedMinor, spentMinor, availableMinor: openingMinor + receivedMinor - spentMinor,
+      ...(planned || openingMinor ? { openingMinor } : {}), ...(planned ? { plannedMinor: planned.detail.get(sub.id) ?? [] } : {}) };
   });
-  const receivedMinor = rubricReceived - rows.reduce((n, r) => n + r.receivedMinor, 0);
+  const receivedMinor = rubricReceived - rows.reduce((n, r) => n + r.receivedMinor + (r.openingMinor ?? 0), 0);
   const spentMinor = rubricSpent - rows.reduce((n, r) => n + r.spentMinor, 0);
   return [...rows, { id: SUB_UNALLOCATED, name: `Non affecté (${rubricName})`, functions: [], receivedMinor, spentMinor, availableMinor: receivedMinor - spentMinor }];
 }
 
 /** Encaissement : lit les sous-rubriques des rubriques touchées (lectures seulement, avant toute écriture) et renvoie
  * les parts de chaque sous-rubrique, plus la base gardée dans le cumul de l'ancre. */
-export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoolYearId, lines, priorLines, nextLines, total, social = false }) {
+export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoolYearId, lines, priorLines, nextLines, fullLines, total, social = false }) {
   const byRubric = new Map();
   let movements = null;
   const subBase = { ...(total?.subBase && typeof total.subBase === "object" ? total.subBase : {}) };
@@ -121,9 +191,11 @@ export async function prepareSubRubricReceipt({ db, transaction, schoolId, schoo
       }
     }
     const carry = cleanAmounts(same ? stored.carry : previous);
-    const deltas = subRubricDeltas(subs, before, after, baseMinor, carry);
+    // F2 : part de la rubrique pour cet élève et ce frais (net réduit pour un cas social) : convertit un montant fixe en %.
+    const fullMinor = fullLines?.[index]?.amountMinor ?? 0;
+    const deltas = subRubricDeltas(subs, before, after, baseMinor, carry, fullMinor);
     const served = { ...carry };
-    for (const [id, amount] of splitSubRubricCumulative(subs, after - baseMinor, carry)) served[id] = (served[id] ?? 0) + amount;
+    for (const [id, amount] of splitSubRubricCumulative(subs, after - baseMinor, carry, fullMinor)) served[id] = (served[id] ?? 0) + amount;
     subBase[rubricId] = { key, baseMinor, carry, served };
     byRubric.set(rubricId, deltas);
   }

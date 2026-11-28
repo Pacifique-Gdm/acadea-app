@@ -53,8 +53,8 @@ describe("F2 — calcul des sous-rubriques des cas sociaux", () => {
   it("un paiement de cas social suivant une partie 2 est partagé selon les sous-rubriques des cas sociaux ; un élève normal selon la partie 1", async () => {
     const rubric = { schoolId: "school", schoolYearId: "year", subRubrics: subs, socialSubRubrics: { [ouvrier]: { removed: true }, [enseignant]: { mode: "percent", basisPoints: 2000 } } };
     const db = { doc: (path) => ({ path }) }, transaction = { get: async () => ({ data: () => structuredClone(rubric) }) };
-    const args = { db, transaction, schoolId: "school", schoolYearId: "year", lines: [{ rubricId, amountMinor: 1000 }], priorLines: [{ rubricId, amountMinor: 0 }], nextLines: [{ rubricId, amountMinor: 1000 }], total: null };
-    expect((await prepareSubRubricReceipt(args)).byRubric.get(rubricId)).toEqual([{ subRubricId: ouvrier, amountMinor: 500 }, { subRubricId: enseignant, amountMinor: 250 }]);
+    const args = { db, transaction, schoolId: "school", schoolYearId: "year", lines: [{ rubricId, amountMinor: 1000 }], priorLines: [{ rubricId, amountMinor: 0 }], nextLines: [{ rubricId, amountMinor: 1000 }], fullLines: [{ rubricId, amountMinor: 4000 }], total: null };
+    expect((await prepareSubRubricReceipt(args)).byRubric.get(rubricId)).toEqual([{ subRubricId: ouvrier, amountMinor: 125 }, { subRubricId: enseignant, amountMinor: 500 }]);
     expect((await prepareSubRubricReceipt({ ...args, social: true })).byRubric.get(rubricId)).toEqual([{ subRubricId: enseignant, amountMinor: 200 }]);
     const receipts = readFileSync(new URL("./feeAllocationReceipts.js", import.meta.url), "utf8");
     expect(receipts).toContain("lines, priorLines, nextLines, total, social: !!socialSegments });");
