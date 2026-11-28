@@ -31,15 +31,21 @@ export interface SectionAuthorityOptions {
    * suivent la règle unique des sections. Sans désignation : résultat inchangé.
    */
   sectionSettingsManagers?: Partial<Record<SchoolSection, string>>;
+  /**
+   * Calendrier : lire les sections du compte telles qu'écrites (`recordedSectionIds`), comme la
+   * règle Firestore du calendrier. Une section inconnue de l'école (ex. « Lycée ») laisse alors le
+   * compte limité, jamais « toute l'école ». Sans `recordedSectionIds` : résultat inchangé.
+   */
+  recordedSections?: boolean;
 }
 
 export function resolveSectionAuthority(
-  user: Pick<AppUser, "section" | "sectionIds"> & { id?: string },
+  user: Pick<AppUser, "section" | "sectionIds"> & { id?: string; recordedSectionIds?: readonly string[] },
   school: Pick<School, "educationLevels" | "schoolType">,
   options: SectionAuthorityOptions = {},
 ): SectionAuthority {
   const schoolSections = getSchoolSections(school);
-  const assigned = userSectionIds(user);
+  const assigned: readonly string[] = options.recordedSections && user.recordedSectionIds ? user.recordedSectionIds : userSectionIds(user);
   const wholeSchool = assigned.length === 0
     || (schoolSections.length > 0 && schoolSections.every((section) => assigned.includes(section)));
   const sections = wholeSchool ? [...schoolSections] : schoolSections.filter((section) => assigned.includes(section));

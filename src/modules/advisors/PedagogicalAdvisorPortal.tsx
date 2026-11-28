@@ -4,7 +4,7 @@
 // Retiré : création d'enseignant, publication des cotes, périodes, écriture du calendrier, demandes d'indisponibilité.
 // AUCUN accès à l'argent de l'école. Rechargement par la flèche ronde de l'en-tête (pas de bouton « Actualiser »).
 import { useState, type ReactNode } from "react";
-import { AlertTriangle, BookOpen, BookOpenCheck, CalendarDays, Clock3, GraduationCap, LogOut, MessageSquare, UsersRound } from "lucide-react";
+import { AlertTriangle, BookOpen, BookOpenCheck, CalendarDays, ClipboardList, Clock3, GraduationCap, LogOut, MessageSquare, UsersRound } from "lucide-react";
 import { AppVersion } from "../../components/ui/AppVersion";
 import { AdminDrawer, DashboardCard } from "../../components/ui";
 import { PushNotificationSettings } from "../../components/notifications/PushNotificationPrompt";
@@ -19,7 +19,8 @@ import { MessagesModule } from "../messages/MessagesModule";
 import { PublishedTimetableReadOnly } from "../studies/PublishedTimetableReadOnly";
 import { AdvisorCalendarContent, AdvisorGradesContent, AdvisorStudentsContent, AdvisorTeachersContent, sectionsNote } from "./AdvisorContents";
 import { ClassVisitsContent } from "./ClassVisitsContent";
-import { useAdvisorData, type AdvisorOverview } from "./advisorService";
+import { DashboardCardButton } from "./DashboardCardButton";
+import { useAdvisorData, type AdvisorOverview, type ClassVisit } from "./advisorService";
 import { pedagogicalAdvisorTabs, type PedagogicalAdvisorTab } from "./advisorNavigation";
 
 type MenuDrawer = "students" | "grades" | "library" | "messages" | "calendar" | "school-years" | null;
@@ -31,6 +32,8 @@ export function PedagogicalAdvisorPortal({ user, school, year, appData, updateDa
   const scope = { uid: user.id, schoolId: school.id, schoolYearId: year.id };
   const overview = useAdvisorData<AdvisorOverview>("advisor-overview", scope);
   const metrics = overview.value?.metrics;
+  // Lot H : 6e carte « Visites de classe » (ses fiches de l'année ; même lecture que l'onglet « Visites »).
+  const visits = useAdvisorData<{ visits: ClassVisit[] }>("class-visits-list", scope, activeTab === "dashboard");
   const cards = [
     ["Enseignants", metrics?.teachers, UsersRound, "bg-blue-50 text-blue-700"],
     ["Matières utilisées", metrics?.subjects, GraduationCap, "bg-violet-50 text-violet-700"],
@@ -42,7 +45,7 @@ export function PedagogicalAdvisorPortal({ user, school, year, appData, updateDa
   return <div className="flex h-screen min-w-0 flex-col overflow-hidden bg-[#f6f8fb]">{renderEnvironmentBanner()}{renderHeader()}<main className="mx-auto w-full max-w-7xl min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-5 pb-28 sm:px-6 sm:pb-32 lg:px-8">
     {activeTab === "dashboard" && <section className="grid gap-4"><div><h1 className="text-2xl font-bold text-ink">Conseiller pédagogique</h1><p className="mt-1 break-words text-sm text-slate-600">{school.name} · Année scolaire {year.name} · {sectionsNote(overview.value?.sections)}</p></div>
       {overview.error ? null : !overview.value && overview.loading && <p className="text-sm text-slate-500">Chargement…</p>}
-      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{cards.map(([label, value, Icon, tone]) => <DashboardCard key={label} title={label} value={value ?? "—"} icon={Icon} tone={tone} />)}</div></section>}
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">{cards.map(([label, value, Icon, tone]) => <DashboardCard key={label} title={label} value={value ?? "—"} icon={Icon} tone={tone} />)}<DashboardCardButton title="Visites de classe" value={visits.value?.visits.length ?? "—"} icon={ClipboardList} tone="bg-teal-50 text-teal-700" onClick={() => setActiveTab("visits")} /></div></section>}
     {activeTab === "teachers" && <AdvisorTeachersContent overview={overview.value} loading={overview.loading} error={overview.error} onRetry={overview.retry} />}
     {activeTab === "visits" && <section className="grid gap-3"><h1 className="text-2xl font-bold text-ink">Fiches de visite</h1><ClassVisitsContent scope={scope} overview={overview.value} canWrite readOnlyYear={year.status === "archived"} /></section>}
     {activeTab === "schedules" && <section className="grid gap-3"><h1 className="text-2xl font-bold text-ink">Horaires</h1><p className="text-sm text-slate-600">Horaire publié, en lecture seule.</p><PublishedTimetableReadOnly user={user} school={school} year={year} /></section>}
