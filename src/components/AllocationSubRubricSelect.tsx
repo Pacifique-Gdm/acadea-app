@@ -1,10 +1,13 @@
 import { formatRubricAmount, type SpendOptionsState, type SpendRubric } from "./AllocationRubricSelect";
 import { personnelJobTitleLabel } from "../services/personnel";
+import { SUB_REST_NAME } from "../utils/feeAllocationView";
 
 /** Lots 5 et 6 : 2e champ « Sous-rubrique ». Il n'apparaît que si la répartition est active (le 1er champ apparaît)
  * ET si la rubrique choisie a des sous-rubriques. Le serveur revérifie tout. */
 export type SpendSubRubric = { id: string; name: string; availableMinor: number; functions?: string[] };
 export const SUB_UNALLOCATED = "UNALLOCATED";
+/** F2 (décision du 28/11/2026) : la ligne du reste s'appelle « Reste », comme dans les tableaux (jamais une rubrique d'école). */
+export const subRubricLabel = (sub: Pick<SpendSubRubric, "id" | "name">) => sub.id === SUB_UNALLOCATED ? SUB_REST_NAME : sub.name;
 
 export function subRubricsOf(state: Pick<SpendOptionsState, "options">, rubricId: string): SpendSubRubric[] {
   if (!state.options?.required || !rubricId) return [];
@@ -31,7 +34,7 @@ export const subRubricBlocks = (check: SubRubricSpendCheck) => check.kind === "c
 /** Message d'erreur à montrer avant l'envoi, ou chaîne vide. */
 export function subRubricSpendError(check: SubRubricSpendCheck, currency?: string) {
   if (check.kind === "choose") return "Choisissez la sous-rubrique.";
-  if (check.kind === "ready" && check.over) return `Solde insuffisant sur « ${check.sub.name} » : disponible ${formatRubricAmount(check.availableMinor, currency)}. Rien n'est enregistré.`;
+  if (check.kind === "ready" && check.over) return `Solde insuffisant sur « ${subRubricLabel(check.sub)} » : disponible ${formatRubricAmount(check.availableMinor, currency)}. Rien n'est enregistré.`;
   return "";
 }
 
@@ -55,10 +58,10 @@ export function AllocationSubRubricSelect({ spend, rubricId, value, onChange, de
     <label className="grid gap-1 text-sm font-semibold">Sous-rubrique obligatoire
       <select required className="input" value={value} onChange={(event) => onChange(event.target.value)}>
         <option value="">Choisir une sous-rubrique</option>
-        {subs.map((sub) => <option key={sub.id} value={sub.id}>{sub.name} — disponible {formatRubricAmount(sub.availableMinor, currency)}</option>)}
+        {subs.map((sub) => <option key={sub.id} value={sub.id}>{subRubricLabel(sub)} — disponible {formatRubricAmount(sub.availableMinor, currency)}</option>)}
       </select>
     </label>
     {proposed && value === proposed && proposedFor && <p className="text-xs text-emerald-700" data-sub-rubric-proposed>Proposée selon la fonction « {personnelJobTitleLabel(proposedFor.jobTitle, proposedFor.hasAccount)} ». Vous pouvez la changer.</p>}
-    {check.kind === "ready" && check.over && <p role="alert" className="rounded bg-red-50 p-2 text-sm font-semibold text-red-700">Solde insuffisant sur « {check.sub.name} » : il manque {formatRubricAmount(debitMinor - check.availableMinor, currency)}. Rien n'est enregistré.</p>}
+    {check.kind === "ready" && check.over && <p role="alert" className="rounded bg-red-50 p-2 text-sm font-semibold text-red-700">Solde insuffisant sur « {subRubricLabel(check.sub)} » : il manque {formatRubricAmount(debitMinor - check.availableMinor, currency)}. Rien n'est enregistré.</p>}
   </div>;
 }

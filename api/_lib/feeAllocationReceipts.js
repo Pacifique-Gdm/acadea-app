@@ -299,7 +299,11 @@ export async function prepareFeeAllocationReceipt({ db, transaction, caller, pay
   const priorLines = linesAt(before), nextLines = linesAt(after);
   const lines = nextLines.map((s, i) => ({ rubricId: s.rubricId, amountMinor: s.amountMinor - priorLines[i].amountMinor }));
   // Lots 5 et 6 : part de chaque sous-rubrique (montant fixe par élève et par frais d'abord, puis les pourcentages).
-  const subs = await prepareSubRubricReceipt({ db, transaction, schoolId: source.schoolId, schoolYearId: collectionYear, lines, priorLines, nextLines, total });
+  // F2 (28/11/2026) : part de chaque rubrique quand ce frais est entièrement payé (net réduit pour un cas social),
+  // pour convertir un montant fixe de sous-rubrique en pourcentage.
+  const reducedNet = !socialSegments && socialCaseNow ? toMoneyMinor(supportBalance(student, { ...fee, id: source.feeTypeId }).net) : null;
+  const fullLines = linesAt(socialSegments ? anchor.socialNetMinor : safe(reducedNet) && reducedNet <= anchor.feeAmountMinor ? reducedNet : anchor.feeAmountMinor);
+  const subs = await prepareSubRubricReceipt({ db, transaction, fullLines, schoolId: source.schoolId, schoolYearId: collectionYear, lines, priorLines, nextLines, total, social: !!socialSegments });
   const balanceRows = await Promise.all(lines.map(async line => {
     const ref = db.doc(`feeAllocationBalances/${feeAllocationBalanceId(source.schoolId, collectionYear, source.currency, line.rubricId)}`);
     const snapshot = await transaction.get(ref), balance = snapshot.data();

@@ -255,7 +255,7 @@ export async function manageFeeAllocationLifecycle({ db, caller, body, now = new
 
 // Exact same cash serialization key as protectCashMutation; do not invent a second cash lock.
 import { createHash } from "node:crypto";
-import { subRubricBalanceView } from "./feeAllocationSubRubrics.js";
+import { readKeptForecastRows, subRubricBalanceView, subRubricViewOptions } from "./feeAllocationSubRubrics.js";
 const createCashLock = (school, year, currency) => createHash("sha256").update(`${school}:${year}:${currency}`).digest("hex");
 
 export async function getAllocationSpendOptions({ db, caller, body, now = new Date().toISOString() }) {
@@ -270,8 +270,10 @@ export async function getAllocationSpendOptions({ db, caller, body, now = new Da
   const catalog = await readRubricCatalog(db, schoolId, yearId);
   const base = catalog.enabled ? catalog.rubrics.filter((r) => !r.hidden).map((r) => ({ id: r.id, name: r.name, active: true,
     // Lots 5 et 6 : sous-rubriques avec leur solde, puis « Non affecté (rubrique) » ; « Fonctions concernées » pour la paie.
-    ...(Array.isArray(r.subRubrics) && r.subRubrics.length ? { subRubricsSource: r.subRubrics } : {}) })) : state.rubrics.filter(r => r.active !== false);
+    ...(Array.isArray(r.subRubrics) && r.subRubrics.length ? { subRubricsSource: r.subRubrics, entry: r } : {}) })) : state.rubrics.filter(r => r.active !== false);
   const balances = await db.collection("feeAllocationBalances").where("schoolId", "==", schoolId).where("collectionSchoolYearId", "==", yearId).where("currency", "==", currency).get();
+  // F2 (28/11/2026) : même prévu gardé que les tableaux, pour la part de l'ouverture de chaque sous-rubrique.
+  const forecastRows = base.some((r) => r.subRubricsSource) ? await readKeptForecastRows(null, db, schoolId, yearId, currency) : null;
   const available = new Map(balances.docs.map((doc) => [doc.data().rubricId, (doc.data().openingMinor ?? 0) + (doc.data().receivedMinor ?? 0) - (doc.data().spentMinor ?? 0) - (doc.data().reservedMinor ?? 0)]));
   return { operational: false, required: true, paused: false, currency,
     rubrics: [...base, { id: "UNALLOCATED", name: "Non affecté", active: true },
@@ -279,7 +281,8 @@ export async function getAllocationSpendOptions({ db, caller, body, now = new Da
       ...balances.docs.map((doc) => doc.data()).filter((b) => b.arrearsOf)
         .sort((a, b) => String(a.arrearsOf.originYearName).localeCompare(String(b.arrearsOf.originYearName), "fr") || (a.arrearsOf.rubricId === "UNALLOCATED") - (b.arrearsOf.rubricId === "UNALLOCATED") || String(a.arrearsOf.rubricName).localeCompare(String(b.arrearsOf.rubricName), "fr"))
         .map((b) => ({ id: b.rubricId, name: `${b.arrearsOf.rubricName} (arriéré ${b.arrearsOf.originYearName})`, active: true, arrears: true }))]
-      .map(({ subRubricsSource, ...r }) => ({ ...r, availableMinor: available.get(r.id) ?? 0,
-        ...(subRubricsSource ? { subRubrics: subRubricBalanceView(balances.docs.map((doc) => doc.data()).find((b) => b.rubricId === r.id), subRubricsSource, r.name)
+      .map(({ subRubricsSource, entry, ...r }) => ({ ...r, availableMinor: available.get(r.id) ?? 0,
+        ...(subRubricsSource ? { subRubrics: subRubricBalanceView(balances.docs.map((doc) => doc.data()).find((b) => b.rubricId === r.id), subRubricsSource, r.name,
+          subRubricViewOptions(entry, balances.docs.map((doc) => doc.data()).find((b) => b.rubricId === r.id), forecastRows))
           .map(({ id, name, functions, availableMinor }) => ({ id, name, functions, availableMinor })) } : {}) })) };
 }

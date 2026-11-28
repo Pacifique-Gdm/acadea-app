@@ -40,7 +40,9 @@ export function filterWorkspaceForStaff(workspace, rubricIds) {
       const lines = m.lines.filter((l) => keep.has(l.rubricId));
       return { id: m.id, sourceType: m.sourceType, type: m.type, amountMinor: lines.reduce((n, l) => n + l.amountMinor, 0), lines,
         feeTypeId: m.feeTypeId ?? null, className: m.className ?? null, classOptionKey: m.classOptionKey ?? null,
-        originSchoolYearId: m.originSchoolYearId, postedAt: m.postedAt };
+        originSchoolYearId: m.originSchoolYearId, postedAt: m.postedAt,
+        // F2 : parts des sous-rubriques des seules rubriques partagées.
+        ...(Array.isArray(m.subLines) && m.subLines.some((l) => keep.has(l.rubricId)) ? { subLines: m.subLines.filter((l) => keep.has(l.rubricId)) } : {}) };
     }).filter((m) => m.lines.length > 0),
   } : workspace.ledger;
   return {

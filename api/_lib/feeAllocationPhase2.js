@@ -7,6 +7,7 @@ import { feeAllocationConfigId, readFeeAllocationScope, readFeeAllocationYear } 
 import { toMoneyMinor } from "./money.js";
 import { AUDIT_EVENT_TYPES, buildServerAudit } from "./serverAudit.js";
 import { readFeeAllocationLedger } from "./feeAllocationLedger.js";
+import { readKeptForecastRows, subRubricBalanceView, subRubricViewOptions } from "./feeAllocationSubRubrics.js";
 import { cashRevisionRef, evidenceRevisionRef } from './feeAllocationRevision.js';
 import { allocationStateId } from './feeAllocationRuntime.js';
 import { forecastSignalId, readAllocationForecast } from './feeAllocationForecast.js';
@@ -129,6 +130,16 @@ export async function manageFeeAllocationPhase2({ db, caller, body }) {
   });
 }
 
+/** Soldes des sous-rubriques (lignes « ↳ » des tableaux 1-2-3, du PDF et de la vue partagée) : chaque sous-rubrique,
+ * puis « Non affecté (rubrique) ». Seulement pour une rubrique qui a des sous-rubriques ; les soldes bruts ne sortent pas. */
+export function withSubRubricViews(ledger, rubrics = [], forecastRows = null) {
+  if (!ledger) return ledger;
+  return { ...ledger, balances: ledger.balances.map(({ subBalances, ...balance }) => {
+    const rubric = rubrics.find((r) => r.id === balance.rubricId);
+    return Array.isArray(rubric?.subRubrics) && rubric.subRubrics.length ? { ...balance, subView: subRubricBalanceView({ ...balance, subBalances }, rubric.subRubrics, rubric.name, subRubricViewOptions(rubric, balance, forecastRows)) } : balance;
+  }) };
+}
+
 /** Lecture du drawer, partagée par l'Administrateur, le Caissier, la Coordination et (filtrée) le personnel. */
 export async function buildAllocationWorkspace({ db, caller, school, schoolId, body, retryPending }) {
   const { yearId, year, currency } = await readFeeAllocationYear(db, schoolId, school, undefined, false);
@@ -137,6 +148,7 @@ export async function buildAllocationWorkspace({ db, caller, school, schoolId, b
   if (retryPending && (body.ledgerPage ?? 0) === 0) pending = await retryPendingFeeAllocations({ db, caller, schoolId }).catch(() => ({ processed: 0, remaining: -1 }));
   // Subsequent ledger pages need only their verified scope and cursor. The
   // first page already carries configuration metadata, immutable while active.
+  let catalogRubrics = [];
   const { fees, configs, forecast } = (body.ledgerPage ?? 0) > 0 ? { fees: { docs: [] }, configs: { docs: [] }, forecast: undefined }
     : await readAllocationForecast({ db, schoolId, yearId, currency, fresh: body.fresh === true });
   const workspace = {
@@ -148,8 +160,10 @@ export async function buildAllocationWorkspace({ db, caller, school, schoolId, b
     configs: configs.docs.map((row) => row.data()),
     ...(forecast ? { forecast } : {}),
     // Lot 27b : noms à jour (un renommage s'affiche partout) ; masquées incluses pour l'historique.
-    ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (await readRubricCatalog(db, schoolId, yearId)).rubrics.map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true })) } : {}),
-    ledger: await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }),
+    ...((body.ledgerPage ?? 0) === 0 ? { rubricCatalog: (catalogRubrics = (await readRubricCatalog(db, schoolId, yearId)).rubrics).map((r) => ({ id: r.id, name: r.name, hidden: r.hidden === true })) } : {}),
+    ledger: withSubRubricViews(await readFeeAllocationLedger({ db, schoolId, schoolYearId: yearId, currency, page: body.ledgerPage ?? 0, fingerprint: body.ledgerFingerprint, cursor: body.ledgerCursor }), catalogRubrics,
+      // F2 (28/11/2026) : prévu et part de l'ouverture des sous-rubriques ; le prévu gardé si cette page n'a pas de prévu.
+      forecast?.rows ?? await readKeptForecastRows(null, db, schoolId, yearId, currency)),
   };
   // Seul l'Administrateur reçoit la partie 2 (règles des cas sociaux) ; les autres rôles reçoivent les montants sans ces règles.
   return isAdmin(caller.role) ? workspace : withoutSocialWorkspace(workspace);
