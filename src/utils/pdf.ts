@@ -4,6 +4,8 @@ import { formatRecordedOperation } from "./operationCurrency";
 import { expenseCategoryLabel } from "./expenseCategory";
 import { getPdfLayout, resolvePdfFont, type PdfGenerationSettings } from "./pdfSettings";
 import { loadSchoolLogo } from "../services/schoolLogo";
+import { prepareTextPdfLogo } from "./pdfTextEngine";
+import { buildReceiptTextPdf } from "./receiptTextPdf";
 
 type PdfDoc = InstanceType<typeof jsPDF>;
 
@@ -538,43 +540,102 @@ export function receiptCashierFunction(gender?: ReceiptCashierGender | null) {
   return gender === "F" ? "Caissière" : "Caissier";
 }
 
-/** Contenu commun aux deux exemplaires (école et parent) du reçu de paiement. */
-export function buildReceiptSections(payment: Payment, student: Student, feeType: { name: string }, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null) {
+/** Cases du reçu de paiement, communes à l'ancien moteur (image) et au nouveau (vrai texte). */
+export function buildReceiptFields(payment: Payment, student: Student, feeType: { name: string }, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null) {
   const description = (payment.note ?? "").replace(/\s+/g, " ").trim();
   const cashier = (cashierName ?? "").trim();
+  const rows: Array<PdfMetric & { amount?: boolean; description?: boolean }> = [
+    { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
+    { label: "Date", value: formatPdfDate(payment.paidAt) },
+    { label: "Élève", value: `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
+    { label: "Matricule", value: student.matricule },
+    { label: "Classe", value: formatStudentClassName(student) },
+    { label: "Type de frais", value: payment.feeName ?? feeType.name },
+    ...(payment.collectionSchoolYearId ? [
+      { label: "Nature", value: payment.formerStudent ? "Paiement d'un ancien élève (dette d'une année passée)" : "Règlement d'un arriéré" },
+      { label: "Année de la créance", value: payment.debtSchoolYearName ?? payment.schoolYearId },
+    ] : []),
+    { label: "Montant payé", value: formatRecordedOperation(payment), amount: true },
+    {
+      label: "Description du paiement",
+      value: description || "—",
+      className: `receipt-description${description.length > RECEIPT_DESCRIPTION_WIDE_THRESHOLD ? " receipt-description--wide" : ""}`,
+      description: true,
+    },
+  ];
+  return {
+    rows,
+    signatoryName: cashier && cashier !== "-" ? cashier : "—",
+    signatoryRole: receiptCashierFunction(cashierGender),
+  };
+}
+
+/** Contenu commun aux deux exemplaires (école et parent) du reçu de paiement (ancien moteur). */
+export function buildReceiptSections(payment: Payment, student: Student, feeType: { name: string }, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null) {
+  const fields = buildReceiptFields(payment, student, feeType, cashierName, cashierGender);
   return [
-    pdfInfoGrid([
-      { label: "Reçu", value: payment.receiptNumber ?? payment.id.toUpperCase() },
-      { label: "Date", value: formatPdfDate(payment.paidAt) },
-      { label: "Élève", value: `${student.nom} ${student.postnom} ${student.prenom}`.trim() },
-      { label: "Matricule", value: student.matricule },
-      { label: "Classe", value: formatStudentClassName(student) },
-      { label: "Type de frais", value: payment.feeName ?? feeType.name },
-      ...(payment.collectionSchoolYearId ? [
-        { label: "Nature", value: payment.formerStudent ? "Paiement d'un ancien élève (dette d'une année passée)" : "Règlement d'un arriéré" },
-        { label: "Année de la créance", value: payment.debtSchoolYearName ?? payment.schoolYearId },
-      ] : []),
-      { label: "Montant payé", value: formatRecordedOperation(payment) },
-      {
-        label: "Description du paiement",
-        value: description || "—",
-        className: `receipt-description${description.length > RECEIPT_DESCRIPTION_WIDE_THRESHOLD ? " receipt-description--wide" : ""}`,
-      },
-    ], { className: "receipt-details" }),
+    pdfInfoGrid(fields.rows.map(({ label, value, className }) => ({ label, value, className })), { className: "receipt-details" }),
     `
       <section class="signature-row receipt-signature">
         <div>
           <span>Signature et cachet</span>
           <strong></strong>
-          <p class="receipt-signatory-name">${escapePdfHtml(cashier && cashier !== "-" ? cashier : "—")}</p>
-          <p class="receipt-signatory-function">${escapePdfHtml(receiptCashierFunction(cashierGender))}</p>
+          <p class="receipt-signatory-name">${escapePdfHtml(fields.signatoryName)}</p>
+          <p class="receipt-signatory-function">${escapePdfHtml(fields.signatoryRole)}</p>
         </div>
       </section>
     `,
   ];
 }
 
+/**
+ * Reçu de paiement en VRAI TEXTE (nouveau moteur `pdfTextEngine`) : on peut
+ * y chercher et copier le nom, le numéro et les montants. Renvoie le document
+ * sans l'afficher (utilisé aussi par les tests).
+ */
+export async function createReceiptTextPdf(payment: Payment, student: Student, feeType: { name: string }, school: School, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null, generatedAt = new Date()) {
+  const fields = buildReceiptFields(payment, student, feeType, cashierName, cashierGender);
+  const logo = await prepareTextPdfLogo(await loadLogoDataUrl(await loadSchoolLogo(school))).catch(() => null);
+  return buildReceiptTextPdf({
+    title: "Reçu de paiement",
+    school: { name: school.name, motto: school.motto?.trim() || undefined, contactLine: [school.address, school.phone, school.email].filter(Boolean).join(" | ") },
+    logo,
+    brandLetters: pdfFallbackBrandLetters(school),
+    copyLabels: ["EXEMPLAIRE ÉCOLE", "EXEMPLAIRE PARENT"],
+    generatedAt,
+    fields: fields.rows.map((row) => ({
+      label: row.label,
+      value: String(row.value),
+      amount: row.amount,
+      // Consigne du 28/11 : la description reste à droite du montant, même longue (elle passe à la ligne dans sa carte).
+      shrinkable: row.description,
+    })),
+    signatory: { name: fields.signatoryName, role: fields.signatoryRole },
+  });
+}
+
+/**
+ * Reçu de paiement : nouveau moteur en vrai texte. En cas d'échec imprévu,
+ * l'ancien reçu dessiné en image est produit à la place (rien n'est perdu).
+ */
 export async function generateReceiptPdf(payment: Payment, student: Student, feeType: { name: string }, school: School, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null) {
+  const filename = `recu-${student.matricule}-${payment.id}.pdf`;
+  const title = "Reçu de paiement";
+  const viewer = openPdfViewerShell({ filename, title });
+  let blob: Blob;
+  try {
+    blob = (await createReceiptTextPdf(payment, student, feeType, school, cashierName, cashierGender)).outputBlob();
+  } catch (error) {
+    console.error("Reçu en vrai texte indisponible : retour à l'ancien reçu", error);
+    viewer.overlay.remove();
+    await generateReceiptImagePdf(payment, student, feeType, school, cashierName, cashierGender);
+    return;
+  }
+  showPdfInViewer({ viewer, url: URL.createObjectURL(blob), filename, title });
+}
+
+/** Ancien reçu dessiné en image, gardé comme solution de secours. */
+async function generateReceiptImagePdf(payment: Payment, student: Student, feeType: { name: string }, school: School, cashierName = payment.cashierName, cashierGender?: ReceiptCashierGender | null) {
   await renderAcadPdfPreview({
     filename: `recu-${student.matricule}-${payment.id}.pdf`,
     title: "Reçu de paiement",
@@ -720,11 +781,16 @@ export const PDF_BRAND_MARK_MAX_LETTERS = 8;
  * avec leur nombre (avant, un sigle long comme « GSAGAPÉ » se coupait en lignes
  * de 3 lettres et la dernière débordait sous le carré, sur le bandeau).
  */
-export function pdfFallbackBrandMark(school: Pick<School, "name"> & Partial<Pick<School, "acronym">>) {
+/** Lettres du logo de secours (sigle, sinon initiales), au plus 8. */
+export function pdfFallbackBrandLetters(school: Pick<School, "name"> & Partial<Pick<School, "acronym">>) {
   const acronym = (school.acronym ?? "").replace(/\s+/g, "").trim();
   const initials = school.name.split(/[\s.\-_/]+/).map((word) => Array.from(word).find((letter) => /[\p{L}\p{N}]/u.test(letter)) ?? "").join("");
   const raw = acronym || initials || school.name.trim().slice(0, 1);
-  const letters = Array.from(raw.toLocaleUpperCase("fr")).slice(0, PDF_BRAND_MARK_MAX_LETTERS);
+  return Array.from(raw.toLocaleUpperCase("fr")).slice(0, PDF_BRAND_MARK_MAX_LETTERS).join("");
+}
+
+export function pdfFallbackBrandMark(school: Pick<School, "name"> & Partial<Pick<School, "acronym">>) {
+  const letters = Array.from(pdfFallbackBrandLetters(school));
   if (!letters.length) return "";
   // Une capitale grasse occupe environ 0,72 em ; le carré fait environ 2,4 fois la taille de base.
   const scale = Math.min(1, Math.floor((3.1 / letters.length) * 100) / 100);
