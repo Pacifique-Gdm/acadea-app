@@ -41,8 +41,8 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
     // Ordinateur : aucun fil clair à la jonction (le reflet net recouvre les 4 derniers points de la photo, axe décalé d'autant).
     expect(html).toContain("absolute inset-y-0 left-[calc(55%-4px)] z-[2] w-[55%] -scale-x-100 overflow-hidden");
     expect(html).toContain("login-photo-zoom absolute inset-y-0 left-[4px] h-full w-full origin-[50%_40%]");
-    expect(PHONE_PHOTO_FADE_MASK).toBe("linear-gradient(to bottom,#000 calc(100% - 48px),transparent)");
-    expect(PHONE_BLUR_FADE_MASK).toBe("linear-gradient(to bottom,#000 calc(100% - 40px),transparent)");
+    expect(PHONE_PHOTO_FADE_MASK).toBe("linear-gradient(to bottom,#000 calc(100% - 96px),transparent)");
+    expect(PHONE_BLUR_FADE_MASK).toBe("linear-gradient(to bottom,#000 calc(100% - 56px),transparent)");
     // Le fondu du téléphone ne touche pas l'ordinateur.
     const source = readFileSync("src/components/auth/LoginScreen.tsx", "utf8");
     expect(source).toMatch(/@media \(max-width: 1023\.98px\) \{\r?\n\s+\.login-photo-fade/);
@@ -54,15 +54,27 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
   it("le slogan et les avantages restent sur la photo nette ; le slogan est visible sur téléphone", () => {
     const html = login();
     expect(html.match(/La gestion scolaire dans ma poche/g)?.length).toBeGreaterThanOrEqual(3);
-    expect(html).toContain("bottom-[128px] text-[21px] font-extrabold");
-    expect(html).toContain("pb-[52px]");
+    expect(html).toContain("bottom-[140px] text-[21px] font-extrabold");
+    expect(html).toContain("pb-[64px]");
     expect(html).toContain("Paiements et reçus en quelques secondes");
   });
 
   it("téléphone : formulaire sur une carte blanche arrondie avec une ombre douce, voile blanc léger", () => {
     const html = login();
     expect(html).toContain("relative z-[2] rounded-[24px] border border-white/80 px-4 py-3.5 shadow-[0_18px_50px_rgba(15,23,42,0.16)]");
-    expect(html).toContain("rgba(255,255,255,.2) 100px");
+    expect(html).toContain("rgba(255,255,255,.2) 160px");
+  });
+
+  it("téléphone : la carte du formulaire chevauche le bas de la photo (jonction cachée), le voile blanc commence plus bas", () => {
+    const html = login();
+    // La carte remonte de 62 points (48 points de chevauchement visibles, après la marge de 14 points).
+    expect(html).toContain("bg-transparent px-4 py-3.5 max-lg:-mt-[62px]");
+    // Le fondu de la photo nette (96 points) commence au-dessus de la carte ; le voile blanc ne démarre qu'après 60 points.
+    expect(html).toContain("rgba(255,255,255,0) 60px");
+    // Écran d'aujourd'hui (sans copie floue) : aucun chevauchement.
+    expect(login({ loginImageUrl: IMAGE })).not.toContain("-mt-[62px]");
+    // Ordinateur : rien ne change (le chevauchement est réservé au téléphone).
+    expect(html).not.toMatch(/(?<!max-)lg:-mt-/);
   });
 
   it("légende « Photo : … Pexels » petite et pâle", () => {
@@ -96,7 +108,7 @@ describe("écran de connexion : fond flou tiré de la photo", () => {
     expect(aside).not.toMatch(/scale-y|scaleY|rotate/);
     const below = html.slice(html.indexOf('data-testid="login-blur-phone"'));
     const belowBox = below.slice(0, below.indexOf("</div></div>"));
-    expect(belowBox).toContain("top-[calc(100%-40px)] h-[calc(100dvh-100%+40px)]");
+    expect(belowBox).toContain("top-[calc(100%-56px)] h-[calc(100dvh-100%+56px)]");
     expect(belowBox).toContain(`src="${LOGIN_PHOTO_BLUR_SRC}"`);
     expect(belowBox).toContain("object-cover object-[50%_50%]");
     expect(belowBox).not.toMatch(/scale|rotate/);

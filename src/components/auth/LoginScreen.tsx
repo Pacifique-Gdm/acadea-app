@@ -65,11 +65,11 @@ export const DESKTOP_PHOTO_BLEED_MASK = "linear-gradient(to left,#000 0,rgba(0,0
 export const DESKTOP_BLUR_VEIL = "radial-gradient(ellipse 420px 520px at 77.5% 50%,rgba(255,255,255,.5),rgba(255,255,255,0)),linear-gradient(90deg,rgba(255,255,255,0) 55%,rgba(255,255,255,.16) 73%)";
 // Téléphone : même voile sombre qu'aujourd'hui pour les ✓, sans le fondu blanc (la photo se fond dans le flou).
 export const PHONE_PHOTO_VEIL_BLUR = "linear-gradient(180deg,rgba(20,33,61,0) 30%,rgba(20,33,61,.55) 72%,rgba(20,33,61,.6) 100%),rgba(30,58,138,.12)";
-// Téléphone (rien n'est retourné) : le bas de la photo nette s'efface sur 48 points dans sa copie floue posée
-// exactement au même endroit, qui s'efface à son tour sur 40 points dans la même photo entière en flou léger,
+// Téléphone (rien n'est retourné) : le bas de la photo nette s'efface sur 96 points dans sa copie floue posée
+// exactement au même endroit, qui s'efface à son tour sur 56 points dans la même photo entière en flou léger,
 // à l'endroit, placée dessous. Seulement sur téléphone (sur ordinateur, la photo n'est pas touchée).
-export const PHONE_PHOTO_FADE_MASK = "linear-gradient(to bottom,#000 calc(100% - 48px),transparent)";
-export const PHONE_BLUR_FADE_MASK = "linear-gradient(to bottom,#000 calc(100% - 40px),transparent)";
+export const PHONE_PHOTO_FADE_MASK = "linear-gradient(to bottom,#000 calc(100% - 96px),transparent)";
+export const PHONE_BLUR_FADE_MASK = "linear-gradient(to bottom,#000 calc(100% - 56px),transparent)";
 const LOGIN_BLUR_STYLES = `
   @media (max-width: 1023.98px) {
     .login-photo-fade { -webkit-mask-image: ${PHONE_PHOTO_FADE_MASK}; mask-image: ${PHONE_PHOTO_FADE_MASK}; }
@@ -77,7 +77,7 @@ const LOGIN_BLUR_STYLES = `
   }
 `;
 // Téléphone : voile blanc léger derrière le formulaire (la photo floue reste bien visible).
-export const PHONE_BLUR_VEIL = "linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.2) 100px,rgba(255,255,255,.26))";
+export const PHONE_BLUR_VEIL = "linear-gradient(180deg,rgba(255,255,255,0) 0,rgba(255,255,255,0) 60px,rgba(255,255,255,.2) 160px,rgba(255,255,255,.26))";
 
 export function LoginScreen({
   onLogin,
@@ -185,7 +185,7 @@ export function LoginScreen({
           // Téléphone : dessous, la même photo entière en flou léger, À L'ENDROIT (jusqu'en bas de l'écran), avec un voile blanc léger ;
           // par-dessus, la copie floue au même endroit que la photo nette, qui s'efface doucement sur elle.
           <>
-            <div aria-hidden="true" data-testid="login-blur-phone" className="pointer-events-none absolute inset-x-0 top-[calc(100%-40px)] h-[calc(100dvh-100%+40px)] overflow-hidden bg-[#F5F7FB] lg:hidden">
+            <div aria-hidden="true" data-testid="login-blur-phone" className="pointer-events-none absolute inset-x-0 top-[calc(100%-56px)] h-[calc(100dvh-100%+56px)] overflow-hidden bg-[#F5F7FB] lg:hidden">
               <img src={blurSrc} alt="" onError={onBlurError} className="absolute inset-0 h-full w-full object-cover object-[50%_50%]" />
               <div className="absolute inset-0" style={{ background: PHONE_BLUR_VEIL }} />
             </div>
@@ -203,8 +203,8 @@ export function LoginScreen({
         </div>
         <div className="absolute inset-0 hidden bg-gradient-to-t from-[#14213d]/30 via-transparent to-transparent lg:from-[#14213d]/90 lg:via-[#14213d]/45 lg:block" />
         <div aria-hidden="true" className={`absolute inset-0 lg:hidden${blurred ? " login-photo-fade" : ""}`} style={{ background: blurred ? PHONE_PHOTO_VEIL_BLUR : PHONE_PHOTO_VEIL }} />
-        {blurred && <p aria-hidden="true" className="absolute inset-x-4 bottom-[128px] text-[21px] font-extrabold leading-tight tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.5)] lg:hidden">{LOGIN_SLOGAN}</p>}
-        <ul className={`absolute inset-x-0 bottom-0 grid gap-[3px] px-4 ${blurred ? "pb-[52px]" : "pb-6"} text-[12.5px] leading-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.65)] lg:hidden`}>
+        {blurred && <p aria-hidden="true" className="absolute inset-x-4 bottom-[140px] text-[21px] font-extrabold leading-tight tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.5)] lg:hidden">{LOGIN_SLOGAN}</p>}
+        <ul className={`absolute inset-x-0 bottom-0 grid gap-[3px] px-4 ${blurred ? "pb-[64px]" : "pb-6"} text-[12.5px] leading-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.65)] lg:hidden`}>
           {LOGIN_ADVANTAGES_PHONE.map((advantage, index) => (
             <li key={advantage} className="login-advantage flex gap-[7px] whitespace-nowrap" style={advantageDelay(index)}>
               <span aria-hidden="true" className="font-extrabold text-emerald-300">✓</span>
@@ -229,7 +229,7 @@ export function LoginScreen({
       </aside>
       {/* Téléphone : le slogan est déjà dans le logo ; ce titre reste seulement pour les lecteurs d'écran. */}
       <h1 className="sr-only lg:hidden">{LOGIN_SLOGAN}</h1>
-      <div className={`relative flex min-h-0 flex-1 basis-0 flex-col items-center justify-center overflow-y-auto ${blurred ? "bg-transparent px-4 py-3.5" : "bg-white px-5 py-2"} lg:mt-0 lg:basis-auto lg:overflow-visible lg:rounded-none ${blurred ? "" : "lg:bg-[#F5F7FB] "}lg:px-10 lg:py-6`}>
+      <div className={`relative flex min-h-0 flex-1 basis-0 flex-col items-center justify-center overflow-y-auto ${blurred ? "bg-transparent px-4 py-3.5 max-lg:-mt-[62px]" : "bg-white px-5 py-2"} lg:mt-0 lg:basis-auto lg:overflow-visible lg:rounded-none ${blurred ? "" : "lg:bg-[#F5F7FB] "}lg:px-10 lg:py-6`}>
       <section className={`flex w-full max-w-[460px] flex-1 flex-col justify-evenly gap-1 bg-white [animation:loginCardIn_520ms_ease-out] lg:block lg:flex-none lg:overflow-hidden lg:rounded-[24px] lg:border lg:border-white/80 lg:p-6 lg:shadow-[0_24px_80px_rgba(15,23,42,0.10)]${blurred ? " relative z-[2] rounded-[24px] border border-white/80 px-4 py-3.5 shadow-[0_18px_50px_rgba(15,23,42,0.16)]" : ""}`}>
         <div className="max-lg:[&>div]:min-h-0 max-lg:[@media(max-height:800px)]:[&_img]:max-h-16 max-lg:[@media(max-height:700px)]:[&_img]:max-h-12">
           <PlatformLogoSlot logoUrl={platformLogoUrl} />
