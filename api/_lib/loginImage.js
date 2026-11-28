@@ -6,6 +6,8 @@
 
 export const LOGIN_IMAGE_DOC_PATH = "platform/loginImage";
 export const LOGIN_IMAGE_MAX_BYTES = 100 * 1024;
+// Fond flou : petite copie floue de l'image, préparée une seule fois par le navigateur du Super administrateur.
+export const LOGIN_IMAGE_BLUR_MAX_BYTES = 40 * 1024;
 export const LOGIN_IMAGE_SAVE_CONFIRMATION = "ENREGISTRER LA NOUVELLE IMAGE";
 export const LOGIN_IMAGE_RESET_CONFIRMATION = "REVENIR À L'IMAGE D'ORIGINE";
 
@@ -39,7 +41,22 @@ export function validateLoginImageRequest(body) {
   const size = loginImageByteSize(imageDataUrl);
   if (size === null) return { error: "Format d'image invalide (JPEG, PNG ou WEBP)." };
   if (size > LOGIN_IMAGE_MAX_BYTES) return { error: "Image trop lourde : 100 Ko maximum." };
-  return { imageDataUrl };
+  // Copie floue facultative : si elle est absente ou invalide, l'écran garde son fond d'aujourd'hui.
+  return { imageDataUrl, blurDataUrl: validBlurDataUrl(body.blurDataUrl) };
+}
+
+/** Copie floue acceptée seulement si c'est une petite image (40 Ko au plus) ; sinon chaîne vide. */
+export function validBlurDataUrl(value) {
+  if (typeof value !== "string" || value.length > 60_000) return "";
+  const size = loginImageByteSize(value);
+  return size !== null && size <= LOGIN_IMAGE_BLUR_MAX_BYTES ? value : "";
+}
+
+/** Valeur publique : l'image et sa date ; la copie floue seulement si elle existe. */
+function publicValue(imageDataUrl, updatedAt, blurDataUrl) {
+  const value = { imageDataUrl, updatedAt: imageDataUrl ? updatedAt : "" };
+  if (imageDataUrl && blurDataUrl) value.blurDataUrl = blurDataUrl;
+  return value;
 }
 
 /** Lecture publique : seulement l'image et sa date, rien d'autre. */
@@ -48,15 +65,16 @@ export async function readLoginImage(db, { now = Date.now() } = {}) {
   const snapshot = await db.doc(LOGIN_IMAGE_DOC_PATH).get();
   const data = snapshot.exists ? snapshot.data() : {};
   const imageDataUrl = typeof data?.imageDataUrl === "string" && loginImageByteSize(data.imageDataUrl) !== null ? data.imageDataUrl : "";
-  const value = { imageDataUrl, updatedAt: imageDataUrl && typeof data?.updatedAt === "string" ? data.updatedAt : "" };
+  const value = publicValue(imageDataUrl, typeof data?.updatedAt === "string" ? data.updatedAt : "", validBlurDataUrl(data?.blurDataUrl));
   readCache = { at: now, value };
   return value;
 }
 
-export async function saveLoginImage(db, caller, imageDataUrl, { now = new Date() } = {}) {
+export async function saveLoginImage(db, caller, imageDataUrl, { now = new Date(), blurDataUrl = "" } = {}) {
   const updatedAt = now.toISOString();
-  await db.doc(LOGIN_IMAGE_DOC_PATH).set({ imageDataUrl, updatedAt, updatedBy: caller.uid });
-  const value = { imageDataUrl, updatedAt: imageDataUrl ? updatedAt : "" };
+  const blur = imageDataUrl ? validBlurDataUrl(blurDataUrl) : "";
+  await db.doc(LOGIN_IMAGE_DOC_PATH).set({ imageDataUrl, updatedAt, updatedBy: caller.uid, ...(blur ? { blurDataUrl: blur } : {}) });
+  const value = publicValue(imageDataUrl, updatedAt, blur);
   readCache = { at: now.getTime(), value };
   return value;
 }

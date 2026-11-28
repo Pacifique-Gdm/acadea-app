@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { CSSProperties } from "react";
 import type { FormEvent } from "react";
 import { Eye, EyeOff, Lock, Mail, ShieldCheck } from "lucide-react";
 import { EnvironmentBanner } from "../layout/EnvironmentBanner";
@@ -47,12 +48,44 @@ const advantageDelay = (index: number) => ({ animationDelay: `${index * 0.4}s` }
 // Téléphone : voile de la maquette (fondu blanc en bas, léger dégradé sombre, teinte bleue).
 export const PHONE_PHOTO_VEIL = "linear-gradient(180deg,rgba(255,255,255,0) calc(100% - 26px),#fff 100%),linear-gradient(180deg,rgba(20,33,61,0) 45%,rgba(20,33,61,.42) 85%),rgba(30,58,138,.16)";
 
+// ===== Fond flou (maquette « flou léger » validée le 28/11/2026) =====
+// Derrière le formulaire : une petite copie floue de la photo, préparée UNE SEULE FOIS (au choix de l'image
+// par le Super administrateur ; fichier fixe ci-dessous pour l'image d'origine), affichée telle quelle.
+// Sans copie floue (anciennes images) ou si elle ne se charge pas : l'écran d'aujourd'hui, sans changement.
+export const LOGIN_PHOTO_BLUR_SRC = "/connexion-enseignante-flou.jpg";
+/** Copie floue à afficher : fichier fixe pour l'image d'origine, sinon celle enregistrée avec l'image (ou rien). */
+export function loginBackgroundBlurSrc(loginImageUrl: string, loginImageBlurUrl: string) {
+  return loginImageUrl ? loginImageBlurUrl : LOGIN_PHOTO_BLUR_SRC;
+}
+const withMask = (mask: string): CSSProperties => ({ WebkitMaskImage: mask, maskImage: mask });
+// Ordinateur : le reflet net de la photo, collé à son bord droit (raccord parfait, aucune ligne), s'efface sur 150 points.
+// Boîte retournée : « to left » part du bord collé à la photo.
+export const DESKTOP_PHOTO_BLEED_MASK = "linear-gradient(to left,#000 0,rgba(0,0,0,.6) 67px,transparent 150px)";
+// Ordinateur : voile blanc très léger derrière le formulaire, sans bord net.
+export const DESKTOP_BLUR_VEIL = "radial-gradient(ellipse 420px 520px at 77.5% 50%,rgba(255,255,255,.5),rgba(255,255,255,0)),linear-gradient(90deg,rgba(255,255,255,0) 55%,rgba(255,255,255,.16) 73%)";
+// Téléphone : même voile sombre qu'aujourd'hui pour les ✓, sans le fondu blanc (la photo se fond dans le flou).
+export const PHONE_PHOTO_VEIL_BLUR = "linear-gradient(180deg,rgba(20,33,61,0) 30%,rgba(20,33,61,.55) 72%,rgba(20,33,61,.6) 100%),rgba(30,58,138,.12)";
+// Téléphone (rien n'est retourné) : le bas de la photo nette s'efface sur 48 points dans sa copie floue posée
+// exactement au même endroit, qui s'efface à son tour sur 40 points dans la même photo entière en flou léger,
+// à l'endroit, placée dessous. Seulement sur téléphone (sur ordinateur, la photo n'est pas touchée).
+export const PHONE_PHOTO_FADE_MASK = "linear-gradient(to bottom,#000 calc(100% - 48px),transparent)";
+export const PHONE_BLUR_FADE_MASK = "linear-gradient(to bottom,#000 calc(100% - 40px),transparent)";
+const LOGIN_BLUR_STYLES = `
+  @media (max-width: 1023.98px) {
+    .login-photo-fade { -webkit-mask-image: ${PHONE_PHOTO_FADE_MASK}; mask-image: ${PHONE_PHOTO_FADE_MASK}; }
+    .login-blur-fade { -webkit-mask-image: ${PHONE_BLUR_FADE_MASK}; mask-image: ${PHONE_BLUR_FADE_MASK}; }
+  }
+`;
+// Téléphone : voile blanc léger derrière le formulaire (la photo floue reste bien visible).
+export const PHONE_BLUR_VEIL = "linear-gradient(180deg,rgba(255,255,255,0),rgba(255,255,255,.2) 100px,rgba(255,255,255,.26))";
+
 export function LoginScreen({
   onLogin,
   onDismissError,
   initialError,
   platformLogoUrl,
   loginImageUrl = "",
+  loginImageBlurUrl = "",
 }: {
   onLogin: (email: string, password: string) => Promise<void>;
   onDismissError?: () => void;
@@ -60,12 +93,21 @@ export function LoginScreen({
   platformLogoUrl: string;
   /** Lot 9 : image choisie par le Super administrateur ; vide = photo d'origine, rien ne change. */
   loginImageUrl?: string;
+  /** Fond flou : copie floue enregistrée avec l'image choisie ; vide = fond d'aujourd'hui pour cette image. */
+  loginImageBlurUrl?: string;
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState(initialError ?? "");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const blurSrc = loginBackgroundBlurSrc(loginImageUrl, loginImageBlurUrl);
+  const [blurFailed, setBlurFailed] = useState(false);
+  useEffect(() => setBlurFailed(false), [blurSrc]);
+  // Fond flou seulement si la copie floue existe et se charge ; sinon l'écran d'aujourd'hui.
+  const blurred = Boolean(blurSrc) && !blurFailed;
+  const photoSrc = loginImageUrl || LOGIN_PHOTO_SRC;
+  const onBlurError = () => setBlurFailed(true);
 
   useEffect(() => {
     const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
@@ -121,17 +163,48 @@ export function LoginScreen({
           from { opacity: 0; transform: translateY(18px); }
           to { opacity: 1; transform: translateY(0); }
         }
-      `}{LOGIN_PHOTO_ANIMATIONS}</style>
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-      <aside className="relative min-h-[120px] flex-[0_1_50%] overflow-hidden [border-radius:0_0_50%_50%/0_0_22px_22px] lg:h-auto lg:w-[55%] lg:flex-none lg:rounded-none">
+      `}{LOGIN_PHOTO_ANIMATIONS}{LOGIN_BLUR_STYLES}</style>
+      <div className="relative flex min-h-0 flex-1 flex-col lg:flex-row">
+      {blurred && (
+        // Ordinateur : copie floue (reflet de la photo, raccord sans ligne), voile blanc léger, puis reflet net qui s'efface.
+        <div aria-hidden="true" data-testid="login-blur-desktop" className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block">
+          <div className="absolute inset-y-0 left-[55%] w-[55%] -scale-x-100 bg-[#F5F7FB]">
+            <img src={blurSrc} alt="" onError={onBlurError} className="absolute inset-0 h-full w-full object-cover object-[50%_30%]" />
+          </div>
+          <div className="absolute inset-0" style={{ background: DESKTOP_BLUR_VEIL }} />
+          {/* Le reflet net passe au-dessus des 4 derniers points de la photo (points clairs du mur au bord de la photo),
+              et son axe est déplacé d'autant : aucun fil clair à la jonction. */}
+          <div className="absolute inset-y-0 left-[calc(55%-4px)] z-[2] w-[55%] -scale-x-100 overflow-hidden" style={withMask(DESKTOP_PHOTO_BLEED_MASK)}>
+            <img src={photoSrc} alt="" className="login-photo-zoom absolute inset-y-0 left-[4px] h-full w-full origin-[50%_40%] object-cover object-[50%_30%]" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#14213d]/90 via-[#14213d]/45 to-transparent" />
+          </div>
+        </div>
+      )}
+      <aside className={`relative min-h-[120px] flex-[0_1_50%] overflow-hidden [border-radius:0_0_50%_50%/0_0_22px_22px] lg:h-auto lg:w-[55%] lg:flex-none lg:rounded-none${blurred ? " z-[1] max-lg:overflow-visible max-lg:[border-radius:0]" : ""}`}>
+        {blurred && (
+          // Téléphone : dessous, la même photo entière en flou léger, À L'ENDROIT (jusqu'en bas de l'écran), avec un voile blanc léger ;
+          // par-dessus, la copie floue au même endroit que la photo nette, qui s'efface doucement sur elle.
+          <>
+            <div aria-hidden="true" data-testid="login-blur-phone" className="pointer-events-none absolute inset-x-0 top-[calc(100%-40px)] h-[calc(100dvh-100%+40px)] overflow-hidden bg-[#F5F7FB] lg:hidden">
+              <img src={blurSrc} alt="" onError={onBlurError} className="absolute inset-0 h-full w-full object-cover object-[50%_50%]" />
+              <div className="absolute inset-0" style={{ background: PHONE_BLUR_VEIL }} />
+            </div>
+            <div aria-hidden="true" data-testid="login-blur-phone-under-photo" className="login-blur-fade pointer-events-none absolute inset-0 overflow-hidden lg:hidden">
+              <img src={blurSrc} alt="" onError={onBlurError} className="absolute inset-0 h-full w-full object-cover object-[50%_45%]" />
+            </div>
+          </>
+        )}
+        <div className={`absolute inset-0 overflow-hidden${blurred ? " login-photo-fade" : ""}`}>
         <img
           src={loginImageUrl || LOGIN_PHOTO_SRC}
           alt={loginImageUrl ? "Image de l'écran de connexion" : "Enseignante souriante qui interroge ses élèves dans une classe lumineuse"}
           className="login-photo-zoom absolute inset-0 h-full w-full origin-[50%_60%] object-cover object-[50%_45%] lg:origin-[50%_40%] lg:object-[50%_30%]"
         />
+        </div>
         <div className="absolute inset-0 hidden bg-gradient-to-t from-[#14213d]/30 via-transparent to-transparent lg:from-[#14213d]/90 lg:via-[#14213d]/45 lg:block" />
-        <div aria-hidden="true" className="absolute inset-0 lg:hidden" style={{ background: PHONE_PHOTO_VEIL }} />
-        <ul className="absolute inset-x-0 bottom-0 grid gap-[3px] px-4 pb-6 text-[12.5px] leading-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.65)] lg:hidden">
+        <div aria-hidden="true" className={`absolute inset-0 lg:hidden${blurred ? " login-photo-fade" : ""}`} style={{ background: blurred ? PHONE_PHOTO_VEIL_BLUR : PHONE_PHOTO_VEIL }} />
+        {blurred && <p aria-hidden="true" className="absolute inset-x-4 bottom-[128px] text-[21px] font-extrabold leading-tight tracking-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.5)] lg:hidden">{LOGIN_SLOGAN}</p>}
+        <ul className={`absolute inset-x-0 bottom-0 grid gap-[3px] px-4 ${blurred ? "pb-[52px]" : "pb-6"} text-[12.5px] leading-tight text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.65)] lg:hidden`}>
           {LOGIN_ADVANTAGES_PHONE.map((advantage, index) => (
             <li key={advantage} className="login-advantage flex gap-[7px] whitespace-nowrap" style={advantageDelay(index)}>
               <span aria-hidden="true" className="font-extrabold text-emerald-300">✓</span>
@@ -150,12 +223,14 @@ export function LoginScreen({
             ))}
           </ul>
         </div>
-        {!loginImageUrl && <p className="absolute right-3 top-2 hidden text-[10px] text-white/70 lg:block">{LOGIN_PHOTO_CREDIT}</p>}
+        {!loginImageUrl && !blurred && <p className="absolute right-3 top-2 hidden text-[10px] text-white/70 lg:block">{LOGIN_PHOTO_CREDIT}</p>}
+        {/* Fond flou : légende petite et pâle, en bas à gauche de la photo. */}
+        {!loginImageUrl && blurred && <p className="absolute bottom-2 left-3.5 hidden text-[9px] text-white/55 lg:block">{LOGIN_PHOTO_CREDIT}</p>}
       </aside>
       {/* Téléphone : le slogan est déjà dans le logo ; ce titre reste seulement pour les lecteurs d'écran. */}
       <h1 className="sr-only lg:hidden">{LOGIN_SLOGAN}</h1>
-      <div className="relative flex min-h-0 flex-1 basis-0 flex-col items-center justify-center overflow-y-auto bg-white px-5 py-2 lg:mt-0 lg:basis-auto lg:overflow-visible lg:rounded-none lg:bg-[#F5F7FB] lg:px-10 lg:py-6">
-      <section className="flex w-full max-w-[460px] flex-1 flex-col justify-evenly gap-1 bg-white [animation:loginCardIn_520ms_ease-out] lg:block lg:flex-none lg:overflow-hidden lg:rounded-[24px] lg:border lg:border-white/80 lg:p-6 lg:shadow-[0_24px_80px_rgba(15,23,42,0.10)]">
+      <div className={`relative flex min-h-0 flex-1 basis-0 flex-col items-center justify-center overflow-y-auto ${blurred ? "bg-transparent px-4 py-3.5" : "bg-white px-5 py-2"} lg:mt-0 lg:basis-auto lg:overflow-visible lg:rounded-none ${blurred ? "" : "lg:bg-[#F5F7FB] "}lg:px-10 lg:py-6`}>
+      <section className={`flex w-full max-w-[460px] flex-1 flex-col justify-evenly gap-1 bg-white [animation:loginCardIn_520ms_ease-out] lg:block lg:flex-none lg:overflow-hidden lg:rounded-[24px] lg:border lg:border-white/80 lg:p-6 lg:shadow-[0_24px_80px_rgba(15,23,42,0.10)]${blurred ? " relative z-[2] rounded-[24px] border border-white/80 px-4 py-3.5 shadow-[0_18px_50px_rgba(15,23,42,0.16)]" : ""}`}>
         <div className="max-lg:[&>div]:min-h-0 max-lg:[@media(max-height:800px)]:[&_img]:max-h-16 max-lg:[@media(max-height:700px)]:[&_img]:max-h-12">
           <PlatformLogoSlot logoUrl={platformLogoUrl} />
         </div>
