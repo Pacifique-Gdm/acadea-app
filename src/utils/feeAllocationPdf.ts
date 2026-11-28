@@ -1,7 +1,6 @@
 import type { AllocationRow, AllocationFinancialField, AllocationSubLine } from "./feeAllocationView";
-import { allocationTotals, allocationFinancialTotals, buildAllocationTables, noAllocationConfigured, unavailableAllocation } from "./feeAllocationView";
+import { SUB_LINES_LEGEND, allocationTotals, allocationFinancialTotals, buildAllocationTables, noAllocationConfigured, unavailableAllocation, unbreakableMoney } from "./feeAllocationView";
 import { escapePdfHtml, pdfSection, pdfTable } from "./pdf";
-import { formatCurrencyMoney } from "./currency";
 
 /** Version 1.20.1 : PDF réduit au titre, à l'école, à l'année, à la date (en-tête), aux tableaux et à leurs totaux.
  * Chaque tableau commence sur une nouvelle page. Plus de longues explications. */
@@ -17,7 +16,8 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   // Version 1.20.1 : en-têtes courts, largeurs fixées, aucun mot coupé (voir FEE_ALLOCATION_PDF_WEIGHTS).
   const receivedLabel = periodSelected ? 'Encaissé (période)' : 'Encaissé (filtre)';
   const multipleSchools = new Set(rows.map(r => r.schoolId)).size > 1;
-  const money = (minor: number, currency: "CDF" | "USD") => formatCurrencyMoney(minor / 100, currency);
+  // F2 (28/11/2026) : montants insécables, jamais coupés sur deux lignes.
+  const money = (minor: number, currency: "CDF" | "USD") => unbreakableMoney(minor, currency);
   const name = (row: AllocationRow) => `${row.rubricName}${row.percentLabel ? ` (${row.percentLabel})` : ""}${multipleSchools ? ` · ${row.schoolName}` : ""}${row.percentDetail ? ` — ${row.percentDetail}` : ""}${row.financial ? "" : ` · ${row.feeName} · ${row.classLabel}`}${row.stale ? " · tarif à revérifier" : ""}`;
   const globalFields = ["openingMinor", "cumulativeReceivedMinor", "cumulativeSpentMinor", "availableMinor"] as const;
   const globalLabels = ["Ouverture", "Encaissé (cumul)", "Dépensé (cumul)", "Disponible"];
@@ -49,7 +49,7 @@ export function feeAllocationPdfSections(rows: AllocationRow[], filterLabel: str
   };
   // Le premier tableau suit l'en-tête ; chacun des suivants commence sur une nouvelle page.
   const section = (title: string, table: AllocationRow[], index: number) => pdfSection(title, table.length
-    ? `${parts(table)}${justified(totalLine(table))}`
+    ? `${parts(table)}${table.some((row) => row.financial && row.subLines?.length) ? shortLine(SUB_LINES_LEGEND) : ""}${justified(totalLine(table))}`
     : justified("Aucun montant dans ce tableau."), { className: "fee-allocation-table-pdf-section", pageBreakBefore: index > 0 });
   // Une seule ligne courte, seulement si elle est utile : plusieurs écoles, ou un filtre choisi.
   const head = [...(multipleSchools && context ? [shortLine(context)] : []), ...(options.filtered ? [shortLine(filterLabel)] : [])];

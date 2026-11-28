@@ -20,12 +20,20 @@ export type AllocationRow = { key: string; schoolId: string; schoolName: string;
 /** Une ligne « ↳ » : ouverture seulement pour « Non affecté (rubrique) » (null = « — »). */
 export type AllocationSubLine = { id: string; name: string; openingMinor: number | null; cumulativeReceivedMinor: number; cumulativeSpentMinor: number; availableMinor: number };
 
+/** F2 (28/11/2026) : un montant n'est jamais coupé sur deux lignes, à l'écran comme dans le PDF (espaces insécables). */
+export const unbreakableMoney = (minor: number, currency: "USD" | "CDF") => formatCurrencyMoney(minor / 100, currency).replace(/ /g, " ");
+/** Montant fixe par élève et par frais payé, libellé court : « $2/élève » (sans « ,00 »), jamais coupé
+ * (un « gluon » invisible U+2060 empêche le passage à la ligne après « / »). */
+export const perStudentLabel = (minor: number, currency: "USD" | "CDF") => `${unbreakableMoney(minor, currency).replace(/,00(?!\d)/, "")}/⁠élève`;
+/** Légende unique des lignes « ↳ », sous un tableau qui en contient. */
+export const SUB_LINES_LEGEND = "↳ = détail de la rubrique";
+
 /** Lignes « ↳ » d'une rubrique à partir de son solde (situation globale, commune aux tableaux 1, 2 et 3). */
 export function allocationSubLines(balance: { openingMinor: number; subView?: NonNullable<AllocationWorkspace["ledger"]>["balances"][number]["subView"] } | undefined, currency: "USD" | "CDF"): AllocationSubLine[] | undefined {
   if (!balance?.subView?.length) return undefined;
   return balance.subView.map((sub) => sub.id === "UNALLOCATED"
     ? { id: sub.id, name: sub.name, openingMinor: balance.openingMinor, cumulativeReceivedMinor: sub.receivedMinor - balance.openingMinor, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor }
-    : { id: sub.id, name: `${sub.name} (${sub.mode === "fixed" ? `${formatCurrencyMoney((sub.fixedMinor ?? 0) / 100, currency)} fixe` : `${((sub.basisPoints ?? 0) / 100).toLocaleString("fr-FR")} %`})`,
+    : { id: sub.id, name: `${sub.name} (${sub.mode === "fixed" ? perStudentLabel(sub.fixedMinor ?? 0, currency) : `${((sub.basisPoints ?? 0) / 100).toLocaleString("fr-FR")} %`})`,
       openingMinor: null, cumulativeReceivedMinor: sub.receivedMinor, cumulativeSpentMinor: sub.spentMinor, availableMinor: sub.availableMinor });
 }
 export type AllocationFinancialField = keyof NonNullable<AllocationRow["financial"]>;
@@ -79,7 +87,7 @@ function percentLabels(workspace: AllocationWorkspace, rows: ForecastRow[], rubr
     const fee = workspace.fees.find((item) => item.id === row.feeTypeId)?.name ?? "Frais";
     const tariff = row.tariffMinor ?? 0, share = row.rubricShare ?? 0;
     const text = row.rubricMode === "percent" && row.basisPoints ? percentText(row.basisPoints / 100)
-      : row.rubricMode === "fixed" ? `${(share / 100).toLocaleString("fr-FR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${workspace.currency} fixe`
+      : row.rubricMode === "fixed" ? perStudentLabel(share, workspace.currency)
       : tariff > 0 ? percentText(Math.round((share / tariff) * 10000) / 100) : "";
     if (text && !parts.has(fee)) parts.set(fee, text);
   }

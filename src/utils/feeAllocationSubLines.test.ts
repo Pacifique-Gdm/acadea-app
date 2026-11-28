@@ -17,7 +17,7 @@ describe("lignes « ↳ » des sous-rubriques", () => {
   it("chaque sous-rubrique avec sa part, puis « Non affecté (rubrique) » qui porte l'ouverture", () => {
     expect(lines.map((l) => [l.openingMinor, l.cumulativeReceivedMinor, l.cumulativeSpentMinor, l.availableMinor])).toEqual([[null, 300, 20, 280], [null, 200, 0, 200], [100, 400, 30, 470]]);
     expect(lines[0].name).toBe("Craies (30 %)");
-    expect(lines[1].name).toMatch(/^Entretien \(.*2,00.* fixe\)$/);
+    expect(lines[1].name).toBe("Entretien ($2/⁠élève)");
     expect(lines[2].name).toBe("Non affecté (Fonctionnement)");
     expect(lines.reduce((n, l) => n + l.availableMinor, 0)).toBe(950);
     expect(allocationSubLines({ openingMinor: 0 }, "USD")).toBeUndefined();
